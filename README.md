@@ -30,9 +30,9 @@ Tensorflow is also required to run the GICnet implementation. We recommand the v
 
 After the zip file of the pre-trained models being unzipped, you can find a folder called Models. We provide the trained GICnets for tc=10 and 20, under subfolders named with corresponding molecules.
 
-A sample input to use the GICnet model to propagate a MD trajectory is provided for ethanol, in Models/ethanol/4DMD/MD.inp. Switch to that folder and run `./runMD.sh` will do the job. The trajectory information will be stored in files whose names start with traj, e.g. traj.xyz for geometries, traj.vxyz for velocities.
+A sample input to use the GICnet model to propagate a MD trajectory is provided for ethanol, in `Models/ethanol/4DMD/MD.inp`. Switch to that folder and run `./runMD.sh` will do the job. The trajectory information will be stored in files whose names start with traj, e.g. `traj.xyz` for geometries, `traj.vxyz` for velocities.
 
-For training a GICnet, another sample input for ethanol again is provided in Models/ethanol/tc10/train.inp. Note that the all training trajectories in H5MD format should be listed in the file named trajList. We provide an example trajectory also in that folder, named traj.h5.
+For training a GICnet, another sample input for ethanol again is provided in `Models/ethanol/tc10/train.inp`. Note that the all training trajectories in H5MD format should be listed in the file named trajList. We provide an example trajectory also in that folder, named `traj.h5`.
 
 For the generation of power spectrum, please use the command below:
     `$ python MLatom_GICnet/MLatom.py IRSS output=ps trajvxyzin=[path_to_your_traj.vxyz] dt=[correct_time_step]`
