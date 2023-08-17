@@ -1,0 +1,7 @@
+use4Dmodel
+trun=50000
+dt=0.5
+tsegm=10
+mlmodelsin=../tc10/model0,../tc10/model1,../tc10/model2,../tc10/model3,../tc10/model4,../tc10/model5,../tc10/model6,../tc10/model7
+initxyz=init.xyz
+initvxyz=init.vxyz

@@ -1,0 +1,9 @@
+create4Dmodel
+TrajsList=trajH5
+FourD.batchSize3D=1024
+FourD.batchSize4D=1024
+FourD.maxEpoch3D=1024 
+FourD.maxEpoch4D=1024
+Mlmodelout=tc20model0
+ICidx=../ethanol.ic
+tc=10
