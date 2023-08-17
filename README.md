@@ -7,7 +7,7 @@ The GICnet model is a realization of the concept of 4D-spacetime atomistic artif
 * Fuchun Ge, Lina Zhang, Arif Ullah, Pavlo O. Dral*. Four-dimensional spacetime atomistic artificial intelligence models. J. Phys. Chem. Lett. 2023, in press. DOI: 10.1021/acs.jpclett.3c01592.
 See also [preprint on ChemRxiv](https://doi.org/10.26434/chemrxiv-2022-qf75v).
 
-The model is implemented by Fuchun Ge of [Pavlo O. Dral's group](http://dr-dral.com) in the development version of [MLatom](https://github.com/dralgroup/mlatom). This 4D-spacetime GICnet model implementation was used for obtaining the results reported in the above manuscript. The code snapshot of this implementation is available in here.
+The model is implemented by Fuchun Ge of [Pavlo O. Dral's group](http://dr-dral.com) in the development version of [MLatom](https://github.com/dralgroup/mlatom). This 4D-spacetime GICnet model implementation was used for obtaining the results reported in the above manuscript. The code snapshot of this implementation is available here.
 
 **Important note:** This branch will not be further updated, please check and use the future official releases of [MLatom](https://github.com/dralgroup/mlatom) with the latest implementations, manuals, and tutorials of the GICnet model. Future implementations may contain many changes.
 
@@ -24,9 +24,9 @@ The code and binaries currently can be obtained via pip:
 `python3 -m pip install -U MLatom`
 
 # How to use this code
-The main program that is located in the `MLatom_GICnet/MLatom.py`.
+The main program is located in the `MLatom_GICnet/MLatom.py`.
 
-To run it, please use a Python that satisfies the basic requirements that can be found in http://mlatom.com/download/.  
+To run it, please use Python which satisfies the basic requirements that can be found at http://mlatom.com/download/.  
 Tensorflow is also required to run the GICnet implementation. We recommend version 2.4, which is tested by us. Later versions might also work but with tons of warnings from Tensorflow...
 
 After the zip file of the pre-trained models is unzipped, you can find a folder called Models. We provide the trained GICnets for tc=10 and 20, under subfolders named with corresponding molecules.
@@ -39,4 +39,5 @@ For the generation of the power spectrum, please use the command below:
     `$ python MLatom_GICnet/MLatom.py IRSS output=ps trajvxyzin=[path_to_your_traj.vxyz] dt=[correct_time_step]`
 Then an image named `ps.png` will be generated.
 
-For your Python, you might need to install some modules like TensorFlow, tqdm, h5py, etc. Please check MLatom.com for detail.
+# Module dependencies for Python
+    `$ python -m pip install numpy scipy tensoflow h5pu pyh5md rmsd tqdm`
