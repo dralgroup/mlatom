@@ -1,0 +1,17 @@
+nthreads=1
+estAccMLmodel
+deltaLearn
+XfileIn=R_451.dat
+Yb=E_UHF_451.dat
+Yt=E_FCI_451.dat
+YestT=E_D-ML_451.dat
+YestFile=corr_ML_451.dat
+kernel=Gaussian
+sigma=opt lgSigmaL=-10 lgSigmaH=10
+lambda=opt lgLambdaL=-40
+lgOptDepth=2
+NlgSigma=11
+Ntrain=17
+Nsubtrain=13
+sampling=user-defined
+iTrainIn=itrain.dat iTestIn=itest.dat iSubtrainIn=isubtrain.dat iValidateIn=ivalidate.dat

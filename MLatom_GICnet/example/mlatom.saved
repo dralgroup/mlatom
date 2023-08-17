@@ -1,0 +1,250 @@
+
+
+  !---------------------------------------------------------------------------!
+  !                                                                           !
+  !     MLatom: a Package for Atomistic Simulations with Machine Learning     !
+  !                               Version 2.2                                 !
+  !                           http://mlatom.com/                              !
+  !                                                                           !
+  !                  Copyright (c) 2013-2022 Pavlo O. Dral                    !
+  !                           http://dr-dral.com/                             !
+  !                                                                           !
+  ! All rights reserved. This work is licensed under the                      !
+  ! Attribution-NonCommercial-NoDerivatives 4.0 International                 ! 
+  ! (http://creativecommons.org/licenses/by-nc-nd/4.0/) license.              !
+  ! See LICENSE.CC-BY-NC-ND-4.0.                                              !
+  !                                                                           !
+  ! The above copyright notice and this permission notice shall be included   !
+  ! in all copies or substantial portions of the Software.                    !
+  !                                                                           !
+  ! The software is provided "as is", without warranty of any kind, express   !
+  ! or implied, including but not limited to the warranties of                !
+  ! merchantability, fitness for a particular purpose and noninfringement. In !
+  ! no event shall the authors or copyright holders be liable for any claim,  !
+  ! damages or other liability, whether in an action of contract, tort or     !
+  ! otherwise, arising from, out of or in connection with the software or the !
+  ! use or other dealings in the software.                                    !
+  !                                                                           !
+  !                                Cite as:                                   !
+  ! Pavlo O. Dral, J. Comput. Chem. 2019, 40, 2339-2347                       !
+  ! Pavlo O. Dral, Fuchun Ge, Bao-Xin Xue, Yi-Fan Hou, Max Pinheiro Jr,       !
+  ! Jianxing Huang, Mario Barbatti, Top. Curr. Chem. 2021, 379, 27            !
+  !                                                                           !
+  ! Pavlo O. Dral, Peikun Zheng, Bao-Xin Xue, Fuchun Ge, Yi-Fan Hou,          !
+  ! Max Pinheiro Jr,                                                          !
+  ! MLatom: A Package for Atomistic Simulations with Machine Learning         !
+  ! version 2.2, Xiamen University, Xiamen, China, 2013-2022                  !
+  !                                                                           !  
+  !---------------------------------------------------------------------------!
+
+
+ ============================================================================== 
+ MLatom started on 18.04.2022 at 12:20:53
+        with the following options:
+        ../MLatom.py mlatom.inp
+
+        Input file content:
+ ______________________________________________________________________________ 
+nthreads=1
+estAccMLmodel
+deltaLearn
+XfileIn=R_451.dat
+Yb=E_UHF_451.dat
+Yt=E_FCI_451.dat
+YestT=E_D-ML_451.dat
+YestFile=corr_ML_451.dat
+kernel=Gaussian
+sigma=opt lgSigmaL=-10 lgSigmaH=10
+lambda=opt lgLambdaL=-40
+lgOptDepth=2
+NlgSigma=11
+Ntrain=17
+Nsubtrain=13
+sampling=user-defined
+iTrainIn=itrain.dat iTestIn=itest.dat iSubtrainIn=isubtrain.dat iValidateIn=ivalidate.dat
+ ______________________________________________________________________________ 
+ ============================================================================== 
+
+ ****************************************************************************** 
+
+ You are going to use feature(s) listed below. 
+ Please cite corresponding work(s) in your paper:
+
+ delta-learning:
+   R. Ramakrishnan, P. O. Dral, M. Rupp, O. A. von Lilienfeld,
+   J. Chem. Theory Comput. 2015, 11, 2087
+
+ ****************************************************************************** 
+> /home/dral/soft/MLatom/releases/MLatom2.0_rev433_20210219/delete/bla/MLatom_v2.2/MLatomF estAccMLmodel XfileIn=R_451.dat YestFile=corr_ML_451.dat Ntrain=17 Nsubtrain=13 iTrainIn=itrain.dat iTestIn=itest.dat iSubtrainIn=isubtrain.dat iValidateIn=ivalidate.dat sampling=user-defined kernel=Gaussian sigma=opt lgSigmaL=-10 lgSigmaH=10 lambda=opt lgLambdaL=-40 lgOptDepth=2 NlgSigma=11 Yfile=E_FCI_451-E_UHF_451.dat
+
+  !---------------------------------------------------------------------------! 
+  ! MLatomF: Fortran + OpenMP part of MLatom                                  ! 
+  ! Implementations by: Pavlo O. Dral and Yi-Fan Hou                          ! 
+  !---------------------------------------------------------------------------! 
+
+
+ MLatomF started on 18.04.2022 at 12:20:53
+
+ ___________________________________________________________
+
+ Calculations with the following options:
+
+    Input options
+      Nuse:                ALL
+      XfileIn:             R_451.dat
+      Yfile:               E_FCI_451-E_UHF_451.dat
+      iTrainIn:            itrain.dat
+      iTestIn:             itest.dat
+      iSubtrainIn:         isubtrain.dat
+      iValidateIn:         ivalidate.dat
+
+    Output options
+      YestFile:            corr_ML_451.dat
+
+    Sub-set sizes and splitting options
+      Training set:        17 entries
+      Testing with:        all points of the entire dataset except for the training set points
+      Sub-training set:    13 entries
+      Validating with:     all points of the training set except for the sub-training set points
+
+    Data set operations
+      sampling:            user-defined
+
+    ML task:
+                           estimate accuracy of ML model
+
+    ML algorithm:          KRR
+      error to minimize:   RMSE
+      depth of log. opt.:  2
+      lambda:              OPT
+      NlgLambda:           6
+      lgLambdaL:           -40
+      lgLambdaH:           -6
+      Kernel:              Gaussian
+        sigma:             OPT
+        NlgSigma:          11
+        lgSigmaL:          -10
+        lgSigmaH:          10
+      prior:               0
+    Program run options:
+      Cholesky decomposition
+                           calculate and store kernel matrix
+                           elements for validation
+
+
+    User-defined X-values
+
+ ___________________________________________________________
+
+ Optimal value of lambda is          0.00000000000233
+ Optimal value of sigma is          3.03143313302080
+ Analysis for values
+ Statistical analysis for 13 entries in the sub-training set
+   MAE =           0.0000051058458
+   MSE =          -0.0000000005401
+   RMSE =           0.0000064980759
+   mean(Y) =          -0.3131723255462
+   mean(Yest) =          -0.3131723260863
+   correlation coefficient =           0.9999999973026
+   linear regression of {y, y_est} by f(a,b) = a + b * y
+     R^2 =           0.9999999946052
+     a =          -0.0000000029044
+     b =           0.9999999924505
+     SE_a =           0.0000072068753
+     SE_b =           0.0000221457827
+   largest positive outlier
+     error =           0.0000121256692
+     index = 190
+     estimated value =          -0.2904821424308
+     reference value =          -0.2904942681000
+   largest negative outlier
+     error =          -0.0000125267387
+     index = 143
+     estimated value =          -0.2261406261387
+     reference value =          -0.2261280994000
+
+ Analysis for values
+ Statistical analysis for 4 entries in the validation set
+   MAE =           0.0000068622273
+   MSE =           0.0000020221873
+   RMSE =           0.0000071220616
+   mean(Y) =          -0.3104320302250
+   mean(Yest) =          -0.3104300080377
+   correlation coefficient =           0.9999999998935
+   linear regression of {y, y_est} by f(a,b) = a + b * y
+     R^2 =           0.9999999997871
+     a =          -0.0000188952439
+     b =           0.9999326183216
+     SE_a =           0.0000033617482
+     SE_b =           0.0000103168055
+   largest positive outlier
+     error =           0.0000075072146
+     index = 427
+     estimated value =          -0.3981013709854
+     reference value =          -0.3981088782000
+   largest negative outlier
+     error =          -0.0000096800799
+     index = 95
+     estimated value =          -0.1472833800799
+     reference value =          -0.1472737000000
+
+ Analysis for values
+ Statistical analysis for 17 entries in the training set
+   MAE =           0.0000045707398
+   MSE =          -0.0000000001668
+   RMSE =           0.0000059638097
+   mean(Y) =          -0.3125275501765
+   mean(Yest) =          -0.3125275503433
+   correlation coefficient =           0.9999999978562
+   linear regression of {y, y_est} by f(a,b) = a + b * y
+     R^2 =           0.9999999957124
+     a =          -0.0000000016037
+     b =           0.9999999954023
+     SE_a =           0.0000055036742
+     SE_b =           0.0000169068972
+   largest positive outlier
+     error =           0.0000107856077
+     index = 119
+     estimated value =          -0.1874177503923
+     reference value =          -0.1874285360000
+   largest negative outlier
+     error =          -0.0000129594399
+     index = 143
+     estimated value =          -0.2261410588399
+     reference value =          -0.2261280994000
+
+ Analysis for values
+ Statistical analysis for 434 entries in the test set
+   MAE =           0.0004162278155
+   MSE =           0.0004115645767
+   RMSE =           0.0016601083363
+   mean(Y) =          -0.2765619078982
+   mean(Yest) =          -0.2761503433215
+   correlation coefficient =           0.9999297292578
+   linear regression of {y, y_est} by f(a,b) = a + b * y
+     R^2 =           0.9998594634536
+     a =           0.0021468964419
+     b =           1.0062746597260
+     SE_a =           0.0001728846515
+     SE_b =           0.0005739840450
+   largest positive outlier
+     error =           0.0131895429020
+     index = 1
+     estimated value =          -0.0479428570980
+     reference value =          -0.0611324000000
+   largest negative outlier
+     error =          -0.0000326219143
+     index = 79
+     estimated value =          -0.1212427219143
+     reference value =          -0.1212101000000
+
+
+ Wall-clock time:       0.06 sec
+
+ MLatomF terminated on 18.04.2022 at 12:20:53
+
+ ============================================================================== 
+ Wall-clock time: 0.10 s (0.00 min, 0.00 hours)
+
+ MLatom terminated on 18.04.2022 at 12:20:53
+ ============================================================================== 

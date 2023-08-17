@@ -1,0 +1,39 @@
+MLatom: a Package for Atomistic Simulations with Machine Learning
+Version 2.1.1
+http://mlatom.com/
+
+Copyright (c) 2013-2022 Pavlo O. Dral
+http://dr-dral.com/
+
+All rights reserved. 
+This work is licensed under the [Attribution-NonCommercial-NoDerivatives 4.0 International](http://creativecommons.org/licenses/by-nc-nd/4.0/) license. See LICENSE.CC-BY-NC-ND-4.0.
+
+The above copyright notice and this permission notice shall be included  in all copies or substantial portions of the Software.
+The software is provided "as is", without warranty of any kind, express  or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose and noninfringement. In no event shall the authors or copyright holders be liable for any claim, damages or other liability, whether in an action of contract, tort or otherwise, arising from, out of or in connection with the software or the use or other dealings in the software.
+
+Cite as:
+
+1. Pavlo O. Dral, J. Comput. Chem. 2019, 40, 2339-2347
+2. Pavlo O. Dral, Fuchun Ge, Bao-Xin Xue, Yi-Fan Hou, Max Pinheiro Jr, Jianxing Huang, Mario Barbatti, Top. Curr. Chem. 2021, 379, 27
+3. Pavlo O. Dral, Peikun Zheng, Bao-Xin Xue, Fuchun Ge, Yi-Fan Hou, Max Pinheiro Jr, MLatom: A Package for Atomistic Simulations with Machine Learning, version 2.2, Xiamen University, Xiamen, China, 2013-2022.
+
+In addition to above citations in the published work, the users have to cite the relevant literature for the MLatom features used. Examples of suggested citations are provided on http://mlatom.com/features page in form of web links and in the output of MLatom.
+
+Manual: http://mlatom.com/manual/
+Tutorial: http://mlatom.com/tutorial/
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+This package has the folowing content:
+* this directory:
+** README       - this file
+** LICENSE.CC-BY-NC-ND-4.0 file with the text of the CC-BY-NC-ND-4.0 license
+** all required Python scripts and executables
+* MLatomF_src   - directory with the Fortran and C++ source code
+* documentation - a directory with brief instructions on installation of the third-party packages
+* example       - a directory containing example files including:
+** mlatom.inp   - example of input file for delta-learning
+** mlatom.saved - example of output file
+** test.sh      - example of a command to run MLatom calculations using mlatom.inp input file and compare the result with mlatom.saved (if calculations are successful, it ends without any message). You can compare mlatom.out with mlatom.saved to make sure that calculations finished successfully.
+

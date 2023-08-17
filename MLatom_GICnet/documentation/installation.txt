@@ -1,0 +1,117 @@
+#########################################################################
+#                                                                       #
+#    INSTALLATION OF 3rd PARTY SOFTWAREs                                #
+#                                                                       #
+#########################################################################
+
+----------
+DeePMD-kit
+=========================================================================
+
+1. download installer for DeePMD-kit from GitHub release https://github.com/deepmodeling/deepmd-kit/releases (tested v1.2.2)
+
+2. run installer
+
+3. add environmetal variable $DeePMDkit that point to the where dp binary is located(bin/ in your installation directory)
+
+    e.g.    export DeePMDkit=/export/home/fcge/deepmd-kit-1.2/bin
+
+------------
+GAP and QUIP
+=========================================================================
+
+1. compile QUIP and GAP from source
+
+    1.1 install prerequisites
+        
+        sudo apt-get install gcc gfortran python python-pip libblas-dev liblapack-dev (for system uses apt, do equivalent for your OS)
+        pip install numpy ase f90wrap
+
+    1.2 get source code of QUIP and GAP
+        
+        git clone --recursive https://github.com/libAtoms/QUIP.git
+
+    get source code of GAP from http://www.libatoms.org/gap/gap_download.html (form-filling required). 
+    then put source code in QUIP/src/
+
+    1.3 compile
+
+        cd QUIP
+        export QUIP_ARCH=linux_x86_64_gfortran_openmp   # enable multi-threading, use 'export QUIP_ARCH=linux_x86_64_gfortran' if no OpenMP thus no MT capability
+        export QUIPPY_INSTALL_OPTS=--user               # omit for a system-wide installation
+        make config                                     # enter Y for gap or edit build/linux_x86_64_gfortran/Makefile.inc (HAVE_GAP=1) later
+        make
+
+    built binaries are in QUIP/build/linux_x86_64_gfortran/quip and QUIP/build/linux_x86_64_gfortran/gap_fit
+
+2. add environmetal variable $quip and $gap_fit for quip and gap_fit
+
+    e.g.    export quip='/export/home/fcge/GAP-SOAP/QUIP/build/linux_x86_64_gfortran_openmp/quip'                                                                                        
+            export gap_fit='/export/home/fcge/GAP-SOAP/QUIP/build/linux_x86_64_gfortran_openmp/gap_fit'
+
+# visit https://libatoms.github.io/GAP/index.html for more info
+
+--------
+TorchANI
+=========================================================================
+
+1. install Numpy and nightly version of PyTorch
+
+    pip install numpy
+    pip install --pre torch torchvision -f https://download.pytorch.org/whl/nightly/cu100/torch_nightly.html
+
+2. install TorchANI and h5py
+
+    pip install torchani h5py
+
+# visit https://aiqm.github.io/torchani/ for more info
+
+-------
+PhysNet
+=========================================================================
+
+1. clone form PhysNet's GitHub page
+
+    git clone https://github.com/MMunibas/PhysNet.git
+
+2. install TensorFlow:
+
+    pip install tensorflow 
+
+3. if you use tensorflow v2(most cases), you need to execute the command below in PhysNet's directory to make the scripts compatible with TFv2
+
+    for i in `find . -name '*.py'`; do sed -i -e 's/import tensorflow  as tf/import tensorflow.compat.v1 as tf\ntf.disable_v2_behavior()/g' -e 's/import tensorflow  as tf/import tensorflow.compat.v1 as tf\ntf.disable_v2_behavior()/g'  $i; done
+
+4. add environmetal variable $PhysNet to the directory
+
+    e.g.    export PhysNet=/export/home/fcge/PhysNet/
+
+-----
+sGDML
+=========================================================================
+
+1. install sGDML 
+
+    pip install sgdml
+
+2. add the path of sGDML binary to environmetal variable $sGDML
+
+    e.g.    export sGDML=/export/home/fcge/.linuxbrew/bin/sgdml
+
+# visit http://quantum-machine.org/gdml/doc/ for more info
+
+#########################################################################
+#                                                                       #
+#    INSTALLATION OF HYPERPARAMETER OPTIMIZATION PACKAGEs               #
+#                                                                       #
+#########################################################################
+
+--------
+Hyperopt
+=========================================================================
+
+1. install Hyperopt
+
+    pip install hyperopt
+
+

@@ -1,0 +1,4 @@
+# Compiler on cygwin and compiling options
+FC = gfortran.exe
+FFLAGS = -O3 -fopenmp
+LIBS = '/usr/lib/lapack/cyglapack-0.dll'

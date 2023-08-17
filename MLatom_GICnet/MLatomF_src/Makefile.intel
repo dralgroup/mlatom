@@ -1,0 +1,11 @@
+# Intel compiler and compiling options
+FC = ifort
+CC = gcc
+CFLAGS = -O3 -fopenmp #-no-multibyte-chars
+CLIBS = -static-libgcc -shared -lstdc++
+# Intel 15 on Linux
+FFLAGS = -O3 -mkl=parallel -qopenmp
+FLIBS = -static ${MKL_LIB_THREADED} -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core
+# Intel 2021.6.0 on Mac
+#FFLAGS = -O3 -qmkl=parallel -qopenmp  -I${MKLROOT}/include/intel64/ilp64 -i8  -I"${MKLROOT}/include"
+#FLIBS = -static-intel ${MKLROOT}/lib/libmkl_blas95_ilp64.a ${MKLROOT}/lib/libmkl_lapack95_ilp64.a ${MKLROOT}/lib/libmkl_scalapack_ilp64.a ${MKLROOT}/lib/libmkl_intel_ilp64.a ${MKLROOT}/lib/libmkl_intel_thread.a ${MKLROOT}/lib/libmkl_core.a ${MKLROOT}/lib/libmkl_blacs_mpich_ilp64.a -liomp5 -lpthread -lm -ldl
