@@ -12,7 +12,7 @@ The model is implemented by Fuchun Ge of [Pavlo O. Dral's group](http://dr-dral.
 **Important note:** This branch will not be further updated, please check and use the future official releases of [MLatom](https://github.com/dralgroup/mlatom) with the latest implementations, manuals, and tutorials of the GICnet model. Future implementations may contain many changes.
 
 ## Pre-trained models
-Pre-trained GICnet models for all molecules are available in [figshare](https://figshare.com/s/132c64e172ffd835d470).
+Pre-trained GICnet models for all molecules are available in [figshare](https://doi.org/10.6084/m9.figshare.22723414).
 
 ## About MLatom
 MLatom is a package for atomistic simulations with machine learning. See the official website [MLatom.com](http://mlatom.com) for more information.
