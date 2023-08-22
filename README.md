@@ -44,9 +44,9 @@ After unzipping h2_benzene.zip, you will find several folders in it.
 There are two folders in the current path: 'h2' and 'benzene'. Both the two folders contain trajectories and necessary data. 
 
 Take benzene's mix trajectory as an example, you can follow the steps below to run dynamics:
-1.  cd benzene
-2.  cd 0trajectories
-3.  cd mix
+1.  `cd benzene`
+2.  `cd 0trajectories`
+3.  `cd mix`
 4.  `$mlatom md.inp > md.out` (you need to set the environmental variable pointing to the path of mlatom executable, e.g., in bash: `$ export mlatom=[path to the MLatom package]/mlatom`)
 
 There are many options in the md.inp file and you can change them as you want.
