@@ -4,7 +4,7 @@
 
 The GICnet model is a realization of the concept of 4D-spacetime atomistic artificial intelligence models for molecules. The concept and models are described in 
 
-* Fuchun Ge, Lina Zhang, Arif Ullah, Pavlo O. Dral*. Four-dimensional spacetime atomistic artificial intelligence models. J. Phys. Chem. Lett. 2023, in press. DOI: 10.1021/acs.jpclett.3c01592.
+* Fuchun Ge, Lina Zhang, Arif Ullah, Pavlo O. Dral*. [Four-dimensional spacetime atomistic artificial intelligence models](https://doi.org/10.1021/acs.jpclett.3c01592). J. Phys. Chem. Lett. 2023, in press. DOI: 10.1021/acs.jpclett.3c01592.
 See also [preprint on ChemRxiv](https://doi.org/10.26434/chemrxiv-2022-qf75v).
 
 The model is implemented by Fuchun Ge of [Pavlo O. Dral's group](http://dr-dral.com) in the development version of [MLatom](https://github.com/dralgroup/mlatom). This 4D-spacetime GICnet model implementation was used for obtaining the results reported in the above manuscript. The code snapshot of this implementation is available here.
@@ -26,8 +26,10 @@ The code and binaries currently can be obtained via pip:
 # How to use this code
 The main program is located in the `MLatom_GICnet/MLatom.py`.
 
-To run it, please use Python which satisfies the basic requirements that can be found at http://mlatom.com/download/.  
+To run it, please use Python which satisfies the basic requirements that can be found at http://mlatom.com/download/.
 Tensorflow is also required to run the GICnet implementation. We recommend version 2.4, which is tested by us. Later versions might also work but with tons of warnings from Tensorflow...
+In short, before running the above main program, it is recommended to install all dependencies for Python as:
+    `$ python -m pip install numpy scipy tensoflow h5pu pyh5md rmsd tqdm`
 
 After the zip file of the pre-trained models is unzipped, you can find a folder called Models. We provide the trained GICnets for tc=10 and 20, under subfolders named with corresponding molecules.
 
@@ -39,5 +41,3 @@ For the generation of the power spectrum, please use the command below:
     `$ python MLatom_GICnet/MLatom.py IRSS output=ps trajvxyzin=[path_to_your_traj.vxyz] dt=[correct_time_step]`
 Then an image named `ps.png` will be generated.
 
-# Module dependencies for Python
-    `$ python -m pip install numpy scipy tensoflow h5pu pyh5md rmsd tqdm`
