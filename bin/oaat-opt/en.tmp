@@ -1,0 +1,30 @@
+estAccMLmodel XYZfile=../../xyz.dat
+Yfile=../../en.dat
+#YestFile=enest.dat
+#YgradXYZ=../../grad.dat
+#YgradXYZestFile=gradest.dat
+sampling=user-defined
+iTrainIn=itrain.dat iTestIn=itest.dat
+iSubtrainIn=isubtrain.dat iValidateIn=ivalidate.dat
+#iCVoptPrefIn=icvopt
+#CVopt
+#NcvOptFolds=100
+#benchmark
+#debug
+#MLmodelOut=en.unf
+Ntrain=100
+Nsubtrain=80
+Nvalidate=20
+Ntest=1900
+#algorithm=KRR
+kernel=aGaussian
+#permInvKernel
+molDescriptor=ID 
+#molDescrType=permuted
+#permInvNuclei=4-5.6-7-8
+betas=SLOT
+sigma=hyperopt.loguniform(-1,10)
+lambda=hyperopt.loguniform(-45,-4)
+hyperopt.points_to_evaluate=[[LOTS,OLDS,OLDL],[0,OLDS,OLDL]]
+hyperopt.max_evals=20
+#matDecomp=Bunch-Kaufman

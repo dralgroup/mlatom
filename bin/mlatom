@@ -1,0 +1,37 @@
+#!/bin/bash
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+export pythonmlatom=/export/home/lina/anaconda3/bin/python3
+#export pythonmlatom=/export/home/mlatom/software/python/anaconda3_20220204/bin/python3
+if [ $(hostname) == "b009" ] || [ $(hostname) = "b008" ]; then python=/export/home/mlatom/software/python/anaconda3_20220204_CUDA11.7_20220923/bin/python3 ; fi
+export mlatomrun="${SCRIPT_DIR}/__init__.py"
+#export mlatom='/mlatom/software/python/anaconda3_20220204/bin/python3 '${SCRIPT_DIR}/MLatom.py
+#export mlatom='/mlatom/software/python/anaconda3_20220204/bin/python3 /mlatom/software/MLatom/bin/MLatom.py'
+#export sGDML=/export/home/mlatom/software/python/anaconda3_20221208/bin/sgdml
+#export sGDML=/export/home/mlatom/software/python/anaconda3_20220204/bin/sgdml
+export sGDML=/export/home/fcge/anaconda3/envs/NN-GPU/bin/sgdml
+export quip='/export/home/mlatom/software/GAP-SOAP/QUIP/build/linux_x86_64_gfortran/quip'
+export gap_fit='/export/home/mlatom/software/GAP-SOAP/QUIP/build/linux_x86_64_gfortran/gap_fit'
+export PhysNet='/export/home/mlatom/software/PhysNet'
+export DeePMDkit=/export/home/mlatom/software/deepmd-kit-1.2/bin
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/export/home/mlatom/software/deepmd-kit-1.2/lib/
+export gr="/share/apps/g16-avx2"
+if [ $(hostname) == "b007" ] || [ $(hostname) = "b008" ]; then export gr="/share/apps/g09E01"; fi
+export GAUSS_EXEDIR=${gr}/bsd:${gr}/local:${gr}/extras:${gr}
+export G09BASIS="${gr}/basis"
+export GAUSS_ARCHDIR="${gr}/arch"
+export GAUSS_BASDDIR="${gr}/bsd"
+export GAUSS_LEXEDIR="${gr}/linda-exe"
+export GV_DIR="${gr}/gv"
+export PATH=$PATH:${gr}/bsd:${gr}/local:${gr}/extras:${gr}
+export NX=/export/home/mlatom/software/NX/NX-2.2-B08/bin
+export mndobin=/export/home/mlatom/software/mndo/mndo2020_rev3_20220204/mndo2020
+export dftd4bin="/export/home/mlatom/software/dftd4/dftd4-2.5.0-gcc7/bin/dftd4"
+export sparrowbin=/export/home/mlatom/software/Sparrow/Sparrow_rev6_20220607/sparrow
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/export/home/mlatom/software/Sparrow/lib
+# orca
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/share/apps/orca/4.2.0
+export orcabin=/share/apps/orca/4.2.0/orca
+export xtb=/export/home/mlatom/software/python/anaconda3_20221208/bin/xtb
+export MLQD=/export/home/mlatom/software/MLQD
+#export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/export/home/mlatom/software/python/anaconda3_20221208/lib
+$pythonmlatom $mlatomrun "$@"

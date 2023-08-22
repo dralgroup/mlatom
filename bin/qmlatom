@@ -1,0 +1,26 @@
+#!/bin/csh
+#
+# Check if our working directory is on the central file server
+#
+set dir1 = `pwd | awk -F/ '{print $2}'`
+set pwd = `pwd`
+if ( $dir1 == "tmp_mnt") then
+   set dir1 = `pwd | awk -F/ '{print $3}'`
+   set pwd = `pwd | cut -b 9-`
+endif
+if ( $dir1 != "ds20th" &&  $dir1 != "ns80th"  &&  $dir1 != "fsnfs"  &&  $dir1 != "csnfs") then
+   echo "qpl - Current working directory must be on the central file server."
+   exit
+endif
+#
+if (-e $1.o) then
+   /bin/rm $1.out
+endif
+if (-e $1.e) then
+   /bin/rm $1.e
+endif
+#qsub -l h_rt=336:00:00 -e $pwd/$1.e -o $pwd/$1.out -A MLatom -pe 'xe*.mpi' 8 -q xe34th.q,xe30th.q,xe33th.q,xe29th.q,xe29bl.q -N $1 $FSHOME/soft/MLatom/bin/qmlatom.csh $argv[2-]
+qsub -l h_rt=336:00:00 -e $pwd/$1.e -o $pwd/$1.out -A MLatom -pe 'xe*.mpi' 20 -q xe310th.q,xe34th.q,xe30th.q,xe33th.q,xe29th.q,xe29bl.q,xe31th.q -N MLatom /csnfs/users/dral/manuscripts/MLhierarchical/MLatom/bin/qmlatom.csh $argv[2-]
+#qsub -l h_rt=336:00:00 -e $pwd/mlatom.e -o $pwd/mlatom.o -A MLatom -pe 'xe*.mpi' 12 -q xe34th.q,xe30th.q,xe33th.q,xe29th.q,xe29bl.q,xe31th.q -N MLatom $FSHOME/soft/MLatom/bin/qmlatom.csh $*
+#qsub -l h_rt=336:00:00 -e $pwd/mlatom.e -o $pwd/mlatom.o -A MLatom -pe 'xe*.mpi' 12 -q xe31th.q,xe310th.q -N MLatom $FSHOME/soft/MLatom/bin/qmlatom.csh $*
+
