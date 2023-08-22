@@ -27,11 +27,26 @@ The main program is `MLatom.py`.
 
 To run it, please use Python which satisfies the basic requirements that can be found at http://mlatom.com/download/.
 
+Before running the above main program, it is recommended to install all dependencies for Python as: `$ python -m pip install numpy scipy tensoflow pyh5md MDanalysis jcamp statsmodels`
+
 ## N2O dynamics
 After unzipping N2O_dynamics.zip, you will find several folders in it.
 
-The equlibration of N2O was done in folder 'N2O_equilibration', where Python script 'N2O_equilibrate.py' was used to perform MD with NVT ensemble.
+The equlibration of N2O was done in folder `N2O_equilibration`, where Python script 'N2O_equilibrate.py' was used to perform MD with NVT ensemble.
 
-Then MD with NVE ensemble was performed using AIQM1, PBE/def2-SVP and GFN2-xTB in each folder named after the method. Then an input file 'IRSS.inp' was used to generate IR spectrum with MLatom ('$mlatom IRSS.inp > IRSS.out'. $mlatom is the path to bin/mlatom. Make sure that path to each program is specified in bin/mlatom). Trajectory with XYZ coordinates ('N2O_nve.xyz') was copied to the folder 'TBE', and TBE energies were calculated in this folder with python scripts 'generate_ccxd_inp_from_xyz.py' and 'calc_energy.py'. TBE energies were saved in, for example, 'aiqm1_tbe_energy.dat'.
+Then MD with NVE ensemble was performed using `AIQM1`, `PBE/def2-SVP` and `GFN2-xTB` in each folder named after the method. Then an input file `IRSS.inp` was used to generate IR spectrum with MLatom (`$mlatom IRSS.inp > IRSS.out`. $mlatom is the path to `bin/mlatom`. Make sure that path to each program is specified in bin/mlatom). Trajectory with XYZ coordinates (`N2O_nve.xyz`) was copied to the folder `TBE`, and TBE energies were calculated in this folder with python scripts `generate_ccxd_inp_from_xyz.py` and `calc_energy.py`. TBE energies were saved in, for example, `aiqm1_tbe_energy.dat`.
 
-Figures related to N2O dynamics were plotted in folder 'figure'. Experimental result ('10024-97-2-IR.jdx') was downloaded from NIST. The python script 'jdx2npy.py' was used to convert the spectrum into npy format. The python script 'N2O_NVE.py' was used to plot all the IR spectra, 'compare_tbe.py' was used to compare TBE total energies and 'etot.py' was used to plot the simulation total energies.
+Figures related to N2O dynamics were plotted in folder `figure`. Experimental result (`10024-97-2-IR.jdx`) was downloaded from NIST. The python script `jdx2npy.py` was used to convert the spectrum into npy format. The python script `N2O_NVE.py` was used to plot all the IR spectra, `compare_tbe.py` was used to compare TBE total energies and `etot.py` was used to plot the simulation total energies.
+
+## H2 & Benzene
+After unzipping h2_benzene.zip, you will find several folders in it.
+
+There are two folders in the current path: 'h2' and 'benzene'. Both the two folders contain trajectories and necessary data. 
+
+Take benzene's mix trajectory as an example, you can follow the steps below to run dynamics:
+1.  cd benzene
+2.  cd 0trajectories
+3.  cd mix
+4.  `$mlatom md.inp > md.out` (you need to set the environmental variable pointing to the path of mlatom executable, e.g., in bash: `$ export mlatom=[path to the MLatom package]/mlatom`)
+
+There are many options in the md.inp file and you can change them as you want.
