@@ -23,6 +23,19 @@ The code and binaries currently can be obtained via pip:
 
 `python3 -m pip install -U MLatom`
 
+## Integrated gradients (IGs)
+Codes to calculate IGs for cis−trans isomerization of azobenzene are located in `IG/`
+
+File Description:
+
+`IG.py`: main script for IG calculation. Here is an example of initial conditions in forward trajectories.
+
+`azobenzene.ic`: redundant internal coordiantes of azobenzene
+
+`azobenzene.xyz`: equilibrium geometry of azobenzene
+
+`traj58_117200.xyz` and `traj58_117200.vxyz`: geometry and velocity files of azobenzene 10fs before transition
+
 # How to use this code
 The main program is located in the `MLatom_GICnet/MLatom.py`.
 
