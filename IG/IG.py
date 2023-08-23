@@ -46,7 +46,7 @@ def integral_approximation(gradients):
     return integrated_gradients
 
 
-##### generate origianl input for 4D model#####
+##### generate original input for GICnet model#####
 icdict=readIC('azobenzene.ic')
 azo, _ = loadXYZ(fname='azobenzene.xyz', getsp=False)
 x = DescribeWithoutV(azo,icdict)
