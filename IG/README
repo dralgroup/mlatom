@@ -1,0 +1,25 @@
+IG.py is an example of calculating IG values for azobenzene on 4D model
+
+# functions to calculate IG
+- interpolate_inputs: 
+generate linear interpolation between baseline and the original input
+- compute_gradients: 
+compute gradients for each input to the model
+- integral_appeoximation: 
+accumulate gradients along the alpha intervals
+
+# generate input
+- generate baseline using equilibrium geometry of azobenzene and setting velocity to 0
+- generate original input of 4D model using geometry near transition state and ts=10
+
+# load model
+- load one 4D model
+
+# calculate IG
+- set value of alphas 
+- calculate IGs
+
+
+Reference:
+1. https://www.tensorflow.org/tutorials/interpretability/integrated_gradients
+2. Sundararajan, M.;  Taly, A.; Yan, Q. In Axiomatic attribution for deep networks, 34th International Conference on Machine Learning, ICML 2017, 2017; pp 5109–5118.
