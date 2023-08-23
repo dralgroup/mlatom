@@ -1,4 +1,4 @@
-# Codes to calculate IGs for cis−trans isomerization of azobenzen
+# Codes to calculate IGs for cis−trans isomerization of azobenzene
 
 ## Functions to calculate IG
 
