@@ -8,7 +8,7 @@ The algorithms are described in
 
 The MD was implemented by Yi-Fan Hou of [Pavlo O. Dral's group](http://dr-dral.com) in the development version of [MLatom](https://github.com/dralgroup/mlatom). This code snapshot can be used for obtaining the results reported in the above manuscript.
 
-**Important note:** This branch will not be further updated, please check and use the future official releases of [MLatom](https://github.com/dralgroup/mlatom) with the latest implementations, manuals, and tutorials of the MD code. Future implementations may contain many changes.
+**Important note:** This branch will not be further updated, please check and use the official releases of [MLatom](https://github.com/dralgroup/mlatom) with the latest implementations, manuals, and tutorials of the MD code. The earliest MLatom version supporting MD is MLatom 3.0.0. These implementations in the main branch of MLatom contain many changes which are incompetible with this branch (i.e., different keywords names, etc.).
 
 ## Data availability
 MD data reported in the paper are available at [figshare](https://doi.org/10.6084/m9.figshare.22315147).
