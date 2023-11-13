@@ -11,6 +11,7 @@ import numpy as np
 from . import data
 from . import constants
 from .thermostat import Andersen_thermostat, Nose_Hoover_thermostat
+from . import stopper
 
 class md():
     '''
@@ -95,6 +96,7 @@ class md():
     Nose_Hoover_thermostat = Nose_Hoover_thermostat
     def __init__(self, model=None,
                  molecule_with_initial_conditions=None,
+                 molecule=None,
                  ensemble='NVE',
                  thermostat=None,
                  time_step=0.1,
@@ -103,7 +105,12 @@ class md():
                  filename=None, format='h5md',
                  stop_function=None, stop_function_kwargs=None):
         self.model = model
-        self.molecule_with_initial_conditions = molecule_with_initial_conditions
+        if not molecule_with_initial_conditions is None and not molecule is None:
+            stopper.stopMLatom('molecule and molecule_with_initial_conditions cannot be used at the same time')
+        if not molecule_with_initial_conditions is None:
+            self.molecule_with_initial_conditions = molecule_with_initial_conditions 
+        if not molecule is None:
+            self.molecule_with_initial_conditions = molecule
         self.ensemble = ensemble
         if thermostat != None:
             self.thermostat = thermostat

@@ -488,10 +488,7 @@ def crossSection(args):
     ML_NEA.parse_api(args.argsraw)
 
 def MLQD(args):
-    MLQDdir = os.environ['MLQD']
-    sys.path.append(os.path.dirname(MLQDdir))
-    MLQD = __import__(os.path.basename(MLQDdir))
-    from MLQD.evolution import quant_dyn
+    from mlqd.evolution import quant_dyn
     mlqd_args = {}
     for argg in args.args2pass:
         if argg.lower() != 'mlqd':
@@ -514,6 +511,7 @@ def MLTPA(args):
 
 # Reusable functions below. Name with -ing form
 def loading_data(XYZfile, Yfile=None, YgradXYZfile=None, charges=None, multiplicities=None):
+    assert XYZfile, 'please provide data file(s) needed.'
     molecular_database = data.molecular_database.from_xyz_file(XYZfile)
     if Yfile: 
         molecular_database.add_scalar_properties_from_file(Yfile)
@@ -531,10 +529,12 @@ def loading_method(args):
     if args.QMprogramKeywords:
         if 'AIQM' in kwargs['method']:
             kwargs['qm_program_kwargs'] = {'read_keywords_from_file': args.QMprogramKeywords}
-            if args.mndokeywords: kwargs['qm_program_kwargs']['save_files_in_current_directory'] = True
+            if args.mndokeywords or 'sparrow' in args.qmprog.lower():
+                kwargs['qm_program_kwargs']['save_files_in_current_directory'] = True
         else:
             kwargs['read_keywords_from_file'] = args.QMprogramKeywords
-            if args.mndokeywords: kwargs['save_files_in_current_directory'] = True
+            if args.mndokeywords or 'sparrow' in args.qmprog.lower():
+                kwargs['save_files_in_current_directory'] = True
     if args.qmprog:
         if 'AIQM' in kwargs['method']:
             kwargs['qm_program'] = args.qmprog

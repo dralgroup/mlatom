@@ -16,12 +16,13 @@ from .. import models
 from .. import stopper
 from ..utils import doc_inherit
 
-GAPbin = os.environ['gap_fit']
+
+GAPbin = os.environ['gap_fit'] if 'gap_fit' in os.environ else ''
 if not GAPbin:
     print('please set $gap_fit')
     pass
 
-QUIPbin = os.environ['quip']
+QUIPbin = os.environ['quip'] if 'quip' in os.environ else ''
 if not QUIPbin:
     print('please set $quip')
     pass

@@ -11,11 +11,14 @@ from __future__ import annotations
 from typing import Any, Union, Dict, List, Iterable, Callable
 import os, tempfile, uuid, sys
 import numpy as np
-import torch
 from collections import UserDict
 
 from . import data, stats, stopper, interfaces
 from .utils import doc_inherit
+try:
+    import torch
+except:
+    pass
 try:
     from .kreg_api import KREG_API
 except:
@@ -23,9 +26,10 @@ except:
 
 class model():
     nthreads = 0
-    def set_num_threads(self, nthreads):
+    def set_num_threads(self, nthreads=0):
         # implement for each subclass
-        self.nthreads = nthreads
+        if nthreads:
+            self.nthreads = nthreads
 
     def config_multiprocessing(self):
         # for scripts that need to be executed before running model in parallel
@@ -54,6 +58,8 @@ class model():
             calculate_hessian (bool, optional): Use the model to calculate energy hessian.
         '''
         # for universal control of predicting behavior
+        self.set_num_threads()
+
         if molecular_database != None:
             molecular_database = molecular_database
         elif molecule != None:
@@ -65,7 +71,7 @@ class model():
 
 class torch_model(model):
     # models that utilize PyTorch should inherit this class
-    def set_num_threads(self, nthreads):
+    def set_num_threads(self, nthreads=0):
         super().set_num_threads(nthreads)
         if self.nthreads:
             import torch
@@ -82,24 +88,41 @@ class torchani_model(torch_model):
         return super().config_multiprocessing()
 
 class tensorflow_model(model):
-    def set_num_threads(self, nthreads):
+    def set_num_threads(self, nthreads=0):
         super().set_num_threads(nthreads)
         if self.nthreads:
             os.environ["TF_INTRA_OP_PARALLELISM_THREADS"] = str(self.nthreads)
 
 class MKL_model(model):
-    def set_num_threads(self, nthreads):
+    def set_num_threads(self, nthreads=0):
         super().set_num_threads(nthreads)
         if self.nthreads:
             os.environ["MKL_NUM_THREADS"] = str(self.nthreads)
         
 class OMP_model(model):
-    def set_num_threads(self, nthreads):
+    def set_num_threads(self, nthreads=0):
         super().set_num_threads(nthreads)
         if self.nthreads:
             os.environ["OMP_NUM_THREADS"] = str(self.nthreads)
 
 class methods(model):
+    '''
+    Create a model object with a specified method.
+
+    Arguments:
+        method (str): Specify the method. Available methods are listed in the section below.
+        program (str, optional): Specify the program to use.
+        **kwargs: Other method-specific options
+
+    **Available Methods:**
+
+        ``'AIQM1'``, ``'AIQM1@DFT'``, ``'AIQM1@DFT*'``, ``'AM1'``, ``'ANI-1ccx'``, ``'ANI-1x'``, ``'ANI-1x-D4'``, ``'ANI-2x'``, ``'ANI-2x-D4'``, ``'CCSD(T)*/CBS'``, ``'CNDO/2'``, ``'D4'``, ``'DFTB0'``, ``'DFTB2'``, ``'DFTB3'``, ``'GFN2-xTB'``, ``'MINDO/3'``, ``'MNDO'``, ``'MNDO/H'``, ``'MNDO/d'``, ``'MNDO/dH'``, ``'MNDOC'``, ``'ODM2'``, ``'ODM2*'``, ``'ODM3'``, ``'ODM3*'``, ``'OM1'``, ``'OM2'``, ``'OM3'``, ``'PM3'``, ``'PM6'``, ``'RM1'``, ``'SCC-DFTB'``, ``'SCC-DFTB-heats'``.
+
+        Methods listed above can be accepted without specifying a program.
+        
+        And other methods supported by supported programs (e.g.: ``'gaussian'``, ``''xtb''``, ``'pyscf'``), can also be accepted with a program specifed.
+    '''
+
     methods_map = {
     'aiqm1': ['AIQM1', 'AIQM1@DFT', 'AIQM1@DFT*'],
     'ani': ["ANI-1x", "ANI-1ccx", "ANI-2x", 'ANI-1x-D4', 'ANI-2x-D4'],
@@ -112,7 +135,7 @@ class methods(model):
     'pyscf': [],
     }
     
-    def __init__(self, method=None, program=None, **kwargs):
+    def __init__(self, method: str = None, program: str = None, **kwargs):
         # !!! IMPORTANT !!! 
         # It is neccesary to save all the arguments in the model, otherwise it would not be dumped correctly!
         self.method  = method
@@ -120,8 +143,8 @@ class methods(model):
         if kwargs != {}: self.kwargs = kwargs
         
         if program != None:
-            if program in self.methods_map:
-                self.interface = interfaces.__dict__[program](method=method, **kwargs)
+            if program.casefold() in self.methods_map:
+                self.interface = interfaces.__dict__[program.casefold()](method=method, **kwargs)
         elif self.method.casefold() in [mm.casefold() for mm in self.methods_map['mndo']] or self.method in [mm.casefold() for mm in self.methods_map['sparrow']]:
             if self.method.casefold() in [mm.casefold() for mm in self.methods_map['mndo']] and 'mndobin' in os.environ:
                 from .interfaces.mndo_interface import mndo_methods
@@ -138,6 +161,14 @@ class methods(model):
                     self.interface = interfaces.__dict__[interface](method=method, **kwargs)
                     break
     
+    @property
+    def nthreads(self):
+        return self.interface.nthreads
+    
+    @nthreads.setter
+    def nthreads(self, nthreads):
+        self.interface.nthreads = nthreads
+
     def predict(self, molecular_database=None, molecule=None,
                 calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False):
         self.interface.predict(molecular_database=molecular_database, molecule=molecule,
@@ -177,7 +208,7 @@ class ml_model(model):
     def train(
         self,
         molecular_database: data.molecular_database,
-        property_to_learn: str = 'energy',
+        property_to_learn: Union[str, None] = 'y',
         xyz_derivative_property_to_learn: str = None,
     ) -> None:
         '''
@@ -188,7 +219,8 @@ class ml_model(model):
             property_to_learn (str, optional): The label of property to be learned in model training.
             xyz_derivative_property_to_learn (str, optional): The label of XYZ derivative property to be learned.
         '''
-        raise NotImplementedError('train() needs to be implemented')
+        
+        self.set_num_threads()
 
     @doc_inherit
     def predict(
@@ -273,9 +305,22 @@ class ml_model(model):
                                  debug=False):
         
         property_to_learn = self.get_property_to_learn(training_kwargs)
-        property_to_predict = self.get_property_to_predict(prediction_kwargs)
         xyz_derivative_property_to_learn = self.get_xyz_derivative_property_to_learn(training_kwargs)
+        if property_to_learn == None and xyz_derivative_property_to_learn == None:
+            property_to_learn = 'y'
+            training_kwargs = {'property_to_learn': 'y'}
+        
+        property_to_predict = self.get_property_to_predict(prediction_kwargs)
         xyz_derivative_property_to_predict = self.get_xyz_derivative_property_to_predict(prediction_kwargs)
+        if property_to_predict == None and xyz_derivative_property_to_predict == None:
+            if prediction_kwargs == None: prediction_kwargs = {}
+            if property_to_learn != None:
+                property_to_predict = f'estimated_{property_to_learn}'
+                prediction_kwargs['property_to_predict'] = property_to_predict
+            if xyz_derivative_property_to_learn != None:
+                xyz_derivative_property_to_predict = f'estimated_{xyz_derivative_property_to_learn}'
+                prediction_kwargs['xyz_derivative_property_to_predict'] = xyz_derivative_property_to_predict
+            
         estimated_y=None; y=None; estimated_xyz_derivatives=None; xyz_derivatives=None
 
         if type(cv_splits_molecular_databases) == type(None):
@@ -328,6 +373,8 @@ class ml_model(model):
 
         if validation_loss_function == None: error = geomRMSEloc(estimated_y,y,estimated_xyz_derivatives,xyz_derivatives)
         else: error = validation_loss_function(**validation_loss_function_kwargs)
+        
+        self.reset()
         
         if type(cv_splits_molecular_databases) != type(None) and calculate_CV_split_errors:
             CV_errors = []
@@ -419,6 +466,9 @@ class ml_model(model):
                     self.hyperparameters[k].value = v
                 
             self.model_file = saved_name
+            
+            # Use the final hyperparameters to train the model and get the validation errors
+            self.validation_loss = validation_loss(np.array([self.hyperparameters[key].value for key in hyperparameters]))
 
     def holdout_validation(self, subtraining_molecular_database=None, validation_molecular_database=None,
                      training_kwargs=None, prediction_kwargs=None):
@@ -426,7 +476,6 @@ class ml_model(model):
         if type(prediction_kwargs) == type(None): prediction_kwargs = {}
         self.train(molecular_database=subtraining_molecular_database, **training_kwargs)
         self.predict(molecular_database = validation_molecular_database, **prediction_kwargs)
-        self.reset()
 
     def cross_validation(self, cv_splits_molecular_databases=None,
                      training_kwargs=None, prediction_kwargs=None):
@@ -440,9 +489,9 @@ class ml_model(model):
             for jj in range(nsplits):
                 if ii != jj: subtraining_molecular_database.molecules += cv_splits_molecular_databases[jj].molecules
             validation_molecular_database = cv_splits_molecular_databases[ii]
+            self.reset()
             self.train(molecular_database=subtraining_molecular_database, **training_kwargs)
             self.predict(molecular_database=validation_molecular_database, **prediction_kwargs)
-            self.reset()
         
     
     def get_property_to_learn(self, training_kwargs=None):
@@ -475,7 +524,7 @@ class ml_model(model):
                 else:
                     property_to_predict = 'estimated_y'
         else:
-            property_to_predict = 'estimated_y'
+            property_to_predict = None
         return property_to_predict
 
     def get_xyz_derivative_property_to_predict(self,prediction_kwargs=None):
@@ -488,7 +537,7 @@ class ml_model(model):
                 else:
                     xyz_derivative_property_to_predict = 'estimated_xyz_derivatives_y'
         else:
-            xyz_derivative_property_to_predict = 'estimated_xyz_derivatives_y'
+            xyz_derivative_property_to_predict = None
         return xyz_derivative_property_to_predict
 
 def optimize_grid(func, grid):
@@ -728,22 +777,7 @@ class kreg(krr, OMP_model, MKL_model):
                                                          minval=2**-5,
                                                          maxval=2**9,
                                                          optimization_space='log',
-                                                         name='lambda')}) # @Yifan
-        self.hyperparameters_min = {
-            'lambda':        2**-35,
-            'lambdaGradXYZ': 2**-35,
-            'sigma':         2**-5
-            }
-        self.hyperparameters_max = {
-            'lambda':         1.0,
-            'lambdaGradXYZ':  1.0,
-            'sigma':         2**9
-            }
-        self.hyperparameter_optimization_space = {
-            'lambda':        'log',
-            'lambdaGradXYZ': 'log',
-            'sigma':         'log'
-            }
+                                                         name='sigma')})
         
         self.nthreads = nthreads
 
@@ -955,6 +989,16 @@ def sgdml(**kwargs):
     return sgdml(**kwargs)
 
 class model_tree_node(model):
+    '''
+    Create a model tree node.
+
+    Arguments:
+        name (str): The name assign to the object.
+        parent: The parent of the model node.
+        children: The children of this model tree node.
+        operator: Specify the operation to be made when making predictions.
+    '''
+
     def __init__(self, name=None, parent=None, children=None, operator=None, model=None):
         self.name = name
         self.parent = parent
@@ -969,7 +1013,7 @@ class model_tree_node(model):
         self.operator = operator
         self.model = model
 
-    def set_num_threads(self, nthreads):
+    def set_num_threads(self, nthreads=0):
         super().set_num_threads(nthreads)
         if self.nthreads:
             for child in self.children:
@@ -981,6 +1025,8 @@ class model_tree_node(model):
         if 'molecule' in kwargs:
             molDB = data.molecular_database()
             molDB.molecules.append(kwargs['molecule'])
+        
+        if len(molDB) == 0: return
             
         if 'calculate_energy' in kwargs: calculate_energy = kwargs['calculate_energy']
         else: calculate_energy = True
@@ -1009,7 +1055,7 @@ class model_tree_node(model):
                 mol.__dict__[self.name] = data.properties_tree_node(name=self.name, parent=parent, children=children)
         
         if self.children == None and self.operator == 'predict':
-            self.model.predict(**kwargs)
+            self.model.predict(**kwargs) 
             for mol in molDB.molecules:
                 self.get_properties_from_molecule(mol, properties, atomic_properties)
         else:
@@ -1050,6 +1096,9 @@ class model_tree_node(model):
                     mol.atoms[iatom].__dict__[property_name] = mol.__dict__[self.name].__dict__[property_name][iatom]
 
     def dump(self, filename=None, format='json'):
+        '''
+        Dump the object to a file.
+        '''
         model_dict = {
             'type': 'model_tree_node',
             'name': self.name,
@@ -1067,6 +1116,9 @@ class model_tree_node(model):
             return model_dict
 
 def load(filename, format=None):
+    '''
+    Load a saved model object.
+    '''
     if filename[-5:] == '.json' or format == 'json':
         try:
             return load_json(filename)

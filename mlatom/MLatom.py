@@ -4,7 +4,7 @@
   !---------------------------------------------------------------------------!
   !                                                                           !
   !     MLatom: a Package for Atomistic Simulations with Machine Learning     !
-  !                             MLatom 3.0.0                                  !
+  !                             MLatom 3.0.1                                  !
   !                                   @                                       !
   !                 Xiamen Atomistic Computing Suite (XACS)                   !
   !                                                                           !
@@ -29,7 +29,10 @@
   ! Pavlo O. Dral, Fuchun Ge, Yi-Fan Hou, Peikun Zheng, Yuxinxin Chen,        ! 
   ! Mario Barbatti, Olexandr Isayev, Cheng Wang, Bao-Xin Xue,                 !
   ! Max Pinheiro Jr, Yuming Su, Yiheng Dai, Yangtao Chen, Lina Zhang,         ! 
-  ! Shuang Zhang, Arif Ullah, Yanchi Ou. MLatom 3, to be submitted.           ! 
+  ! Shuang Zhang, Arif Ullah, Quanhao Zhang, Yanchi Ou.                       !
+  ! MLatom 3: Platform for machine learning-enhanced computational chemistry  !
+  ! simulations and workflows, submitted.                                     !
+  ! Pre-print on arXiv: `arXiv:2310.20155v1 [physics.chem-ph].                ! 
   ! Check MLatom.com for citation updates.                                    !
   !                                                                           !
   ! Pavlo O. Dral, Fuchun Ge, Bao-Xin Xue, Yi-Fan Hou, Max Pinheiro Jr,       !
@@ -40,7 +43,7 @@
   ! Bao-Xin Xue, Max Pinheiro Jr, Yuming Su, Yiheng Dai, Yangtao Chen,        !
   ! Shuang Zhang, Lina Zhang, Arif Ullah, Yanchi Ou,                          !
   ! MLatom: A Package for Atomistic Simulations with Machine Learning,        !
-  ! version 3.0.0, Xiamen University, Xiamen, China, 2013-2023.               !
+  ! version 3.0.1, Xiamen University, Xiamen, China, 2013-2023.               !
   !                                                                           !
   ! The citations for MLatom's interfaces and features shall be eventually    !
   ! included too. See header.py, ref.json and http://mlatom.com.              !

@@ -80,7 +80,7 @@ class Nose_Hoover_thermostat(Thermostat):
             number_of_yoshida_suzuki_steps (int): Number of Yoshida Suzuki steps, can be any in (1,3,5,7), 7 by default
             nose_hoover_chain_frequency (float): Nose-Hoover chain frequency in $fs^{-1}$, 0.0625 by default, should be comparable to the frequency you want to equilibrate
             temperature (float): System temperature to equilibrate in Kelvin, 300 by default
-            molecule (:class:`data.molecule`) The molecule to be equilibrated
+            molecule (:class:`data.molecule`): The molecule to be equilibrated
             degrees_of_freedom: Degrees of freedom of the system
     '''
     def __init__(self,**kwargs):

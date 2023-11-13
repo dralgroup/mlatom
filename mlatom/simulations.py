@@ -8,7 +8,7 @@
   !---------------------------------------------------------------------------! 
 '''
 pythonpackage = True
-from . import constants, data, stopper
+from . import constants, data, models, stopper
 from .md import md as md
 from .initial_conditions import generate_initial_conditions
 from .environment_variables import env
@@ -68,10 +68,19 @@ class optimize_geometry():
 
     """
 
-    def __init__(self, model=None, initial_molecule=None, ts=False, program=None, optimization_algorithm=None, maximum_number_of_steps=None, convergence_criterion_for_forces=None,working_directory=None):
+    def __init__(self, model=None, initial_molecule=None, molecule=None, ts=False, program=None, optimization_algorithm=None, maximum_number_of_steps=None, convergence_criterion_for_forces=None,working_directory=None):
         if model != None:
             self.model = model
-        self.initial_molecule = initial_molecule
+
+        if not initial_molecule is None and not molecule is None:
+            stopper.stopMLatom('molecule and initial_molecule cannot be used at the same time')
+        overwrite = False
+        if not initial_molecule is None:
+            self.initial_molecule = initial_molecule.copy(atomic_labels=['xyz_coordinates','number'],molecular_labels=[])
+        if not molecule is None:
+            overwrite = True
+            self.initial_molecule = molecule.copy(atomic_labels=['xyz_coordinates','number'],molecular_labels=[])
+        
         self.ts = ts
         if program != None:
             self.program = program
@@ -110,6 +119,13 @@ class optimize_geometry():
         if self.program.casefold() == 'Gaussian'.casefold(): self.opt_geom_gaussian()
         elif self.program.casefold() == 'ASE'.casefold(): self.opt_geom_ase()
         else: self.opt_geom()
+
+        if overwrite:
+            molecule.optimization_trajectory = self.optimization_trajectory
+            for each in self.optimized_molecule.__dict__:
+                molecule.__dict__[each] = self.optimized_molecule.__dict__[each]
+            del self.optimization_trajectory
+            del self.optimized_molecule
         
     def opt_geom_gaussian(self):
         self.successful = False
@@ -135,7 +151,12 @@ class optimize_geometry():
                     self.successful = True
                     break
         self.optimization_trajectory.load(filename=os.path.join(self.working_directory,'gaussian_opttraj.json'), format='json')
-        if self.successful: self.optimized_molecule = self.optimization_trajectory.steps[-1].molecule
+        if self.successful: 
+            self.optimized_molecule = self.optimization_trajectory.steps[-1].molecule
+        else:
+            self.optimized_molecule = self.initial_molecule.copy() 
+            for atom in self.optimized_molecule.atoms:
+                atom.xyz_coordinates = np.array([None,None,None])
         if os.path.exists(os.path.join(self.working_directory,'gaussian_opttraj.json')): os.remove(os.path.join(self.working_directory,'gaussian_opttraj.json'))
         
     def opt_geom_ase(self):
@@ -189,7 +210,7 @@ class irc():
         if 'model' in kwargs:
             self.model = kwargs['model']
         if 'ts_molecule' in kwargs:
-            self.ts_molecule = kwargs['ts_molecule']
+            self.ts_molecule = kwargs['ts_molecule'].copy(atomic_labels=['xyz_coordinates','number'],molecular_labels=[])
 
         from .interfaces import gaussian_interface
         if 'number' in self.ts_molecule.__dict__.keys(): suffix = f'_{self.ts_molecule.number}'
@@ -230,7 +251,7 @@ class freq():
 
 
     """
-    def __init__(self, model=None, molecule=None, program=None, normal_mode_normalization='mass deweighted unnormalized', anharmonic=False, working_directory=None):
+    def __init__(self, model=None, molecule=None, program=None, normal_mode_normalization='mass deweighted unnormalized', anharmonic=False, anharmonic_kwargs={}, working_directory=None):
         if model != None:
             self.model = model
         self.molecule = molecule
@@ -312,7 +333,7 @@ class freq():
         # Gaussian and ORCA are output as mass deweighted normalized (MDN).
         # Normal modes in ASE are output as mass deweighted unnormalized (MDU).
         # Some packages such as Psi4 let ychoose different normalizations.
-        # Force constants and reduced masses are calculated as in Gaussian.
+        # Force constants and reduced masses are calculated as in gaussian_interface.
 
         # mode_type should be one of:
         # - MWN (mass weighted normalized)

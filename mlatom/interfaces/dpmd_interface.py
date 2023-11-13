@@ -216,12 +216,6 @@ class dpmd(models.ml_model, models.tensorflow_model):
             self.json["model"]["type_map"] = self.type_map
             if len(self.json['model']['descriptor']['sel']) != len(self.type_map):
                 self.json['model']['descriptor']['sel'] = [self.json['model']['descriptor']['sel'][0]] * len(self.type_map)
-            if 'property_to_learn' in kwargs and not kwargs['property_to_learn']:
-                self.json['loss']['limit_pref_f'] = 0
-                self.json['loss']['start_pref_f'] = 0
-            if 'xyz_derivative_property_to_learn' in kwargs and not kwargs['xyz_derivative_property_to_learn']:
-                self.json['loss']['limit_pref_e'] = 0
-                self.json['loss']['start_pref_e'] = 0
             self.json['training']['batch_size'] = kwargs['batch_size'].value
             self.json['training']['stop_batch'] = kwargs['stop_batch'].value
             self.json['training']['disp_freq'] = kwargs['disp_freq'].value
@@ -235,6 +229,12 @@ class dpmd(models.ml_model, models.tensorflow_model):
             self.json['loss']["limit_pref_f"] = kwargs["limit_pref_f"].value
             self.json['loss']["start_pref_v"] = kwargs["start_pref_v"].value
             self.json['loss']["limit_pref_v"] = kwargs["limit_pref_v"].value
+            if 'property_to_learn' in kwargs and not kwargs['property_to_learn']:
+                self.json['loss']['limit_pref_e'] = 0
+                self.json['loss']['start_pref_e'] = 0
+            if 'xyz_derivative_property_to_learn' in kwargs and not kwargs['xyz_derivative_property_to_learn']:
+                self.json['loss']['limit_pref_f'] = 0
+                self.json['loss']['start_pref_f'] = 0
             self.json['model']["descriptor"]['sel'] = [int(i) for i in kwargs["sel"].value.strip('[]').split(',')]
             if len(self.json['model']["descriptor"]['sel']) == 1:
                 self.json['model']["descriptor"]['sel'] = self.json['model']["descriptor"]['sel'] * len(self.json["model"]["type_map"])

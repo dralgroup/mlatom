@@ -9,12 +9,18 @@
 from . import stopper 
 
 import numpy as np 
-import matplotlib.pyplot as plt 
 import numpy.fft as nf 
 
-import statsmodels.tsa.api as smt 
-import statsmodels.tsa 
+try:
+    import matplotlib.pyplot as plt 
+except:
+    pass
 
+try:
+    import statsmodels.tsa.api as smt 
+    import statsmodels.tsa 
+except:
+    pass
 
 class vibrational_spectrum():
     def __init__(self,molecular_database,dt):

@@ -41,8 +41,10 @@ class sparrow_methods(models.model):
         'AIQM1': False}
     available_methods = models.methods.methods_map['sparrow'] #need to sync with dict availability_of_gradients_for_methods somehow
     
-    def __init__(self, method='ODM2*', **kwargs):
+    def __init__(self, method='ODM2*', read_keywords_from_file='', save_files_in_current_directory=False, **kwargs):
         self.method = method
+        self.read_keywords_from_file = read_keywords_from_file
+        self.save_files_in_current_directory = save_files_in_current_directory
         try:
             self.sparrowbin = os.environ['sparrowbin']
         except:
@@ -59,11 +61,25 @@ class sparrow_methods(models.model):
         if self.method == 'ODM2*': method_to_pass = 'ODM2'
         elif self.method == 'ODM3*': method_to_pass = 'ODM3'
         else: method_to_pass = self.method
-            
+        
+        additional_sparrow_keywords = []
+        if self.read_keywords_from_file != '':
+            kw_file = self.read_keywords_from_file
+            with open(kw_file, 'r') as fkw:
+                for line in fkw:
+                    additional_sparrow_keywords = line.split()
+            imol = -1
+            for mol in molDB.molecules:
+                imol += 1
+                jmol = imol
+                if len(additional_sparrow_keywords) < imol+1: jmol = -1
+                mol.additional_sparrow_keywords = additional_sparrow_keywords[jmol]
+        
         import tempfile, subprocess
         ii = 0
         for mol in molDB.molecules:
             with tempfile.TemporaryDirectory() as tmpdirname:  
+                if self.save_files_in_current_directory: tmpdirname = '.'
                 ii += 1
                 xyzfilename = f'{tmpdirname}/predict{ii}.xyz'
                 mol.write_file_with_xyz_coordinates(filename = xyzfilename)
@@ -74,6 +90,7 @@ class sparrow_methods(models.model):
                             '-s','%d' % mol.multiplicity,
                             '-M', method_to_pass,
                             '-o']
+                sparrowargs += additional_sparrow_keywords
                 
                 if calculate_energy_gradients and self.availability_of_gradients_for_methods[self.method]:
                     sparrowargs += ['-G']
@@ -83,7 +100,7 @@ class sparrow_methods(models.model):
                 #cmd = ' '.join(sparrowargs)
                 proc = subprocess.Popen(sparrowargs, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=tmpdirname, universal_newlines=True)
                 #proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=tmpdirname, universal_newlines=True, shell=True)
-                # proc.wait()
+                #proc.wait()
                 outs,errs = proc.communicate()
                 #os.system(cmd + " &> sparrow.out")
                 mol.sparrow_scf_successful = False
