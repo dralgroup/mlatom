@@ -111,6 +111,7 @@ class gaussian_methods(models.model):
 
         children_properties = []
         method = self.method 
+        parse_method = method.split()
         for each in method.split():
             if '/' in each:
                 parse_method = each.split('/')

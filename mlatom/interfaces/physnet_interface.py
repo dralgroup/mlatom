@@ -12,30 +12,32 @@ from typing import Any, Union, Dict
 import os, sys, uuid, time
 import numpy as np
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
-PhysNetdir = os.environ['PhysNet']
-if not PhysNetdir:
+if 'PhysNet' in os.environ:
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+    from tensorflow.python.util import deprecation
+    deprecation._PRINT_DEPRECATION_WARNINGS = False
+    import tensorflow.compat.v1 as tf
+    tf.disable_v2_behavior()
+    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+    PhysNetdir = os.environ['PhysNet']
+    sys.path.append(os.path.dirname(PhysNetdir))
+    PhysNet = __import__(os.path.basename(PhysNetdir))
+    from PhysNet.neural_network.NeuralNetwork import *
+    from PhysNet.neural_network.activation_fn import *
+    from PhysNet.training.Trainer        import *
+    from PhysNet.training.DataContainer import *
+    from PhysNet.training.DataProvider  import *
+    from PhysNet.training.DataQueue     import *
+else:
+    DataContainer = object
     print('Please specify PhysNet installation dir in $PhysNet')
     pass
 
-sys.path.append(os.path.dirname(PhysNetdir))
-PhysNet = __import__(os.path.basename(PhysNetdir))
 import logging
 import string
 import random
-from tensorflow.python.util import deprecation
-deprecation._PRINT_DEPRECATION_WARNINGS = False
-import tensorflow.compat.v1 as tf
-tf.disable_v2_behavior()
-tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 # tf.get_logger().setLevel(logging.ERROR)
 # tf.autograph.set_verbosity(1)
-from PhysNet.neural_network.NeuralNetwork import *
-from PhysNet.neural_network.activation_fn import *
-from PhysNet.training.Trainer        import *
-from PhysNet.training.DataContainer import *
-from PhysNet.training.DataProvider  import *
-from PhysNet.training.DataQueue     import *
 
 from .. import constants
 from .. import data
@@ -139,6 +141,7 @@ class physnet(models.ml_model, models.tensorflow_model):
                 self.hyperparameters[hyperparam].value = args.physnet.data[hyperparam]
     
     def reset(self):
+        super().reset()
         self.model = None
         self.new_session()
 

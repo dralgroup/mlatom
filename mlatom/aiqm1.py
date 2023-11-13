@@ -50,7 +50,7 @@ class aiqm1(models.torchani_model):
                        'AIQM1@DFT': {1:-0.50139362, 6:-37.84623117, 7:-54.59175573, 8:-75.07674376}}
     atomic_energies['AIQM1@DFT*'] = atomic_energies['AIQM1@DFT']
     
-    def __init__(self, method='AIQM1', qm_program=None, qm_program_kwargs={}, **kwargs):
+    def __init__(self, method='AIQM1', qm_program=None, qm_program_kwargs={}, dftd4_kwargs={}, **kwargs):
         self.method = method.upper()
         self.qm_program = qm_program
         self.qm_program_kwargs = qm_program_kwargs
@@ -64,7 +64,7 @@ class aiqm1(models.torchani_model):
         odm2star = models.model_tree_node(name='odm2star', operator='predict', model=models.methods(method='ODM2*', program=qm_program, **qm_program_kwargs))
         aiqm1_children = [ani_nns, shift, odm2star]
         if self.method != 'AIQM1@DFT*':
-            d4 = models.model_tree_node(name='d4_wb97x', operator='predict', model=models.methods(method='D4', functional='wb97x'))
+            d4 = models.model_tree_node(name='d4_wb97x', operator='predict', model=models.methods(method='D4', functional='wb97x', **dftd4_kwargs))
             aiqm1_children.append(d4)
         self.aiqm1_model = models.model_tree_node(name=modelname, children=aiqm1_children, operator='sum')
     

@@ -1,11 +1,11 @@
 import json
 import sys,os
+from . import models
 
 def printHeader(args):
     with open(os.path.dirname(__file__)+'/ref.json','r') as f:
         refs = json.load(f)
     refItems = {}
-
     # ML tasks
     if args.MD: refItems['MD']  = refs['MD']
     if args.mlqd: refItems['MLQD program']  = refs['MLQDprog']
@@ -70,7 +70,7 @@ def printHeader(args):
         refItems['hyperopt program'] = refs['hyperopt']
         refItems['Tree-Structured Parzen Estimator algorithm'] = refs['TPE']
         
-    if 'aiqm1' in ' '.join(args.args2pass).lower():
+    if args.method in models.methods.methods_map['aiqm1']:
         refItems['AIQM1']  = refs['AIQM1']
         refItems['ODM2']  = refs['ODM2']
         if 'qmprog=sparrow' in ' '.join(args.args2pass).lower() and 'sparrowbin' in os.environ:
@@ -86,7 +86,7 @@ def printHeader(args):
         if args.freq:
             refItems['Uncertainty quantification of AIQM1 heats of formation'] = refs['HoF-ANI1ccx']
     
-    if 'odm2' in ' '.join(args.args2pass).lower():
+    if args.method in models.methods.methods_map['mndo'] + models.methods.methods_map['sparrow']:
         if args.ODM2:
             refItems['ODM2']  = refs['ODM2']
         elif args.ODM2star:
@@ -107,19 +107,25 @@ def printHeader(args):
         refItems['GFN2-xTB']  = refs['GFN2-xTB']
         refItems['xtb program']  = refs['xtb']
         
-    if 'ani1ccx' in ' '.join(args.args2pass).lower():
+    if args.ani1ccx:
         refItems['ANI-1ccx'] = refs['ANI-1ccx']
         refItems['TorchANI program'] = refs['TorchANI']
         if args.freq:
             refItems['ANI-1ccx enthalpies of formation'] = refs['HoF-ANI1ccx']
             
-    if 'ani-1x' in ' '.join(args.args2pass).lower():
+    if args.ani1x or args.ani1xd4:
         refItems['ANI-1x'] = refs['ANI-1x']
         refItems['TorchANI program'] = refs['TorchANI']
+        if args.ani1xd4:
+            refItems['D4']  = refs['D4']
+            refItems['D4 program']  = refs['D4prog']
         
-    if 'ani-2x' in ' '.join(args.args2pass).lower():
+    if args.ani2x or args.ani2xd4:
         refItems['ANI-2x'] = refs['ANI-2x']
         refItems['TorchANI program'] = refs['TorchANI']
+        if args.ani2xd4:
+            refItems['D4']  = refs['D4']
+            refItems['D4 program']  = refs['D4prog']
     
     if (args.geomopt or args.freq):# or args.ts or args.irc):
         if 'optprog=ase' in ' '.join(args.args2pass).lower():

@@ -157,8 +157,9 @@ class doc_inherit:
         docs = [self.mthd.__doc__ if self.mthd.__doc__ else '']
         for parent in cls.__mro__[1:]:
             parent_mthd = getattr(parent, self.name, None)
-            if parent_mthd.__doc__: 
-                docs.append(parent_mthd.__doc__)
+            if parent_mthd:
+                if parent_mthd.__doc__: 
+                    docs.append(parent_mthd.__doc__)
                 break
         docs.reverse()  
         from functools import wraps

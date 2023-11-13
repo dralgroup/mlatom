@@ -791,12 +791,11 @@ class Doc():
     Output options:
       trajH5MDout=S              trajectory saved in H5MD file format 
                                  [traj.h5 by default]
-      trajTextout=S              trajectory saved in plain text format
+      trajTextout=S              trajectory saved in plain text file format
                                  [traj by default]
   Example:
     MLatom.py MD AIQM1 initXYZ=H2.xyz initVXYZ=H2.vxyz
 ''',
-
   'MLQD':'''
   Perform ML-accelerated quantum dynamics via the interface
   to the MLQD package (https://github.com/Arif-PhyChem/MLQD).
@@ -814,7 +813,8 @@ class Doc():
         systemType=[SB, FMO or any other type] (not optional)	        There is no default option. It tells MLQD what type of system we are studying.
         hyperParam=[True or False]	                                    Default is False. It is case sensitive and it asks MLQD to optimize the hyper parameters of the model.
         patience=[integer non-negative number]	                        Default value is 10	and it defines the patience for early stopping in CNN training [OSTL and AIQD methods].
-        epochs=[integer non-negative number]	                        Default value is 100 and it defines the number of epochs for training and optimization of CNN model [OSTL and AIQD methods].
+        OptEpochs=[integer non-negative number]	                        Default value is 100. It defines the number of epochs for optimization of CNN model [OSTL and AIQD methods].
+        TrEpochs=[integer non-negative number]	                        Default value is 100. It defines the number of epochs for training of CNN model [OSTL and AIQD methods].
         max_evals=[integer non-negative number]	                        Default value is 100 and it defines the number of maximum evaluations in hyperopt optimization of CNN model [OSTL and AIQD methods].
         XfileIn=[name of X file]	                                    Default is x_data if QDmodel=createQDmodel and prepInput=True. In the case of QDmodel=createQDmodel, it is optional and provides a name for X file. 
                                                                         It saves the X file with this name if prepInput=True, and it provides the Xfile if prepInput=False. However if QDmodel=useQDmodel and QDmodelType=KRR , 
@@ -823,6 +823,8 @@ class Doc():
                                                                         It saves the Y file with this name if prepInput=True , and it provides the Y file if prepInput=False.
         dataPath=[absolute or relative path of training data]		    In the case of QDmodel=createQDmodel, and prepInput=True, we need to pass datapath, so MLQD can prepare the X and Y files. It should be noted that, 
                                                                         data should be in the same format as our in our database QDDSET-1 especially when QDmodelType=OSTL or AIQD.
+        krrSigma=[float, value of sigma hyperparameter]                 Specific to KRR. It defines value for Gaussian kernal in KRR. Default value is 4.0.
+        krrLamb=[float, value of lambda hyperparameter]                 Specific to KRR. It defines value for Gaussian kernal in KRR. Default value is 0.00000001
         n_states=[number of states or sites, integer]	                Default is 2 for SB and 7 for FMO. It defines the number of states (SB) or sites (FMO).
         initState=[number of initial site]	                            Default value is 1 (Initial exictation is on site-1). It represents initial site in FMO complex and it is required when we propagate dynamics with OSTL or AIQD method
         time=[propagation time]	                                        Default is 20\Delta for SB and 50ps for FMO	complex.
@@ -843,7 +845,7 @@ class Doc():
         LogCb=[coefficient]	                                            Default value is 15.0. It defines coefficient “b” in the logistic function.
         LogCc=[coefficient]	                                            Default value is -1.0. It defines coefficient “c” in the logistic function.
         LogCd=[coefficient]	                                            Default value is 1.0.  It defines coefficient “d” in the logistic function.
-        dataCol=[column number]	                                        Default value is 1 and it is required when QDmodelType=KRR. In addition, it works only for single output values. If ther are multiple columns in you data files, 
+        dataCol=[column number]	                                        Default value is 1 and it is required when QDmodelType=KRR. It is used to grab the corresponding column from the reference trajectory for plotting. 
                                                                         you need to mention which column to grab.
         dtype=[real or imag]	                                        Default is real. It serves when QDmodelType=KRR and your data is complex. As KRR deals only with real data, we need to mention which part of the complex data 
                                                                         MLQD needs to grab; real or imaginary.

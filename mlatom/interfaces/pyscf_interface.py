@@ -216,17 +216,18 @@ class pyscf_methods(models.model):
         
         molecule.energy = pyscf_method.e_tot
 
-        if isinstance(pyscf_method, scf.hf.RHF):      
-            hess = hessian.RHF(pyscf_method).kernel()
+        # if isinstance(pyscf_method, scf.hf.RHF):      
+        #     hess = hessian.RHF(pyscf_method).kernel()
 
-        elif isinstance(pyscf_method, scf.uhf.UHF):
-            hess = hessian.UHF(pyscf_method).kernel()
+        # elif isinstance(pyscf_method, scf.uhf.UHF):
+        #     hess = hessian.UHF(pyscf_method).kernel()
 
-        elif isinstance(pyscf_method, dft.rks.RKS):
-            hess = hessian.RKS(pyscf_method).kernel()
+        # elif isinstance(pyscf_method, dft.rks.RKS):
+        #     hess = hessian.RKS(pyscf_method).kernel()
         
-        elif isinstance(pyscf_method, dft.uks.UKS):
-            hess = hessian.UKS(pyscf_method).kernel()
+        # elif isinstance(pyscf_method, dft.uks.UKS):
+        #     hess = hessian.UKS(pyscf_method).kernel()
+        hess = pyscf_method.Hessian().kernel()
 
         thermo_results = harmonic_analysis(pyscf_mol, hess)
         freq_wn = thermo_results['freq_wavenumber']

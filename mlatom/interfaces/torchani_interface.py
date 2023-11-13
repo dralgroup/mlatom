@@ -45,7 +45,7 @@ class ani(models.ml_model, models.torchani_model):
 
     Arguments:
         model_file (str, optional): The filename that the model to be saved with or loaded from.
-        device (str, optional): Indicate which device the calculation will be run on. i.e. 'cpu' for CPU, 'cuda' for Nvidia GPUs.
+        device (str, optional): Indicate which device the calculation will be run on. i.e. 'cpu' for CPU, 'cuda' for Nvidia GPUs. When not speficied, it will try to use CUDA if there exists valid ``CUDA_VISIBLE_DEVICES`` in the environ of system.
         hyperparameters (Dict[str, Any] | :class:`mlatom.models.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
         verbose (int, optional): 0 for silence, 1 for verbosity.
     '''
@@ -114,6 +114,7 @@ class ani(models.ml_model, models.torchani_model):
                 self.hyperparameters[hyperparam].value = args.ani.data[hyperparam]
 
     def reset(self):
+        super().reset()
         self.model = None
 
 
@@ -173,6 +174,8 @@ class ani(models.ml_model, models.torchani_model):
 
         if 'AEV_computer' in model_dict:
             self.aev_computer = model_dict['AEV_computer']
+            if 'use_cuda_extension' not in self.aev_computer.__dict__:
+                self.aev_computer.use_cuda_extension = False
             self.argsdict.update({'Rcr': self.aev_computer.Rcr, 'Rca': self.aev_computer.Rca, 'EtaR': self.aev_computer.EtaR, 'ShfR': self.aev_computer.ShfR, 'Zeta': self.aev_computer.Zeta, 'ShfZ': self.aev_computer.ShfZ, 'EtaA': self.aev_computer.EtaA, 'ShfA': self.aev_computer.ShfA})
         elif 'Rcr' in model_dict['args']:
             self.AEV_setup(**model_dict['args'])
@@ -405,9 +408,10 @@ class ani(models.ml_model, models.torchani_model):
             super().predict(molecular_database=molecular_database, molecule=molecule, calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, property_to_predict = property_to_predict, xyz_derivative_property_to_predict = xyz_derivative_property_to_predict, hessian_to_predict = hessian_to_predict)
         
         for batch in molDB.batches(batch_size):
-            for properties in molDB2ANIdata(molDB).species_to_indices(self.species_order).collate(batch_size).cache():
+            for properties in molDB2ANIdata(batch).species_to_indices(self.species_order).collate(batch_size).cache():
                 species = properties['species'].to(self.device)
-                xyz_coordinates = properties['coordinates'].to(self.device).float().to(self.device).requires_grad_(bool(xyz_derivative_property_to_predict or hessian_to_predict))
+                xyz_coordinates = properties['coordinates'].float().to(self.device).requires_grad_(bool(xyz_derivative_property_to_predict or hessian_to_predict))
+                break
             ANI_NN_energies = self.energy_shifter(self.model((species, xyz_coordinates))).energies
             if property_to_predict: 
                 batch.add_scalar_properties(ANI_NN_energies.detach().cpu().numpy(), property_to_predict)
@@ -534,7 +538,7 @@ class ani(models.ml_model, models.torchani_model):
 
         self.property_name = property_to_learn
         
-        data_element_symbols = list(np.sort(np.unique(molecular_database.get_element_symbols())))
+        data_element_symbols = list(np.sort(np.unique(np.concatenate(molecular_database.element_symbols))))
 
         if not self.species_order: 
             self.species_order = data_element_symbols
@@ -569,31 +573,43 @@ class ani(models.ml_model, models.torchani_model):
         self.argsdict.update({'self_energies': self.energy_shifter.self_energies, 'property': self.property_name})
 
 class ani_child(models.torchani_model):
-    def __init__(self, parent, index, device='cuda' if torch.cuda.is_available() else 'cpu'):
+    def __init__(self, parent, index, name='ani_child', device='cuda' if torch.cuda.is_available() else 'cpu'):
         self.device = torch.device(device)
+        self.name = name
         self.model = parent.__getitem__(index)
 
-    def predict(self, molecular_database=None, molecule=None,
-                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, batch_size=1024):
+    def predict(
+            self, 
+            molecular_database: data.molecular_database = None, 
+            molecule: data.molecule = None,
+            calculate_energy: bool = False,
+            calculate_energy_gradients: bool = False, 
+            calculate_hessian: bool = False,
+            batch_size: int = 2**16,
+        ) -> None:
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
 
-        for mol in molDB.molecules:
-            species = torch.tensor([atom.atomic_number for atom in mol.atoms]).to(self.device).unsqueeze(0)
-            xyz_coordinates = torch.tensor(mol.xyz_coordinates).double().to(self.device).requires_grad_(calculate_energy_gradients or calculate_hessian).unsqueeze(0)
-            ANI_NN_energy = self.model((species, xyz_coordinates)).energies
-            if calculate_energy: mol.energy = float(ANI_NN_energy)
+        for batch in molDB.batches(batch_size):
+            for properties in molDB2ANIdata(batch).species_to_indices('periodic_table').collate(batch_size).cache():
+                species = properties['species'].to(self.device)
+                if torchani.utils.PERIODIC_TABLE[0] == 'H':
+                    species += 1
+                xyz_coordinates = properties['coordinates'].to(self.device).float().to(self.device).requires_grad_(calculate_energy_gradients or calculate_hessian)
+                break
+            ANI_NN_energies = self.model((species, xyz_coordinates)).energies
+            if calculate_energy: 
+                batch.add_scalar_properties(ANI_NN_energies.detach().cpu().numpy(), 'energy')
             if calculate_energy_gradients or calculate_hessian:
-                ANI_NN_energy_gradients = torch.autograd.grad(ANI_NN_energy.sum(), xyz_coordinates, create_graph=True, retain_graph=True)[0]
+                ANI_NN_energy_gradients = torch.autograd.grad(ANI_NN_energies.sum(), xyz_coordinates, create_graph=True, retain_graph=True)[0]
                 if calculate_energy_gradients:
-                    grads = ANI_NN_energy_gradients[0].detach().cpu().numpy()
-                    for iatom in range(len(mol.atoms)):
-                        mol.atoms[iatom].energy_gradients = grads[iatom]
-            if calculate_hessian:
-                ANI_NN_hessian = torchani.utils.hessian(xyz_coordinates, energies=ANI_NN_energy)
-                mol.hessian = ANI_NN_hessian[0].detach().cpu().numpy()
+                    grads = ANI_NN_energy_gradients.detach().cpu().numpy()
+                    batch.add_xyz_vectorial_properties(grads, 'energy_gradients')
+                if calculate_hessian:
+                    ANI_NN_hessians = torchani.utils.hessian(xyz_coordinates, energies=ANI_NN_energies)
+                    batch.add_hessian_properties(ANI_NN_hessians.detach().cpu().numpy(), 'hessian')
     
-    def node(self, name):
-        return models.model_tree_node(name=name, operator='predict', model=self)
+    def node(self,):
+        return models.model_tree_node(name=self.name, operator='predict', model=self)
     
 class ani_methods(models.torchani_model):
     '''
@@ -601,7 +617,7 @@ class ani_methods(models.torchani_model):
 
     Arguments:
         method (str): A string that specifies the method. Available choices: ``'ANI-1x'``, ``'ANI-1ccx'``, or ``'ANI-2x'``.
-        device (str, optional): Indicate which device the calculation will be run on. i.e. 'cpu' for CPU, 'cuda' for Nvidia GPUs.
+        device (str, optional): Indicate which device the calculation will be run on. i.e. 'cpu' for CPU, 'cuda' for Nvidia GPUs. When not speficied, it will try to use CUDA if there exists valid ``CUDA_VISIBLE_DEVICES`` in the environ of system.
 
     '''
     available_methods = models.methods.methods_map['ani']
@@ -610,64 +626,85 @@ class ani_methods(models.torchani_model):
     def __init__(self, method: str = 'ANI-1ccx', device: str = 'cuda' if torch.cuda.is_available() else 'cpu', **kwargs):
         self.device = torch.device(device)
         self.model_setup(method)
+
+    def model_setup(self, method):
+        self.method = method
+        if 'ANI-1x'.casefold() in method.casefold():
+            self.model = torchani.models.ANI1x(periodic_table_index=True).to(self.device).double()
+        elif 'ANI-1ccx'.casefold() in method.casefold():
+            self.model = torchani.models.ANI1ccx(periodic_table_index=True).to(self.device).double()
+        elif 'ANI-2x'.casefold() in method.casefold():
+            self.model = torchani.models.ANI2x(periodic_table_index=True).to(self.device).double()
+        else:
+            print("method not found, please check ANI_methods().available_methods")
+            
+        self.element_symbols_available = self.model.species
+
         modelname = method.lower().replace('-','')
-        self.children = [ani_child(self.model, index, device=device).node(f'{modelname}_nn{index}') for index in range(len(self.model))]
+        self.children = [ani_child(self.model, index, name=f'{modelname}_nn{index}', device=self.device).node() for index in range(len(self.model))]
         if 'D4'.casefold() in self.method.casefold():
             d4 = models.model_tree_node(name='d4_wb97x', operator='predict', model=models.methods(method='D4', functional='wb97x'))
             ani_nns = models.model_tree_node(name=f'{modelname}_nn', children=self.children, operator='average')
             self.model = models.model_tree_node(name=modelname, children=[ani_nns, d4], operator='sum')
         else:
             self.model = models.model_tree_node(name=modelname, children=self.children, operator='average')
-
-    def model_setup(self, method):
-        self.method = method
-        if 'ANI-1x'.casefold() in method.casefold():
-            self.model = torchani.models.ANI1x(periodic_table_index=True).to(self.device).double()
-            self.atomic_number_available = [1, 6, 7, 8]     
-        elif 'ANI-1ccx'.casefold() in method.casefold():
-            self.model = torchani.models.ANI1ccx(periodic_table_index=True).to(self.device).double()
-            self.atomic_number_available = [1, 6, 7, 8]          
-        elif 'ANI-2x'.casefold() in method.casefold():
-            self.model = torchani.models.ANI2x(periodic_table_index=True).to(self.device).double()
-            self.atomic_number_available = [1, 6, 7, 8, 9, 16, 17]
-        else:
-            print("method not found, please check ANI_methods().available_methods")
             
     @doc_inherit
-    def predict(self, molecular_database=None, molecule=None, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False):
+    def predict(
+            self, 
+            molecular_database: data.molecular_database = None, 
+            molecule: data.molecule = None,
+            calculate_energy: bool = False,
+            calculate_energy_gradients: bool = False, 
+            calculate_hessian: bool = False,
+            batch_size: int = 2**16,
+        ) -> None:
+        '''
+            batch_size (int, optional): The batch size for batch-predictions.
+        '''
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
 
-        for mol in molDB.molecules:
-            self.predict_for_molecule(molecule=mol,
-                                    calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian)
-        
-    def predict_for_molecule(self, molecule=None,
-                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False):
-        
-        for atom in molecule.atoms:
-            if not atom.atomic_number in self.atomic_number_available:
-                print(f' * Warning * Molecule contains elements other than {"C/H/N/O/F/S/Cl" if "ANI-2x".casefold() in self.method.casefold() else "CHNO"}, no calculations performed')
+        for element_symbol in np.unique(np.concatenate(molDB.element_symbols)):
+            if element_symbol not in self.element_symbols_available:
+                print(f' * Warning * Molecule contains elements \'{element_symbol}\', which is not supported by method \'{self.method}\' that only supports {self.element_symbols_available}, no calculations performed')
                 return
+            
+        monoatomic_idx = molDB.number_of_atoms == 1
+
+        for mol in molDB[monoatomic_idx]:
+            self.predict_monoatomic(molecule=mol,
+                                    calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian)
+            
+        self.model.predict(molecular_database=molDB[~monoatomic_idx],
+                           calculate_energy=calculate_energy,
+                           calculate_energy_gradients=calculate_energy_gradients, 
+                           calculate_hessian=calculate_hessian,
+                           batch_size=batch_size)
         
-        if len(molecule.atoms) == 1:
+        for mol in molDB[~monoatomic_idx]:
+            self.get_SD(molecule=mol,
+                        calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian)
+
+    def predict_monoatomic(self, molecule, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False):
+        if calculate_energy:
             molecule.energy = self.atomic_energies[self.method][molecule.atoms[0].atomic_number]
-            
+        if calculate_energy_gradients:
+            molecule.add_xyz_vectorial_property(np.zeros_like(molecule.xyz_coordinates), 'energy_gradients')
+        if calculate_hessian:
+            molecule.hessian = np.zeros((len(molecule),)*2)
+        
+    def get_SD(self, molecule=None,
+                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False):
+        properties = [] ; atomic_properties = []
+        if calculate_energy: properties.append('energy')
+        if calculate_energy_gradients: atomic_properties.append('energy_gradients')
+        if calculate_hessian: properties.append('hessian')
+        if 'D4'.casefold() in self.method.casefold():
+            modelname = self.method.lower().replace('-','')
+            modelname = f'{modelname}_nn'
         else:
-            self.model.predict(molecule=molecule,
-                               calculate_energy=calculate_energy,
-                               calculate_energy_gradients=calculate_energy_gradients, 
-                               calculate_hessian=calculate_hessian)
-            
-            properties = [] ; atomic_properties = []
-            if calculate_energy: properties.append('energy')
-            if calculate_energy_gradients: atomic_properties.append('energy_gradients')
-            if calculate_hessian: properties.append('hessian')
-            if 'D4'.casefold() in self.method.casefold():
-                modelname = self.method.lower().replace('-','')
-                modelname = f'{modelname}_nn'
-            else:
-                modelname = self.method.lower().replace('-','')
-            molecule.__dict__[f'{modelname}'].standard_deviation(properties=properties+atomic_properties)
+            modelname = self.method.lower().replace('-','')
+        molecule.__dict__[f'{modelname}'].standard_deviation(properties=properties+atomic_properties)
 
 def printHelp():
     helpText = __doc__.replace('.. code-block::\n\n', '') + '''

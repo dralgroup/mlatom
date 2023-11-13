@@ -13,6 +13,7 @@ import sys
 from .. import data
 from .. import models
 from .. import stopper
+from .. import environment_variables
 from ..utils import doc_inherit
 
 class dftd4_methods(models.model):
@@ -29,14 +30,20 @@ class dftd4_methods(models.model):
         For more discussion, please refer to  https://github.com/dftd4/dftd4/issues/20.
 
     '''
-    def __init__(self, functional=None, **kwargs):
+    def __init__(self, functional=None, save_files_in_current_directory=True, **kwargs):
         self.functional = functional
+        self.save_files_in_current_directory = save_files_in_current_directory
+        if 'nthreads' in kwargs:
+            self.nthreads = kwargs['nthreads']
+        else:
+            self.nthreads = environment_variables.env.get_nthreads()
     
     @doc_inherit
     def predict(self, molecular_database=None, molecule=None,
                 calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False):
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
-    
+
+        environment_variables.env.set_nthreads(self.nthreads)
         import os
         try: dftd4bin = os.environ['dftd4bin']
         except:
@@ -52,19 +59,18 @@ class dftd4_methods(models.model):
         ii = 0
         for mol in molDB.molecules:
             with tempfile.TemporaryDirectory() as tmpdirname:
-                tmpdirname='.'
+                if self.save_files_in_current_directory: tmpdirname='.'
                 ii += 1
                 xyzfilename = f'{tmpdirname}/predict{ii}.xyz'
                 mol.write_file_with_xyz_coordinates(filename = xyzfilename)
                 
-                dftd4args = [dftd4bin, xyzfilename, '-f', '%s' % self.functional, '-c', '%d' % mol.charge]
-                
+                dftd4args = [dftd4bin, xyzfilename, '-f', '%s' % self.functional, '-c', '%d' % mol.charge, '-s', '-s', '--noedisp']
                 if calculate_hessian:
-                    dftd4args += ['-s', '--grad', '--hess', '--orca', '--json']
+                    dftd4args += ['--json', '--grad', '--hessian']
                 elif calculate_energy_gradients:
-                    dftd4args += ['-s', '--grad', '--orca', '--json']
+                    dftd4args += ['--json', '--grad']
                 elif calculate_energy:
-                    dftd4args += ['-s', '--orca', '--json']
+                    dftd4args += ['--json']
                 dftd4outfilename = f'{tmpdirname}/mndo{ii}.out'
                 # dftd4args += ['&>',dftd4outfilename]
                 # cmd = ' '.join(dftd4args)
@@ -79,7 +85,7 @@ class dftd4_methods(models.model):
                 outs,errs = proc.communicate() # Type of outs and errs is str
                 #print(outs.split('\n'))
                 dftd4_successful = False
-                if 'normal termination of dftd4' in outs+errs:
+                if 'Error termination' not in outs+errs:
                     dftd4_successful = True
 
                 mol.dftd4_successful = dftd4_successful

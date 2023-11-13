@@ -69,6 +69,18 @@ class sgdml(models.ml_model):
         model_file (str, optional): The filename that the model to be saved with or loaded from.
         hyperparameters (Dict[str, Any] | :class:`mlatom.models.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
         verbose (int, optional): 0 for silence, 1 for verbosity.
+
+    Hyperparameters:
+
+        Please refer to the sgdml manual
+
+        no_E:       mlatom.models.hyperparameter(value=False)
+        gdml:       mlatom.models.hyperparameter(value=False)
+        perms:      mlatom.models.hyperparameter(value=None)
+        sigma:      mlatom.models.hyperparameter(value=None)
+        E_cstr:     mlatom.models.hyperparameter(value=False)
+        cprsn:      mlatom.models.hyperparameter(value=False)
+
     '''
 
     hyperparameters = models.hyperparameters({
@@ -119,6 +131,7 @@ class sgdml(models.ml_model):
                 self.hyperparameters[hyperparam].value = args.sgdml.data[hyperparam]
 
     def reset(self):
+        super().reset()
         self.model = None
     
     def load(self, model_file):

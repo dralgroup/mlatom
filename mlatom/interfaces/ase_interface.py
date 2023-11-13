@@ -137,8 +137,7 @@ class MLatomCalculator(Calculator):
             
             self.model.predict(molecule=current_molecule, calculate_energy=True, calculate_energy_gradients=True)
             if not 'energy' in current_molecule.__dict__:
-                if pythonpackage: raise ValueError('model did not return any energy')
-                else: stopper.stopMLatom('model did not return any energy')
+                raise ValueError('model did not return any energy')
             
             if self.save_optimization_trajectory:
                 global optimization_trajectory
