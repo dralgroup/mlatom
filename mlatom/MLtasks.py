@@ -553,6 +553,8 @@ def loading_model(args):
         model = models.dpmd(model_file=model_file)
     elif args.MLprog.lower() in ['physnet']:
         model = models.physnet(model_file=model_file)
+    elif args.MLprog.lower() in ['mace']:
+        model = models.mace(model_file=model_file)
     elif args.MLprog.lower() in ['gap', 'gap-soap']:
         model = models.gap(model_file=model_file)
     elif args.MLprog.lower() in ['sgdml', 'gdml']:

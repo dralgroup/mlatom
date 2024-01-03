@@ -12,6 +12,7 @@
     "Wigner":                 "Schinke, R. Photodissociation Dynamics: Spectroscopy and Fragmentation of\nSmall Polyatomic Molecules; Cambridge University Press: Cambridge, U.K., 1995",
     "NEWTON-X":              "M. Barbatti, G. Granucci, M. Ruckenbauer, F. Plasser,\nR. Crespo-Otero,\nJ. Pittner, M. Persico, H. Lischka,\nNEWTON-X:\na package for Newtonian dynamics close to the crossing seam,\nversion 2.2, www.newtonx.org, 2017\n\nM. Barbatti, M. Bondanza, R. Crespo-Otero, B. Demoulin, P. O. Dral,\nG. Granucci, F. Kossoski, H. Lischka, B. Mennucci, S. Mukherjee, M. Pederzoli,\nM. Persico, M. Pinheiro Jr, J. Pittner, F. Plasser, E. Sangiogo Gil, L. Stojanovic.\nJ. Chem. Theory Comput. 2022, 18, 6851",
     "PhysNet":               "O. T. Unke, M. Meuwly, J. Chem. Theory Comput. 2019, 15, 3678",
+    "MACE":                  "I. Batatia, D. P. Kovács, G. N. C. Simm, C. , G. Csányi,\nAdvances in Neural Information Processing Systems,\nhttps://openreview.net/forum?id=YPpSngE-ZU, 2022.\nI. Batatia, S. Batzner, D. P. Kovács, A. Musaelian, G. N. C. Simm, C. Ortner, B. Kozinsky,  G. Csányi, arXiv:2205.06643, 2022.",
     "TorchANI":              "X. Gao, F. Ramezanghorbani, O. Isayev, J. S. Smith, A. E. Roitberg,\nJ. Chem. Inf. Model. 2020, 60, 3408",
     "ANI":                   "J. S. Smith, O. Isayev, A. E. Roitberg, Chem. Sci. 2017, 8, 3192",
     "ANI-1x":                "J. S. Smith, B. Nebgen, N. Lubbers, O. Isayev, A. E. Roitberg,\nJ. Chem. Phys. 2018, 148, 241733",
