@@ -16,6 +16,7 @@ class Doc():
         sgdml_alias=['sgdml']
         deepmd_alias=['dp','dpmd', 'deepmd','deepmd-kit']
         physnet_alias=['physnet']
+        mace_alias=['mace']
         ani_alias=['torchani','ani']
         overview=True
         for key, value in argdict.items():
@@ -47,6 +48,10 @@ class Doc():
                     overview=False
                 elif value.lower() in physnet_alias:
                     from .interfaces.physnet_interface import printHelp
+                    printHelp()
+                    overview=False
+                elif value.lower() in mace_alias:
+                    from .interfaces.mace_interface import printHelp
                     printHelp()
                     overview=False
                 else:
@@ -107,6 +112,8 @@ class Doc():
   +-------------+----------------+ 
   | PhysNet     | PhysNet        | 
   +-------------+----------------+ 
+  | MACE        | MACE           | 
+  +-------------+----------------+ 
   | DeepPot-SE  | DeePMD-kit     | 
   +-------------+----------------+ 
   | ANI         | TorchANI       | 
@@ -127,6 +134,8 @@ class Doc():
   | GAP        | GAP-SOAP             |
   +------------+----------------------+
   | PhysNet    | PhysNet              |
+  +------------+----------------------+
+  | MACE       | MACE                 | 
   +------------+----------------------+
   | DeePMD-kit | DeepPot-SE [default] |
   |            | DPMD                 |

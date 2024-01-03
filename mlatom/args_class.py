@@ -32,6 +32,7 @@ default_MLprog={
     'dpmd': 'deepmd-kit',
     'deeppot-se': 'deepmd-kit',
     'physnet': 'physnet',
+    'mace': 'mace',
     'ani': 'torchani',
     'ani-aev':'torchani',
     'ani1x': 'torchani',

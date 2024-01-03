@@ -942,51 +942,44 @@ def ani(**kwargs):
     '''
     Returns an ANI model object (see :class:`mlatom.interfaces.torchani_interface.ani`).
     '''
-    try:
-        from .interfaces.torchani_interface import ani
-    except: 
-        from interfaces.torchani_interface import ani
+    from .interfaces.torchani_interface import ani
     return ani(**kwargs)
 
 def dpmd(**kwargs):
     '''
-    Returns an DPMD model object (see :class:`mlatom.interfaces.dpmd_interface.dpmd`).
+    Returns a DPMD model object (see :class:`mlatom.interfaces.dpmd_interface.dpmd`).
     '''
-    try:
-        from .interfaces.dpmd_interface import dpmd
-    except: 
-        from interfaces.dpmd_interface import dpmd
+    from .interfaces.dpmd_interface import dpmd
     return dpmd(**kwargs)
 
 def gap(**kwargs):
     '''
-    Returns an GAP model object (see :class:`mlatom.interfaces.gap_interface.gap`).
+    Returns a GAP model object (see :class:`mlatom.interfaces.gap_interface.gap`).
     '''
-    try:
-        from .interfaces.gap_interface import gap
-    except: 
-        from interfaces.gap_interface import gap
+    from .interfaces.gap_interface import gap
     return gap(**kwargs)
 
 def physnet(**kwargs):
     '''
-    Returns an PhysNet model object (see :class:`mlatom.interfaces.physnet_interface.physnet`).
+    Returns a PhysNet model object (see :class:`mlatom.interfaces.physnet_interface.physnet`).
     '''
-    try:
-        from .interfaces.physnet_interface import physnet
-    except: 
-        from interfaces.physnet_interface import physnet
+    from .interfaces.physnet_interface import physnet
     return physnet(**kwargs)
 
 def sgdml(**kwargs):
     '''
     Returns an sGDML model object (see :class:`mlatom.interfaces.sgdml_interface.sgdml`).
     '''
-    try:
-        from .interfaces.sgdml_interface import sgdml
-    except: 
-        from interfaces.sgdml_interface import sgdml
+    from .interfaces.sgdml_interface import sgdml
     return sgdml(**kwargs)
+
+def mace(**kwargs):
+    '''
+    Returns an MACE model object (see :class:`mlatom.interfaces.sgdml_interface.sgdml`).
+    '''
+    from .interfaces.mace_interface import mace
+    return mace(**kwargs)
+
 
 class model_tree_node(model):
     '''
