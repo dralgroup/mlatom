@@ -717,7 +717,7 @@ class sgdml(models.ml_model):
             if is_validation:
                 if is_model_validated and not overwrite:
                     if self.verbose: log.info(
-                        'Skipping already validated model. Set overwrite=True to overwitre.'
+                        'Skipping already validated model. Set overwrite=True to overwrite.'
                     )
                     continue
 

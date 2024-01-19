@@ -217,6 +217,7 @@ class mace(models.ml_model, models.torch_model):
         if device == 'cuda':
             self.hyperparameters.default_dtype = 'float32'
         self.device = tools.init_device(device)
+        self.hyperparameters = self.hyperparameters.copy()
         self.hyperparameters.update(hyperparameters)
         if model_file: 
             if os.path.isfile(model_file):
@@ -778,7 +779,7 @@ class mace(models.ml_model, models.torch_model):
             property_to_predict: Union[str, None] = 'estimated_y', 
             xyz_derivative_property_to_predict: Union[str, None] = None, 
             hessian_to_predict: Union[str, None] = None, 
-            batch_size: int = 2**16,
+            batch_size: int = 8,
         ) -> None:
         '''
             batch_size (int, optional): The batch size for batch-predictions.

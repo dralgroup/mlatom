@@ -144,7 +144,7 @@ class md2vibr(object):
             if h5mdin=='':
                 stopMLatom('Please provide H5MD file')
             elif not os.path.exists(h5mdin):
-                stopMLatom('H5MD file not found: %d does not exist'%(h5mdin))
+                stopMLatom('H5MD file not found: %s does not exist'%(h5mdin))
 
             # with File(h5mdin,'r') as h5f:
             #     part = h5f.particles_group('all')

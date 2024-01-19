@@ -93,7 +93,7 @@ class Nose_Hoover_thermostat(Thermostat):
         else:
             self.NHC_length = 3
         if 'multiple_time_steps' in kwargs:
-            self.Nc = kwargs['multiple_time_step']
+            self.Nc = kwargs['multiple_time_steps']
         else:
             self.Nc = 3 
         if 'number_of_yoshida_suzuki_steps' in kwargs:

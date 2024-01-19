@@ -13,7 +13,7 @@ import sys
 from .. import data
 from .. import models
 from .. import stopper
-from .. import environment_variables
+#from .. import environment_variables
 from ..utils import doc_inherit
 
 class dftd4_methods(models.model):
@@ -22,6 +22,8 @@ class dftd4_methods(models.model):
 
     Arguments:
         functional (str): functional to use
+        save_files_in_current_directory (bool): whether to keep input and output files, default ``'True'``
+        working_directory (str): path to the directory where the program output files and other tempory files are saved, default ``'None'``
     
     .. note::
     
@@ -30,20 +32,21 @@ class dftd4_methods(models.model):
         For more discussion, please refer to  https://github.com/dftd4/dftd4/issues/20.
 
     '''
-    def __init__(self, functional=None, save_files_in_current_directory=True, **kwargs):
+    def __init__(self, functional=None, save_files_in_current_directory=True, working_directory=None, **kwargs):
         self.functional = functional
         self.save_files_in_current_directory = save_files_in_current_directory
+        self.working_directory = working_directory
         if 'nthreads' in kwargs:
             self.nthreads = kwargs['nthreads']
-        else:
-            self.nthreads = environment_variables.env.get_nthreads()
+        # else:
+        #     self.nthreads = environment_variables.environment_variables().get_nthreads()
     
     @doc_inherit
     def predict(self, molecular_database=None, molecule=None,
-                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False):
+                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, **kwargs):
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
 
-        environment_variables.env.set_nthreads(self.nthreads)
+        # environment_variables.environment_variables().set_nthreads(self.nthreads)
         import os
         try: dftd4bin = os.environ['dftd4bin']
         except:
@@ -54,12 +57,22 @@ class dftd4_methods(models.model):
                 from .. import constants
             except:
                 import constants
-            
+        
+        if os.environ.get("OMP_NUM_THREADS"):
+            old_OMP_NUM_THREADS = os.environ["OMP_NUM_THREADS"]
+            os.unsetenv("OMP_NUM_THREADS")
+        else:
+            old_OMP_NUM_THREADS = None
         import tempfile, subprocess        
         ii = 0
         for mol in molDB.molecules:
             with tempfile.TemporaryDirectory() as tmpdirname:
                 if self.save_files_in_current_directory: tmpdirname='.'
+                if self.working_directory is not None:
+                    tmpdirname = self.working_directory
+                    if not os.path.exists(tmpdirname):
+                        os.makedirs(tmpdirname)
+                    tmpdirname = os.path.abspath(tmpdirname)
                 ii += 1
                 xyzfilename = f'{tmpdirname}/predict{ii}.xyz'
                 mol.write_file_with_xyz_coordinates(filename = xyzfilename)
@@ -104,6 +117,8 @@ class dftd4_methods(models.model):
                     natoms = len(mol.atoms)
                     hess = np.array(d4_results['hessian']) / (constants.Bohr2Angstrom**2)
                     mol.hessian = hess.reshape(natoms*3,natoms*3)
+        if old_OMP_NUM_THREADS:
+            os.environ['OMP_NUM_THREADS'] = old_OMP_NUM_THREADS
 
 if __name__ == '__main__':
     pass

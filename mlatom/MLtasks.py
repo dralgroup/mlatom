@@ -413,6 +413,11 @@ def freq(args):
                 linearlist = args.ase.linear.split(',')
             if linearlist[imol] == '1': mol.shape = 'linear'
             else: mol.shape='nonlinear'
+        else:
+            if mol.is_it_linear():
+                mol.shape = 'linear'
+            else:
+                mol.shape = 'nonlinear'
         if args.ase.symmetrynumber:
             if len(molDB) == 1:
                 symmetrynumbers = [args.ase.symmetrynumber]
@@ -573,7 +578,7 @@ def sampling(args=None, XYZfile=None, XfileIn=None, sampling=None, Nuse=None,
              iTrainIn=None, iSubtrainIn=None, iValidateIn=None, iTestIn=None, 
              iTrainOut=None, iSubtrainOut=None, iValidateOut=None, iTestOut=None,
              CVtest=False, NcvTestFolds=None, iCVtestPrefIn=None, iCVtestPrefOut=None,
-             CVopt=False, NcvOptFolds=None, iCVoptPrefIn=None, iCVoptPrefOut=None,):
+             CVopt=False, NcvOptFolds=None, iCVoptPrefIn=None, iCVoptPrefOut=None, sample_test=False):
     i_train    = None
     i_subtrain = None
     i_validate = None
@@ -582,6 +587,8 @@ def sampling(args=None, XYZfile=None, XfileIn=None, sampling=None, Nuse=None,
     i_cvopt    = None
 
     if args:
+        if args.estAccMLmodel or args.learningCurve:
+            sample_test = True
         args = args.copy('sample', ["XYZfile", "XfileIn", "sampling", "CVtest", "CVopt", "Nuse", "Ntrain", "Nsubtrain", "Nvalidate", "Ntest", "NcvTestFolds", "NcvOptFolds", "iTrainIn", "iSubtrainIn", "iValidateIn", "iTestIn", "iCVtestPrefIn", "iCVoptPrefIn", "iTrainOut", "iSubtrainOut", "iValidateOut", "iTestOut", "iCVtestPrefOut", "iCVoptPrefOut"])
     else:
         args = mlatom_args()
@@ -624,7 +631,8 @@ def sampling(args=None, XYZfile=None, XfileIn=None, sampling=None, Nuse=None,
             args.iTrainOut      = tmpdirname + '/itrain.dat'
             args.iSubtrainOut   = tmpdirname + '/isubtrain.dat'
             args.iValidateOut   = tmpdirname + '/ivalidate.dat'
-            args.iTestOut       = tmpdirname + '/itest.dat'
+            if sample_test:
+                args.iTestOut   = tmpdirname + '/itest.dat'
             args.iCVtestPrefOut = tmpdirname + '/icvtest'
             args.iCVoptPrefOut  = tmpdirname + '/icvopt' if not args.CVtest else 'icvopt'
             sample(args)

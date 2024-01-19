@@ -20,18 +20,21 @@ class sparrow_methods(models.model):
 
     Arguments:
         method (str): method to use
+        read_keywords_from_file (str): keywords used in Sparrow
+        save_files_in_current_directory (bool): whether to keep input and output files, default ``'False'``
+        working_directory (str): path to the directory where the program output files and other tempory files are saved, default ``'None'``
 
     .. note::
 
         Methods supported:
 
         Energy: DFTB0, DFTB2, DFTB3
-        MNDO, MNDO/d, AM1, PM3, PM6
+        MNDO, MNDO/d, AM1, PM3, PM6, RM1,
         OM2, OM3, ODM2*, ODM3* 
         AIQM1
 
         Gradients: DFTB0, DFTB2, DFTB3
-        MNDO, MNDO/d, AM1, PM3, PM6
+        MNDO, MNDO/d, AM1, PM3, PM6, RM1
     
     '''
     availability_of_gradients_for_methods = {
@@ -41,10 +44,11 @@ class sparrow_methods(models.model):
         'AIQM1': False}
     available_methods = models.methods.methods_map['sparrow'] #need to sync with dict availability_of_gradients_for_methods somehow
     
-    def __init__(self, method='ODM2*', read_keywords_from_file='', save_files_in_current_directory=False, **kwargs):
+    def __init__(self, method='ODM2*', read_keywords_from_file='', save_files_in_current_directory=False, working_directory=None, **kwargs):
         self.method = method
         self.read_keywords_from_file = read_keywords_from_file
         self.save_files_in_current_directory = save_files_in_current_directory
+        self.working_directory = working_directory
         try:
             self.sparrowbin = os.environ['sparrowbin']
         except:
@@ -80,6 +84,11 @@ class sparrow_methods(models.model):
         for mol in molDB.molecules:
             with tempfile.TemporaryDirectory() as tmpdirname:  
                 if self.save_files_in_current_directory: tmpdirname = '.'
+                if self.working_directory is not None:
+                    tmpdirname = self.working_directory
+                    if not os.path.exists(tmpdirname):
+                        os.makedirs(tmpdirname)
+                    tmpdirname = os.path.abspath(tmpdirname)
                 ii += 1
                 xyzfilename = f'{tmpdirname}/predict{ii}.xyz'
                 mol.write_file_with_xyz_coordinates(filename = xyzfilename)

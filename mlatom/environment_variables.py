@@ -1,12 +1,14 @@
 import os 
 from multiprocessing import cpu_count
+# rename and  rewrite
 
 class environment_variables():
     def __init__(self,**kwargs):
         # Check CPU type
         self.check_cpu()
         # By default use all the CPU cores
-        self.set_nthreads(cpu_count())
+        # self.set_nthreads(cpu_count())
+        self.nthreads = cpu_count()
 
     def set_nthreads(self, nthreads):
         self.nthreads = nthreads
@@ -26,5 +28,3 @@ class environment_variables():
                     break
             f_cpu.close()
         except: pass
-
-env = environment_variables()

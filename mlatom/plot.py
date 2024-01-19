@@ -92,10 +92,10 @@ class plot(object):
         plt.xlabel(self.xaxis_caption, fontsize=18)
         plt.ylabel(self.yaxis_caption, fontsize=18)
 
-        zed = [tick.label.set_fontsize(14)
-               for tick in ax.xaxis.get_major_ticks()]
-        zed = [tick.label.set_fontsize(14)
-               for tick in ax.yaxis.get_major_ticks()]
+        # zed = [tick.label.set_fontsize(14)
+        #        for tick in ax.xaxis.get_major_ticks()]
+        # zed = [tick.label.set_fontsize(14)
+        #        for tick in ax.yaxis.get_major_ticks()]
 
         if self.trendline == 'linear':
             # Calculate the trendline
@@ -138,8 +138,8 @@ class plot(object):
             ax3.get_yaxis().set_visible(True)
             lines.append(ax3.plot(self.x3y, self.y3y,
                          'b.', label='Cross section')[0])
-            zed = [tick.set_fontsize(14)
-                   for tick in ax3.yaxis.get_ticklabels()]
+            # zed = [tick.set_fontsize(14)
+            #        for tick in ax3.yaxis.get_ticklabels()]
             ax3.spines['right'].set_color('k')
 
         if self.plotstart:
