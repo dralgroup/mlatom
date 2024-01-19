@@ -20,7 +20,8 @@ class orca_methods(models.model):
 
     Arguments:
         method (str): method used the same as in ORCA, e.g. ``'B3LYP/6-31G*'`` (case insensitive)
-        save_files_in_current_directory (bool): keep input and output files or not, default ``'False'``
+        save_files_in_current_directory (bool): whether to keep input and output files, default ``'False'``
+        working_directory (str): path to the directory where the program output files and other tempory files are saved, default ``'None'``
         nthreads (int): equivalent to %pal nprocs in ORCA input file 
         runTypes (str): equivalent to calculation types in ORCA input file, default ``'SP'`` (case insensitive)
 
@@ -35,7 +36,7 @@ class orca_methods(models.model):
         'nthreads'              : 1
     }
     
-    def __init__(self, method='', save_files_in_current_directory=False, **kwargs):
+    def __init__(self, method='', save_files_in_current_directory=False, working_directory=None, **kwargs):
         if not "orcabin" in os.environ:
             raise ValueError('enviromental variable orcabin is not set')
         else:
@@ -45,10 +46,8 @@ class orca_methods(models.model):
             self.orca_keywords['methods'] = method.split('/')[0]
             self.orca_keywords['basis'] = method.split('/')[1]
 
-        if 'save_files_in_current_directory' in kwargs.keys():
-            self.save_files_in_current_directory = kwargs['save_files_in_current_directory']
-        else:
-            self.save_files_in_current_directory = save_files_in_current_directory
+        self.save_files_in_current_directory = save_files_in_current_directory
+        self.working_directory = working_directory
         #if 'qm_kwargs' in kwargs.keys():
         for keyword, keyword_value in kwargs.items():
             self.orca_keywords[keyword] = keyword_value
@@ -78,6 +77,11 @@ class orca_methods(models.model):
                     
         with tempfile.TemporaryDirectory() as tmpdirname:
             if self.save_files_in_current_directory: tmpdirname = '.'
+            if self.working_directory is not None:
+                tmpdirname = self.working_directory
+                if not os.path.exists(tmpdirname):
+                    os.makedirs(tmpdirname)
+                tmpdirname = os.path.abspath(tmpdirname)
 
             for imol in range(len(molDB.molecules)):
                 imolecule = molDB.molecules[imol]

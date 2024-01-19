@@ -21,7 +21,8 @@ class mndo_methods(models.model):
     Arguments:
         method (str): method used in MNDO
         read_keywords_from_file (str): keywords used in MNDO
-        save_files_in_current_directory (bool): whether to keep input and output file, default True
+        save_files_in_current_directory (bool): whether to keep input and output files, default ``'True'``
+        working_directory (str): path to the directory where the program output files and other tempory files are saved, default ``'None'``
     '''
     method_keywords = {'ODM2*': 'iop=-22 immdp=-1',
                     'ODM2': 'iop=-22',
@@ -49,10 +50,11 @@ class mndo_methods(models.model):
 
     available_methods = models.methods.methods_map['mndo'] #need to sync with dict method_keywords somehow
     
-    def __init__(self, method='ODM2*', read_keywords_from_file='', save_files_in_current_directory=True, **kwargs):
+    def __init__(self, method='ODM2*', read_keywords_from_file='', save_files_in_current_directory=True, working_directory=None, **kwargs):
         self.method = method
         self.read_keywords_from_file = read_keywords_from_file
         self.save_files_in_current_directory = save_files_in_current_directory
+        self.working_directory = working_directory
         try: self.mndobin = os.environ['mndobin']
         except:
             errmsg = 'Cannot find the MNDO program, please set the environment variable: export mndobin=...'
@@ -67,7 +69,9 @@ class mndo_methods(models.model):
         except:
             import constants, data, stopper
             
-        if self.method.casefold() in self.heats_scf_methods: energy_label = 'enthalpy_of_formation_at_298_K'
+        if self.method.casefold() in self.heats_scf_methods:
+            energy_label = 'energy'
+            molecule.scf_enthalpy_of_formation_at_298_K = True
         else: energy_label = 'energy'
             
         if calculate_hessian: import struct
@@ -86,6 +90,11 @@ class mndo_methods(models.model):
                 mol.mndo_keywords = mndokeywords[jmol]
         with tempfile.TemporaryDirectory() as tmpdirname:
             if self.save_files_in_current_directory: tmpdirname = '.'
+            if self.working_directory is not None:
+                tmpdirname = self.working_directory
+                if not os.path.exists(tmpdirname):
+                    os.makedirs(tmpdirname)
+                tmpdirname = os.path.abspath(tmpdirname)
                     
             ii = 0
             for mol in molDB.molecules:
@@ -123,7 +132,7 @@ class mndo_methods(models.model):
                     fmndo.writelines('\n')
                 
                 mndooutfilename = f'{tmpdirname}/mndo{ii}.out'
-                mndoargs = [self.mndobin, '<', mndoinpfilename, '&>', mndooutfilename]
+                mndoargs = [self.mndobin, '<', mndoinpfilename, '>', mndooutfilename, '2>&1']
                 cmd = ' '.join(mndoargs)
                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=tmpdirname, universal_newlines=True, shell=True)
                 proc.communicate()

@@ -408,7 +408,7 @@ class ani(models.ml_model, models.torchani_model):
             super().predict(molecular_database=molecular_database, molecule=molecule, calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, property_to_predict = property_to_predict, xyz_derivative_property_to_predict = xyz_derivative_property_to_predict, hessian_to_predict = hessian_to_predict)
         
         for batch in molDB.batches(batch_size):
-            for properties in molDB2ANIdata(batch).species_to_indices(self.species_order).collate(batch_size).cache():
+            for properties in molDB2ANIdata(batch).species_to_indices(self.species_order).collate(batch_size):
                 species = properties['species'].to(self.device)
                 xyz_coordinates = properties['coordinates'].float().to(self.device).requires_grad_(bool(xyz_derivative_property_to_predict or hessian_to_predict))
                 break
@@ -567,8 +567,8 @@ class ani(models.ml_model, models.torchani_model):
         
         self.energy_shifter = self.energy_shifter.to(self.device)
         
-        self.subtraining_set = self.subtraining_set.collate(self.hyperparameters['batch_size'].value).cache()
-        self.validation_set = self.validation_set.collate(self.hyperparameters['batch_size'].value).cache()
+        self.subtraining_set = self.subtraining_set.collate(self.hyperparameters['batch_size'].value)
+        self.validation_set = self.validation_set.collate(self.hyperparameters['batch_size'].value)
 
         self.argsdict.update({'self_energies': self.energy_shifter.self_energies, 'property': self.property_name})
 
@@ -590,7 +590,7 @@ class ani_child(models.torchani_model):
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
 
         for batch in molDB.batches(batch_size):
-            for properties in molDB2ANIdata(batch).species_to_indices('periodic_table').collate(batch_size).cache():
+            for properties in molDB2ANIdata(batch).species_to_indices('periodic_table').collate(batch_size):
                 species = properties['species'].to(self.device)
                 if torchani.utils.PERIODIC_TABLE[0] == 'H':
                     species += 1
@@ -613,11 +613,11 @@ class ani_child(models.torchani_model):
     
 class ani_methods(models.torchani_model):
     '''
-    Creat a model object with on of the ANI methods
+    Create a model object with one of the ANI methods
 
     Arguments:
         method (str): A string that specifies the method. Available choices: ``'ANI-1x'``, ``'ANI-1ccx'``, or ``'ANI-2x'``.
-        device (str, optional): Indicate which device the calculation will be run on. i.e. 'cpu' for CPU, 'cuda' for Nvidia GPUs. When not speficied, it will try to use CUDA if there exists valid ``CUDA_VISIBLE_DEVICES`` in the environ of system.
+        device (str, optional): Indicate which device the calculation will be run on, i.e. 'cpu' for CPU, 'cuda' for Nvidia GPUs. When not speficied, it will try to use CUDA if there exists valid ``CUDA_VISIBLE_DEVICES`` in the environ of system.
 
     '''
     available_methods = models.methods.methods_map['ani']

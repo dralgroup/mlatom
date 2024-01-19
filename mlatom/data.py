@@ -452,7 +452,7 @@ class molecule:
     
     def update_xyz_vectorial_properties(self, property_name, vectorial_properties):
         for iatom in range(len(self.atoms)):
-            self.atoms[iatom].__dict__[property_name] = vectorial_properties
+            self.atoms[iatom].__dict__[property_name] = vectorial_properties[iatom]
 
     def copy(self, atomic_labels=None, molecular_labels=None):
         '''

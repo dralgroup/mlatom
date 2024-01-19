@@ -26,14 +26,15 @@ class gaussian_methods(models.model):
     Arguments:
         method (str): Method to use
         nthreads (int): equivalent to %proc in Gaussian input file
-        save_files_in_current_directory (bool): save input and output files or not
+        save_files_in_current_directory (bool): whether to keep input and output files, default ``'False'``
+        working_directory (str): path to the directory where the program output files and other tempory files are saved, default ``'None'``
 
     .. note::
 
         The format of method should be the same as that in Gaussian, e.g., ``'B3LYP/6-31G*'``
         
     '''
-    def __init__(self,method='B3LYP/6-31G*',nthreads=1,save_files_in_current_directory=False, **kwargs):
+    def __init__(self,method='B3LYP/6-31G*',nthreads=1,save_files_in_current_directory=False, working_directory=None, **kwargs):
         if not "GAUSS_EXEDIR" in os.environ:
             if pythonpackage: raise ValueError('enviromental variable GAUSS_EXEDIR is not set')
             else: stopper.stopMLatom('enviromental variable GAUSS_EXEDIR is not set')
@@ -41,6 +42,11 @@ class gaussian_methods(models.model):
         self.find_energy_to_read_in_Gaussian()
         self.nthreads = nthreads
         self.save_files_in_current_directory = save_files_in_current_directory
+        self.working_directory = working_directory
+        if 'writechk' in kwargs:
+            self.writechk = kwargs['writechk']
+        else:
+            self.writechk = False
 
     @doc_inherit
     def predict(self,molecular_database=None,molecule=None,
@@ -57,7 +63,7 @@ class gaussian_methods(models.model):
         self.calculate_energy_gradients = calculate_energy_gradients
         self.calculate_energy = calculate_energy
         self.calculate_hessian = calculate_hessian
-        self.writechk = False
+        # self.writechk = False
         if gaussian_keywords == None:
             self.gaussian_keywords = ''
         else:
@@ -78,6 +84,11 @@ class gaussian_methods(models.model):
         import tempfile, subprocess
         with tempfile.TemporaryDirectory() as tmpdirname:
             if self.save_files_in_current_directory: tmpdirname = '.'
+            if self.working_directory is not None:
+                tmpdirname = self.working_directory
+                if not os.path.exists(tmpdirname):
+                    os.makedirs(tmpdirname)
+                tmpdirname = os.path.abspath(tmpdirname)
             for imol in range(len(molDB.molecules)):
                 imolecule = molDB.molecules[imol]
                 # Run Gaussian job
@@ -167,7 +178,10 @@ def run_gaussian_job(**kwargs):
         nthreads = kwargs['nthreads']
     else:
         nthreads = 1
-    gaussian_keywords = f'%nproc={nthreads}\n' + gaussian_keywords 
+    memory = ''
+    if 'memory' in kwargs:
+        memory = f"%mem={kwargs['memory']}\n"
+    gaussian_keywords = f'{memory}%nproc={nthreads}\n' + gaussian_keywords 
     if 'external_task' in kwargs:
         pythonbin = sys.executable
         path_to_this_file=os.path.abspath(__file__)
@@ -204,8 +218,13 @@ def run_gaussian_job(**kwargs):
 
     if writechk:
         gaussian_keywords = f'%chk={filename[:-4]}.chk\n'+gaussian_keywords
+
+    if 'additional_input' in kwargs:
+        additional_input = kwargs['additional_input']
+    else:
+        additional_input = ''
     
-    write_gaussian_input_file(filename=os.path.join(cwd,filename), molecule=molecule, gaussian_keywords=gaussian_keywords)
+    write_gaussian_input_file(filename=os.path.join(cwd,filename), molecule=molecule, gaussian_keywords=gaussian_keywords,additional_input=additional_input)
     Gaussianbin, _ = check_gaussian()
     proc = subprocess.Popen([Gaussianbin, filename], stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, universal_newlines=True)
     proc.communicate()
@@ -218,7 +237,7 @@ def check_gaussian():
             version = 'g16'
         elif 'g09' in Gaussianroot:
             version = 'g09'
-        Gaussianbin = Gaussianroot + version
+        Gaussianbin = os.path.join(Gaussianroot,version)
     else :
         stopper.stopMLatom('Cannot find Gaussian software in the environment, set $GAUSS_EXEDIR environmental variable')
     version = version.replace('g', '')
@@ -228,6 +247,10 @@ def write_gaussian_input_file(**kwargs):
     if 'filename' in kwargs: filename = kwargs['filename']
     if 'molecule' in kwargs: molecule = kwargs['molecule']
     if 'gaussian_keywords' in kwargs: gaussian_keywords = kwargs['gaussian_keywords']
+    if 'additional_input' in kwargs: 
+        additional_input = kwargs['additional_input']
+    else:
+        additional_input = ''
         
     if 'comment' in molecule.__dict__:
         if molecule.comment != '':
@@ -245,6 +268,7 @@ def write_gaussian_input_file(**kwargs):
             f.writelines('%-3s %25.13f %25.13f %25.13f\n' % (atom.element_symbol,
                               atom.xyz_coordinates[0], atom.xyz_coordinates[1], atom.xyz_coordinates[2]))
         f.writelines('\n') 
+        f.writelines(additional_input)
 
 def gaussian_external(EIn_file, EOu_file):
     # write new coordinate into 'xyz_temp.dat'

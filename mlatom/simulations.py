@@ -11,7 +11,7 @@ pythonpackage = True
 from . import constants, data, models, stopper
 from .md import md as md
 from .initial_conditions import generate_initial_conditions
-from .environment_variables import env
+from .environment_variables import environment_variables
 from .md2vibr import vibrational_spectrum
 import os, math, time
 import numpy as np
@@ -39,11 +39,11 @@ class optimize_geometry():
 
     Arguments:
         model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): Any model or method which provides energies and forces.
-        initial_molecule (:class:`mlatom.data.molecule`): The molecule object to relax.
+        initial_molecule (:class:`mlatom.data.molecule`): The molecule object to optimize.
         ts (bool, optional): Whether to do transition state search. Currently only be done with program=Gaussian or ASE.
-        program (str, optional): The engine used in geomtry optimization. Currently support Gaussian, ASE, and scipy.
+        program (str, optional): The engine used in geometry optimization. Currently supports Gaussian, ASE, and scipy.
         optimization_algorithm (str, optional): The optimization algorithm used in ASE. Default value: LBFGS (ts=False), dimer (ts=False).
-        maximum_number_of_steps (int, optional): The maximum steps. Default value: 200.
+        maximum_number_of_steps (int, optional): The maximum number of steps for ASE and SciPy. Default value: 200.
         convergence_criterion_for_forces (float, optional): Forces convergence criterion in ASE. Default value: 0.02 eV/Angstroms.
         working_directory (str, optional): Working directory. Default value: '.', i.e., current directory.
 
@@ -68,7 +68,8 @@ class optimize_geometry():
 
     """
 
-    def __init__(self, model=None, initial_molecule=None, molecule=None, ts=False, program=None, optimization_algorithm=None, maximum_number_of_steps=None, convergence_criterion_for_forces=None,working_directory=None):
+    def __init__(self, model=None, initial_molecule=None, molecule=None, ts=False, program=None, optimization_algorithm=None, maximum_number_of_steps=None, convergence_criterion_for_forces=None,working_directory=None, **kwargs):
+        self.kwargs = kwargs
         if model != None:
             self.model = model
 
@@ -147,7 +148,7 @@ class optimize_geometry():
         if not os.path.exists(outputfile): outputfile = f'{filename}.out'
         with open(outputfile, 'r') as fout:
             for line in fout:
-                if '!   Optimized Parameters   !' in line:
+                if 'Stationary point found' in line:
                     self.successful = True
                     break
         self.optimization_trajectory.load(filename=os.path.join(self.working_directory,'gaussian_opttraj.json'), format='json')
@@ -166,7 +167,8 @@ class optimize_geometry():
                                             model=self.model,
                                             convergence_criterion_for_forces=self.convergence_criterion_for_forces,
                                             maximum_number_of_steps=self.maximum_number_of_steps,
-                                            optimization_algorithm='dimer')
+                                            optimization_algorithm=self.optimization_algorithm,
+                                            **self.kwargs)
         else:
             self.optimization_trajectory = ase_interface.optimize_geometry(initial_molecule=self.initial_molecule,
                                             model=self.model,
@@ -231,7 +233,7 @@ class freq():
         model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): Any model or method which provides energies and forces and Hessian.
         molecule (:class:`mlatom.data.molecule`): The molecule object with necessary information.
         program (str, optional): The engine used in frequence analysis through modified TorchANI (if Gaussian not found or any other string is given), pyscf or Gaussian interfaces.
-        normal_mode_normalization (str, optional): Normal modes output scheme. It should be one of: mass weighted normalized, mass deweighted unnormalized, and mass deweighted unnormalized (default). 
+        normal_mode_normalization (str, optional): Normal modes output scheme. It should be one of: mass weighted normalized, mass deweighted unnormalized, and mass deweighted normalized (default). 
         anharmonic (bool): Whether to do anharmonic frequence calculation.
         working_directory (str, optional): Working directory. Default value: '.', i.e., current directory.
 
@@ -251,7 +253,7 @@ class freq():
 
 
     """
-    def __init__(self, model=None, molecule=None, program=None, normal_mode_normalization='mass deweighted unnormalized', anharmonic=False, anharmonic_kwargs={}, working_directory=None):
+    def __init__(self, model=None, molecule=None, program=None, normal_mode_normalization='mass deweighted normalized', anharmonic=False, anharmonic_kwargs={}, working_directory=None):
         if model != None:
             self.model = model
         self.molecule = molecule
@@ -274,7 +276,7 @@ class freq():
         else:
             if not 'shape' in self.molecule.__dict__:
                 self.molecule.shape = 'nonlinear'
-            self.freq_modified_from_TorchANI()
+            self.freq_modified_from_TorchANI(molecule=self.molecule,normal_mode_normalization=self.normal_mode_normalization,model=self.model)
         
     def freq_gaussian(self, anharmonic):
         self.successful = False
@@ -317,7 +319,8 @@ class freq():
         self.successful = False
         self.successful = self.model.interface.thermo_calculation(molecule=self.molecule)
     
-    def freq_modified_from_TorchANI(self):
+    @classmethod
+    def freq_modified_from_TorchANI(cls,molecule,normal_mode_normalization,model=None, **kwargs):
         # Copyright 2018- Xiang Gao and other ANI developers
         # 
         # Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
@@ -346,7 +349,9 @@ class freq():
         # to mass weighted cartesian coordinates (x' = sqrt(m)x).
         # """
         # Calculate hessian
-        self.model.predict(molecule=self.molecule, calculate_hessian=True)
+
+        if not model is None:
+            model.predict(molecule=molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=True)
         
         mhessian2fconst = 4.359744650780506
         unit_converter = 17091.7006789297
@@ -357,16 +362,23 @@ class freq():
         # Hq = w^2 * Tq ==> Hq = w^2 * T^(1/2) T^(1/2) q
         # Letting q' = T^(1/2) q, we then have
         # T^(-1/2) H T^(-1/2) q' = w^2 * q'
-        masses = np.expand_dims(self.molecule.get_nuclear_masses(), axis=0)
+        masses = np.expand_dims(molecule.get_nuclear_masses(), axis=0)
         inv_sqrt_mass = np.repeat(np.sqrt(1 / masses), 3, axis=1) # shape (3 * atoms)
-        mass_scaled_hessian = self.molecule.hessian * np.expand_dims(inv_sqrt_mass, axis=1) * np.expand_dims(inv_sqrt_mass, axis=2)
+        mass_scaled_hessian = molecule.hessian * np.expand_dims(inv_sqrt_mass, axis=1) * np.expand_dims(inv_sqrt_mass, axis=2)
         mass_scaled_hessian = np.squeeze(mass_scaled_hessian, axis=0)
         eigenvalues, eigenvectors = np.linalg.eig(mass_scaled_hessian)
         idx = eigenvalues.argsort()
         eigenvalues = eigenvalues[idx]
         eigenvectors = eigenvectors[:, idx]
 
-        angular_frequencies = np.sqrt(eigenvalues)
+        angular_frequencies = [] 
+        for each in eigenvalues:
+            if each < 0:
+                angular_frequencies.append(-np.sqrt(-each))
+            else:
+                angular_frequencies.append(np.sqrt(each))
+        angular_frequencies = np.array(angular_frequencies)
+
         frequencies = angular_frequencies / (2 * math.pi)
         # converting from sqrt(hartree / (amu * angstrom^2)) to cm^-1 
         wavenumbers = unit_converter * frequencies
@@ -381,27 +393,33 @@ class freq():
         # converting from Ha/(AMU*A^2) to mDyne/(A*AMU) 
         fconstants = mhessian2fconst * eigenvalues * rmasses  # units are mDyne/A
 
-        if self.normal_mode_normalization == 'mass deweighted normalized':
+        if normal_mode_normalization == 'mass deweighted normalized':
             modes = (md_normalized).reshape(frequencies.size, -1, 3)
-        elif self.normal_mode_normalization == 'mass deweighted unnormalized':
+        elif normal_mode_normalization == 'mass deweighted unnormalized':
             modes = (md_unnormalized).reshape(frequencies.size, -1, 3)
-        elif self.normal_mode_normalization == 'mass weighted normalized':
+        elif normal_mode_normalization == 'mass weighted normalized':
             modes = (mw_normalized).reshape(frequencies.size, -1, 3)
 
         # the first 6 (5 for linear) entries are for rotation and translation
         # we skip them because we are only interested in vibrational modes
         nskip = 6
-        if self.molecule.shape.lower() == 'linear':
+        if molecule.is_it_linear():
             nskip = 5
-        self.molecule.frequencies = wavenumbers[nskip:]    # in cm^-1
-        self.molecule.force_constants = fconstants[nskip:] # in mDyne/A
-        self.molecule.reduced_masses = rmasses[nskip:]     # in AMU
-        for iatom in range(len(self.molecule.atoms)):
-            self.molecule.atoms[iatom].normal_modes = []
-            for imode in range(len(modes)):
-                if imode < nskip: continue
-                self.molecule.atoms[iatom].normal_modes.append(list(modes[imode][iatom]))
-            self.molecule.atoms[iatom].normal_modes = np.array(self.molecule.atoms[iatom].normal_modes)
+        # Ugly fix of negative frequency problem in local minimum:
+        # If there are two large negative frequencies ( <-100 cm^-1 ), skip the first 5 or 6 frequencies 
+        # Otherwise, sort by absolute value of frequecies and skip the first 5 or 6 frequencies 
+        if wavenumbers[1] > -100:
+            idx = np.sort(abs(wavenumbers).argsort()[nskip:])
+        else:
+            idx = np.array([ii for ii in range(nskip,len(wavenumbers))])
+        molecule.frequencies = wavenumbers[idx]    # in cm^-1
+        molecule.force_constants = fconstants[idx] # in mDyne/A
+        molecule.reduced_masses = rmasses[idx]     # in AMU
+        for iatom in range(len(molecule.atoms)):
+            molecule.atoms[iatom].normal_modes = []
+            for imode in idx:
+                molecule.atoms[iatom].normal_modes.append(list(modes[imode][iatom]))
+            molecule.atoms[iatom].normal_modes = np.array(molecule.atoms[iatom].normal_modes)
             
 class thermochemistry():
     """
@@ -427,7 +445,7 @@ class thermochemistry():
 
 
     """
-    def __init__(self, model=None, molecule=None, program=None, normal_mode_normalization='mass deweighted unnormalized'):
+    def __init__(self, model=None, molecule=None, program=None, normal_mode_normalization='mass deweighted normalized'):
         if model != None:
             self.model = model
         self.molecule = molecule
@@ -452,6 +470,9 @@ class thermochemistry():
         ase_interface.thermochemistry(molecule=self.molecule)
         
     def calculate_heats_of_formation(self):
+        if 'scf_enthalpy_of_formation_at_298_K' in self.molecule.__dict__:
+            self.molecule.DeltaHf298 = self.molecule.energy
+            return
         if 'H0' in self.molecule.__dict__:
             atoms_have_H0 = True
             for atom in self.molecule.atoms:
@@ -467,7 +488,7 @@ class thermochemistry():
         try:
             for atom in self.molecule.atoms:
                 atomic_molecule = data.molecule(multiplicity=atom.multiplicity, atoms=[atom])
-                self.model.predict(molecule=atomic_molecule)
+                self.model.predict(molecule=atomic_molecule, calculate_energy=True)
                 sum_E_atom += atomic_molecule.energy
                 sum_H0_atom += atom.H0
                 sum_DeltaH_atom += DeltaH_atom
@@ -496,6 +517,7 @@ def numerical_gradients(molecule, model_with_function_to_predict_energy, eps=1e-
         model_with_function_to_predict_energy.predict(molecule=current_molecule, **kwargs_funtion_predict_energy)
         if return_molecular_database: molDB.molecules.append(current_molecule)
         return current_molecule.energy
+    env = environment_variables()
     nthreads = env.get_nthreads()
     if nthreads == 1:
         energies = np.array([get_energy(each) for each in coordinates_list])

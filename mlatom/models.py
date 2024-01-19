@@ -119,6 +119,15 @@ class methods(model):
         ``'AIQM1'``, ``'AIQM1@DFT'``, ``'AIQM1@DFT*'``, ``'AM1'``, ``'ANI-1ccx'``, ``'ANI-1x'``, ``'ANI-1x-D4'``, ``'ANI-2x'``, ``'ANI-2x-D4'``, ``'CCSD(T)*/CBS'``, ``'CNDO/2'``, ``'D4'``, ``'DFTB0'``, ``'DFTB2'``, ``'DFTB3'``, ``'GFN2-xTB'``, ``'MINDO/3'``, ``'MNDO'``, ``'MNDO/H'``, ``'MNDO/d'``, ``'MNDO/dH'``, ``'MNDOC'``, ``'ODM2'``, ``'ODM2*'``, ``'ODM3'``, ``'ODM3*'``, ``'OM1'``, ``'OM2'``, ``'OM3'``, ``'PM3'``, ``'PM6'``, ``'RM1'``, ``'SCC-DFTB'``, ``'SCC-DFTB-heats'``.
 
         Methods listed above can be accepted without specifying a program.
+        The required programs still have to be installed though as described in the installation manual.
+        Programs needed for making above methods work:
+        * TorchANI for ``'AIQM1'``, ``'AIQM1@DFT'``, ``'AIQM1@DFT*'``, ``'ANI-1ccx'``, ``'ANI-1x'``, ``'ANI-1x-D4'``, ``'ANI-2x'``, ``'ANI-2x-D4'``
+        * dftd4 for ``'AIQM1'``, ``'AIQM1@DFT'``, ``'ANI-1x-D4'``, ``'ANI-2x-D4'``, ``'D4'``
+        * MNDO or Sparrow for ``'AIQM1'``, ``'AIQM1@DFT'``, ``'AIQM1@DFT*'``, ``'MNDO'``, ``'MNDO/d'``, ``'ODM2*'``, ``'ODM3*'``,  ``'OM2'``, ``'OM3'``, ``'PM3'``, ``'SCC-DFTB'``, ``'SCC-DFTB-heats'``
+        * MNDO for ``'CNDO/2'``, ``'MINDO/3'``, ``'MNDO/H'``, ``'MNDO/dH'``, ``'MNDOC'``, ``'ODM2'``, ``'ODM3'``, ``'OM1'``
+        * Sparrow for ``'DFTB0'``, ``'DFTB2'``, ``'DFTB3'``, ``'PM6'``, ``'RM1'``
+        * xtb for ``'GFN2-xTB'``
+        * Orca for ``'CCSD(T)*/CBS'``
         
         And other methods supported by supported programs (e.g.: ``'gaussian'``, ``''xtb''``, ``'pyscf'``), can also be accepted with a program specifed.
     '''
@@ -169,10 +178,8 @@ class methods(model):
     def nthreads(self, nthreads):
         self.interface.nthreads = nthreads
 
-    def predict(self, molecular_database=None, molecule=None,
-                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False):
-        self.interface.predict(molecular_database=molecular_database, molecule=molecule,
-                                    calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian)
+    def predict(self, *args, **kwargs):
+        self.interface.predict(*args, **kwargs)
     
     def config_multiprocessing(self):
         super().config_multiprocessing()
@@ -467,8 +474,8 @@ class ml_model(model):
                 
             self.model_file = saved_name
             
-            # Use the final hyperparameters to train the model and get the validation errors
-            self.validation_loss = validation_loss(np.array([self.hyperparameters[key].value for key in hyperparameters]))
+        # Use the final hyperparameters to train the model and get the validation errors
+        self.validation_loss = validation_loss(np.array([self.hyperparameters[key].value for key in hyperparameters]))
 
     def holdout_validation(self, subtraining_molecular_database=None, validation_molecular_database=None,
                      training_kwargs=None, prediction_kwargs=None):
@@ -741,6 +748,108 @@ class krr(ml_model):
     
     def distance_squared_tensor(self, atomi,atomj):
         return torch.sum(torch.square(atomi-atomj))
+
+class hyperparameter():
+    '''
+    Class of hyperparameter object, containing data could be used in hyperparameter optimizations.
+
+    Arguments:
+        value (Any, optional): The value of the hyperparameter.
+        optimization_space (str, optional): Defines the space for hyperparameter. Currently supports ``'linear'``, and ``'log'``.
+        dtype (Callable, optional): A callable object that forces the data type of value. Automatically choose one if set to ``None``.
+       
+    '''
+    def __init__(self, value: Any = None, optimization_space: str = 'linear', dtype: Union[Callable, None] = None, name: str = "", minval: Any = None, maxval: Any = None, step: Any = None, choices: Iterable[Any] = [], **kwargs):
+        self.name = name
+        self.dtype = dtype if dtype else None if value is None else type(value)
+        self.value = value# @Yifan
+        self.optimization_space = optimization_space  # 'linear' or 'log'
+        self.minval = minval
+        self.maxval = maxval
+        self.step = step
+        self.choices = choices
+    def __setattr__(self, key, value):
+        if key == 'value':
+            value = (value if isinstance(value, self.dtype) else self._cast_dtype(value)) if self.dtype else value
+        if key == 'dtype':
+            self._set_dtype_cast_method(value)
+        super().__setattr__(key, value)
+    def __repr__(self):
+        return f'hyperparameter {str(self.__dict__)}'
+    def _set_dtype_cast_method(self, dtype):
+        if dtype == np.ndarray:
+            self._cast_dtype = np.array
+        else:
+            self._cast_dtype = dtype
+    def update(self, new_hyperparameter:hyperparameter) -> None:
+        '''
+        Update hyperparameter with data in another instance.
+        
+        Arguments:
+            new_hyperparameter (:class:`mlatom.models.hyperparamters`): Whose data are to be applied to the current instance.
+        '''
+        self.__dict__.update(new_hyperparameter.__dict__)
+    def copy(self):
+        '''
+        Returns a copy of current instance.
+
+        Returns:
+            :class:`mlatom.models.hyperparamter`: a new instance copied from current one.
+        '''
+        return hyperparameter(**self.__dict__)
+
+class hyperparameters(UserDict):
+    '''
+    Class for storing hyperparameters, values are auto-converted to :class:`mlatom.models.hyperparameter` objects.
+    Inherit from collections.UserDict.
+
+    Initiaion:
+        Initiate with a dictinoary or kwargs or both.
+        
+        e.g.:
+        
+        .. code-block::
+
+           hyperparamters({'a': 1.0}, b=hyperparameter(value=2, minval=0, maxval=4))
+       
+    '''
+    def __setitem__(self, key, value):
+        if isinstance(value, hyperparameter):
+            if key in self:
+                super().__getitem__(key).update(value)
+            else:
+                super().__setitem__(key, value)
+        elif key in self:
+            super().__getitem__(key).value = value
+        else:
+            super().__setitem__(key, hyperparameter(value=value, name=key))
+    def __getattr__(self, key):
+        if key in self:
+            return self[key].value
+        else:
+            return self.__dict__[key]
+    def __setattr__(self, key, value):
+        if key.startswith('__') or (key in self.__dict__) or key == 'data':
+            super().__setattr__(key, value)
+        else:
+            self.__setitem__(key, value)
+    def __getstate__(self):
+        return vars(self)
+    def __setstate__(self, state):
+        vars(self).update(state)
+    def copy(self, keys: Union[Iterable[str], None] = None) -> hyperparameters:
+        '''
+        Returns a copy of current instance.
+        
+        Arguments:
+            keys (Iterable[str], optional): If keys provided, only the hyperparameters selected by keys will be copied, instead of all hyperparameters.
+
+        Returns:
+            :class:`mlatom.models.hyperparamters`: a new instance copied from current one.
+        '''
+        if keys is None:
+            keys = self.keys()
+        return hyperparameters({key: self[key].copy() for key in keys})
    
 class kreg(krr, OMP_model, MKL_model):
     '''
@@ -751,9 +860,19 @@ class kreg(krr, OMP_model, MKL_model):
         ml_program (str, optional): Specify which ML program to use. Avaliable optioins: ``'KREG_API'``, ``'MLatomF``.
         equilibrium_molecule (:class:`mlatom.data.molecule` | None): Specify the equilibrium geometry to be used to generate RE descriptor. The geometry with lowest energy/value will be selected if set to ``None``.
         prior
-
+        hyperparameters (Dict[str, Any] | :class:`mlatom.models.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
     '''
-    def __init__(self, model_file: Union[str, None] = None, ml_program: str = 'KREG_API', equilibrium_molecule: Union[data.molecule, None] = None, prior: float = 0, nthreads: Union[int, None] = None):
+    hyperparameters = hyperparameters({'lambda': hyperparameter(value=2**-35, 
+                                                         minval=2**-35, 
+                                                         maxval=1.0, 
+                                                         optimization_space='log',
+                                                         name='lambda'),
+                                'sigma':  hyperparameter(value=1.0,
+                                                         minval=2**-5,
+                                                         maxval=2**9,
+                                                         optimization_space='log',
+                                                         name='sigma')}) 
+    def __init__(self, model_file: Union[str, None] = None, ml_program: str = 'KREG_API', equilibrium_molecule: Union[data.molecule, None] = None, prior: float = 0, nthreads: Union[int, None] = None, hyperparameters: Union[Dict[str,Any], hyperparameters]={}):
         self.model_file = model_file
         self.equilibrium_molecule = equilibrium_molecule
         self.ml_program = ml_program
@@ -768,17 +887,9 @@ class kreg(krr, OMP_model, MKL_model):
             from . import interface_MLatomF
             self.interface_mlatomf = interface_MLatomF
         
-        self.hyperparameters = hyperparameters({'lambda': hyperparameter(value=2**-35, 
-                                                         minval=2**-35, 
-                                                         maxval=1.0, 
-                                                         optimization_space='log',
-                                                         name='lambda'),
-                                'sigma':  hyperparameter(value=1.0,
-                                                         minval=2**-5,
-                                                         maxval=2**9,
-                                                         optimization_space='log',
-                                                         name='sigma')})
-        
+        self.hyperparameters = self.hyperparameters.copy()
+        self.hyperparameters.update(hyperparameters)
+            
         self.nthreads = nthreads
 
     def parse_args(self, args):
@@ -861,7 +972,9 @@ class kreg(krr, OMP_model, MKL_model):
               save_model=True,
               invert_matrix=False,
               matrix_decomposition=None,
-              prior=None):
+              prior=None,
+              hyperparameters: Union[Dict[str,Any], hyperparameters] = {},):
+        self.hyperparameters.update(hyperparameters)
         if self.ml_program.casefold() == 'MLatomF'.casefold():
             mlatomfargs = ['createMLmodel'] + ['%s=%s' % (param, self.hyperparameters[param].value) for param in self.hyperparameters.keys()]
             if save_model:
@@ -975,7 +1088,7 @@ def sgdml(**kwargs):
 
 def mace(**kwargs):
     '''
-    Returns an MACE model object (see :class:`mlatom.interfaces.sgdml_interface.sgdml`).
+    Returns an MACE model object (see :class:`mlatom.interfaces.mace_interface.mace`).
     '''
     from .interfaces.mace_interface import mace
     return mace(**kwargs)
@@ -1053,7 +1166,7 @@ class model_tree_node(model):
                 self.get_properties_from_molecule(mol, properties, atomic_properties)
         else:
             for child in self.children:
-                if not child.name in molDB.molecules[0].__dict__: child.predict(**kwargs)
+                child.predict(**kwargs)
 
             if self.operator == 'sum':
                 for mol in molDB.molecules:
@@ -1158,107 +1271,5 @@ def load_dict(model_dict):
         model = load_dict(model_dict['model']) if model_dict['model'] else None
         return model_tree_node(name=name, children=children, operator=operator, model=model)
 
-class hyperparameter():
-    '''
-    Class of hyperparameter object, containing data could be used in hyperparameter optimizations.
-
-    Arguments:
-        value (Any, optional): The value of the hyperparameter.
-        optimization_space (str, optional): Defines the space for hyperparameter. Currently supports ``'linear'``, and ``'log'``.
-        dtype (Callable, optional): A callable object that forces the data type of value. Automatically choose one if set to ``None``.
-       
-    '''
-    def __init__(self, value: Any = None, optimization_space: str = 'linear', dtype: Union[Callable, None] = None, name: str = "", minval: Any = None, maxval: Any = None, step: Any = None, choices: Iterable[Any] = [], **kwargs):
-        self.name = name
-        self.dtype = dtype if dtype else None if value is None else type(value)
-        self.value = value# @Yifan
-        self.optimization_space = optimization_space  # 'linear' or 'log'
-        self.minval = minval
-        self.maxval = maxval
-        self.step = step
-        self.choices = choices
-    def __setattr__(self, key, value):
-        if key == 'value':
-            value = (value if isinstance(value, self.dtype) else self._cast_dtype(value)) if self.dtype else value
-        if key == 'dtype':
-            self._set_dtype_cast_method(value)
-        super().__setattr__(key, value)
-    def __repr__(self):
-        return f'hyperparameter {str(self.__dict__)}'
-    def _set_dtype_cast_method(self, dtype):
-        if dtype == np.ndarray:
-            self._cast_dtype = np.array
-        else:
-            self._cast_dtype = dtype
-    def update(self, new_hyperparameter:hyperparameter) -> None:
-        '''
-        Update hyperparameter with data in another instance.
-        
-        Arguments:
-            new_hyperparameter (:class:`mlatom.models.hyperparamters`): Whose data are to be applied to the current instance.
-        '''
-        self.__dict__.update(new_hyperparameter.__dict__)
-    def copy(self):
-        '''
-        Returns a copy of current instance.
-
-        Returns:
-            :class:`mlatom.models.hyperparamter`: a new instance copied from current one.
-        '''
-        return hyperparameter(**self.__dict__)
-
-class hyperparameters(UserDict):
-    '''
-    Class for storing hyperparameters, values are auto-converted to :class:`mlatom.models.hyperparameter` objects.
-    Inherit from collections.UserDict.
-
-    Initiaion:
-        Initiate with a dictinoary or kwargs or both.
-        
-        e.g.:
-        
-        .. code-block::
-
-           hyperparamters({'a': 1.0}, b=hyperparameter(value=2, minval=0, maxval=4))
-       
-    '''
-    def __setitem__(self, key, value):
-        if isinstance(value, hyperparameter):
-            if key in self:
-                super().__getitem__(key).update(value)
-            else:
-                super().__setitem__(key, value)
-        elif key in self:
-            super().__getitem__(key).value = value
-        else:
-            super().__setitem__(key, hyperparameter(value=value, name=key))
-    def __getattr__(self, key):
-        if key in self:
-            return self[key].value
-        else:
-            return self.__dict__[key]
-    def __setattr__(self, key, value):
-        if key.startswith('__') or (key in self.__dict__) or key == 'data':
-            super().__setattr__(key, value)
-        else:
-            self.__setitem__(key, value)
-    def __getstate__(self):
-        return vars(self)
-    def __setstate__(self, state):
-        vars(self).update(state)
-    def copy(self, keys: Union[Iterable[str], None] = None) -> hyperparameters:
-        '''
-        Returns a copy of current instance.
-        
-        Arguments:
-            keys (Iterable[str], optional): If keys provided, only the hyperparameters selected by keys will be copied, instead of all hyperparameters.
-
-        Returns:
-            :class:`mlatom.models.hyperparamters`: a new instance copied from current one.
-        '''
-        if keys is None:
-            keys = self.keys()
-        return hyperparameters({key: self[key].copy() for key in keys})
- 
 if __name__ == '__main__':
     pass

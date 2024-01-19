@@ -280,7 +280,7 @@ subroutine calc_kernel_matrix(Natoms,Xsize,Ntrain,NtrVal,NtrGrXYZ,itrgrxyzDim,it
   !$OMP SHARED(K,itrgrxyz) SCHEDULE(STATIC) 
   do ii=1, NtrGrXYZ 
     K(NtrVal+ii,NtrVal+ii) = d2KdMiatdMjbu(Natoms,Xsize,itrgrxyz(ii,2),itrgrxyz(ii,3),itrgrxyz(ii,2),itrgrxyz(ii,3),X(:,itrgrxyz(ii,1)),X(:,itrgrxyz(ii,1)),XYZ(:,:,itrgrxyz(ii,1)),XYZ(:,:,itrgrxyz(ii,1)),ac2dArray,sigma)
-    do jj=1, NtrGrXYZ 
+    do jj=(ii+1), NtrGrXYZ 
       K(NtrVal+ii,NtrVal+jj) = d2KdMiatdMjbu(Natoms,Xsize,itrgrxyz(ii,2),itrgrxyz(ii,3),itrgrxyz(jj,2),itrgrxyz(jj,3),X(:,itrgrxyz(ii,1)),X(:,itrgrxyz(jj,1)),XYZ(:,:,itrgrxyz(ii,1)),XYZ(:,:,itrgrxyz(jj,1)),ac2dArray,sigma)
       K(NtrVal+jj,NtrVal+ii) = K(NtrVal+ii,NtrVal+jj)
     end do 

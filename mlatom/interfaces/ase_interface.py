@@ -44,18 +44,28 @@ def optimize_geometry(initial_molecule, model, convergence_criterion_for_forces,
     opt = optimize.__dict__[optimization_algorithm](atoms)
     opt.run(fmax=convergence_criterion_for_forces, steps=maximum_number_of_steps)
     
+    # For some reason ASE dumps the same energy twice. Here we remove the repeated value.
+    if len(optimization_trajectory.steps) > 1:
+        if abs(optimization_trajectory.steps[1].molecule.energy - optimization_trajectory.steps[0].molecule.energy) < 1e-13:
+            for istep in range(2,len(optimization_trajectory.steps)):
+                optimization_trajectory.steps[istep].step -= 1
+            del optimization_trajectory.steps[1]
+    
     return optimization_trajectory
 
 def transition_state(initial_molecule, model, 
                      convergence_criterion_for_forces,
                      maximum_number_of_steps,  
-                     optimization_algorithm='dimer', **kwargs):
+                     optimization_algorithm='dimer', 
+                     **kwargs):
+    if optimization_algorithm == None:
+        optimization_algorithm = 'dimer'
     if optimization_algorithm.casefold() == 'dimer'.casefold():
         return dimer_method(initial_molecule, model, 
                             convergence_criterion_for_forces,
                             maximum_number_of_steps,  **kwargs)
     elif optimization_algorithm.casefold() == 'NEB'.casefold():
-        return nudged_elastic_band(initial_molecule, model, 
+        return nudged_elastic_band(initial_molecule, kwargs.pop('final_molecule'), model, 
                             convergence_criterion_for_forces,
                             maximum_number_of_steps,  **kwargs)
 
@@ -103,15 +113,16 @@ def nudged_elastic_band(initial_molecule, final_molecule, model,
     from ase.neb import NEB
     from ase.optimize import MDMin
     images = [initial]
-    images += [initial.copy() for i in range(number_of_middle_images)]
+    images += [initial.copy() for _ in range(number_of_middle_images)]
     images += [final]
-    neb = NEB(images)
+    neb = NEB(images, **kwargs)
     neb.interpolate()
     for image in images[1:number_of_middle_images+1]:
         image.calc = MLatomCalculator(model=model, save_optimization_trajectory=True)
     optimizer = MDMin(neb, trajectory='A2B.traj')
-    optimizer.run(fmax=maximum_number_of_steps,
+    optimizer.run(fmax=convergence_criterion_for_forces,
                   steps=maximum_number_of_steps)
+    return optimization_trajectory
 
 
 class MLatomCalculator(Calculator):

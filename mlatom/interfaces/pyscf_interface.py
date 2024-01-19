@@ -67,6 +67,7 @@ class pyscf_methods(models.model):
         with tempfile.TemporaryDirectory() as tmpdirname:
             # save temp file to temp dir
             os.environ['PYSCF_TMPDIR'] = tmpdirname
+            
             # HF
             if 'HF' == self.method.upper():
                 pyscf_method = scf.HF(pyscf_mol)
@@ -172,8 +173,15 @@ class pyscf_methods(models.model):
                     errmsg = 'Hessian in pyscf only support HF and DFT'
                     stopper.stopMLatom(errmsg)
 
-                ndim = len(molecule.atoms)*3
-                molecule.hessian = hess.reshape(ndim, ndim)
+                # NOTE: PySCF use Bohr as unit by default for hessian calculation
+                hess = pyscf_method.Hessian().kernel()
+                natom = len(molecule.atoms)
+                h = np.zeros((3*natom, 3*natom))
+                for ii in range(natom):
+                    for jj in range(natom):
+                        h[ii*3:(ii+1)*3, jj*3:(jj+1)*3] = hess[ii][jj]
+                molecule.hessian = h / constants.Bohr2Angstrom**2
+        
     
     @doc_inherit
     def predict(self, molecule=None, molecular_database=None, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, **kwargs):

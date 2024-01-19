@@ -4,7 +4,7 @@
   !---------------------------------------------------------------------------!
   !                                                                           !
   !     MLatom: a Package for Atomistic Simulations with Machine Learning     !
-  !                             MLatom 3.1.0                                  !
+  !                             MLatom 3.1.1                                  !
   !                                   @                                       !
   !                 Xiamen Atomistic Computing Suite (XACS)                   !
   !                                                                           !
@@ -43,7 +43,7 @@
   ! Bao-Xin Xue, Max Pinheiro Jr, Yuming Su, Yiheng Dai, Yangtao Chen,        !
   ! Shuang Zhang, Lina Zhang, Arif Ullah, Yanchi Ou,                          !
   ! MLatom: A Package for Atomistic Simulations with Machine Learning,        !
-  ! version 3.1.0, Xiamen University, Xiamen, China, 2013-2023.               !
+  ! version 3.1.1, Xiamen University, Xiamen, China, 2013-2023.               !
   !                                                                           !
   ! The citations for MLatom's interfaces and features shall be eventually    !
   ! included too. See header.py, ref.json and http://mlatom.com.              !
@@ -64,7 +64,7 @@ import os, sys, time
 from mlatom import header
 from mlatom import MLtasks
 from mlatom.args_class import mlatom_args
-from mlatom.environment_variables import env
+from mlatom.environment_variables import environment_variables
 
 class run(object):
     def __init__(self, argv = []):
@@ -97,6 +97,7 @@ class run(object):
         sys.stdout.flush()
 
         if args.nthreads:
+            env = environment_variables()
             env.set_nthreads(args.nthreads)
         
         MLtasks.CLItasks(args).run()
