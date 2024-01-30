@@ -27,10 +27,8 @@
   ! Mario Barbatti, Olexandr Isayev, Cheng Wang, Bao-Xin Xue,                 !
   ! Max Pinheiro Jr, Yuming Su, Yiheng Dai, Yangtao Chen, Lina Zhang,         ! 
   ! Shuang Zhang, Arif Ullah, Quanhao Zhang, Yanchi Ou.                       !
-  ! MLatom 3: Platform for machine learning-enhanced computational chemistry  !
-  ! simulations and workflows, submitted.                                     !
-  ! Pre-print on arXiv: `arXiv:2310.20155v1 [physics.chem-ph].                ! 
-  ! Check MLatom.com for citation updates.                                    !
+  ! MLatom 3: A platform for machine learning-enhanced computational chemistry!
+  ! simulations and workflows, J.Chem.Theory Comput., 10.1021/acs.jctc.3c01203!
   !                                                                           !
   ! Pavlo O. Dral, Fuchun Ge, Bao-Xin Xue, Yi-Fan Hou, Max Pinheiro Jr,       !
   ! Jianxing Huang, Mario Barbatti, Top. Curr. Chem. 2021, 379, 27            !
