@@ -39,7 +39,6 @@ default_MLprog={
     'ani1ccx': 'torchani',
     'ani2x': 'torchani',
     'ani-tl':'torchani',
-    'nequip':'nequip',
     'mlqd': 'mlqd',   
 }
 
@@ -429,10 +428,8 @@ class mlatom_args(ArgsBase):
             # Data tasks
                 # Conversion
                 'XYZ2X', 'XYZ2SMI', 'SMI2XYZ', 
-                # Transfromation
-                'alignXYZ',
                 # Analysis
-                'analyze', 'RMSD',
+                'analyze',
                 # Sampling
                 'sample', 'sampleFromSlices', 'mergeSlices','slice',
             # Simulation tasks 
@@ -526,6 +523,7 @@ class mlatom_args(ArgsBase):
                 'qmprog',
                 'mndokeywords', 'QMprogramKeywords', 'charges', 'multiplicities',
                 'optProg',
+                'freqProg',
             ], ''
         )
         self.add_dict_args({
@@ -578,12 +576,6 @@ class mlatom_args(ArgsBase):
             'SMIin': "input.smi",
             "SMIout": "output.smi",
             "XYZout": "output.xyz",
-        })
-        # RMSD alignXYZ
-        self.add_dict_args({
-            'RMSDout': 'RMSD.txt',
-            'alignedXYZ': '',
-            'fmt': '%16.8g',
         })
         # MD
         self.add_dict_args({
@@ -696,7 +688,10 @@ class mlatom_args(ArgsBase):
                     for task in tasks:
                         self.data[task] = False
                     print(f' multiple tasks detected in the input. the first one ({self._task}) will be used')
-        if not self.method:
+        if self.method:
+            if self.method in self._method_list:
+                self.data[self.method] = True
+        else:
             for method in self._method_list:
                 if self.data[method]:
                     self.method = method

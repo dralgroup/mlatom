@@ -11,7 +11,6 @@ pythonpackage = True
 from . import constants, data, models, stopper
 from .md import md as md
 from .initial_conditions import generate_initial_conditions
-from .environment_variables import environment_variables
 from .md2vibr import vibrational_spectrum
 import os, math, time
 import numpy as np
@@ -26,6 +25,8 @@ def run_in_parallel(molecular_database=None, task=None, task_kwargs={}, nthreads
         if create_and_keep_temp_directories:
             current_time = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
             directory = time.strftime(f'job_{task}_{imol}_mol{mol.id}_{current_time}')
+            if not os.path.exists(directory):
+                os.makedirs(directory)
             os.chdir(directory)
         result = task(molecule=mol, **task_kwargs)
         return result
@@ -174,7 +175,8 @@ class optimize_geometry():
                                             model=self.model,
                                             convergence_criterion_for_forces=self.convergence_criterion_for_forces,
                                             maximum_number_of_steps=self.maximum_number_of_steps,
-                                            optimization_algorithm=self.optimization_algorithm)
+                                            optimization_algorithm=self.optimization_algorithm,
+                                            **self.kwargs)
         self.optimized_molecule = self.optimization_trajectory.steps[-1].molecule
         
     def opt_geom(self):
@@ -263,16 +265,19 @@ class freq():
             if "GAUSS_EXEDIR" in os.environ: 
                 self.program = 'Gaussian'
             else:
-                self.program = ''
+                try: 
+                    import pyscf
+                    self.program = 'PySCF'
+                except:
+                    self.program = ''
         self.normal_mode_normalization = normal_mode_normalization
+        self.anharmonic_kwargs = anharmonic_kwargs
         if working_directory != None:
             self.working_directory = working_directory
         else:
             self.working_directory = '.'
-        if self.model.program != None:
-            if self.model.program.casefold() == 'pyscf'.casefold(): self.freq_pyscf()
-            else: self.freq_gaussian(anharmonic)
-        elif self.program.casefold() == 'Gaussian'.casefold(): self.freq_gaussian(anharmonic)
+        if self.program.casefold() == 'Gaussian'.casefold(): self.freq_gaussian(anharmonic)
+        elif self.program.casefold() == 'pyscf'.casefold(): self.freq_pyscf()
         else:
             if not 'shape' in self.molecule.__dict__:
                 self.molecule.shape = 'nonlinear'
@@ -307,17 +312,20 @@ class freq():
                 self.molecule.atoms[iatom].normal_modes = self.molecule.atoms[iatom].normal_modes[:freq_len]
             self.molecule.harmonic_frequencies = np.copy(self.molecule.frequencies)
             gaussian_interface.read_anharmonic_frequencies(outputfile,self.molecule)
-            self.molecule.frequencies = self.molecule.anharmonic_frequencies             
+            self.molecule.frequencies = self.molecule.anharmonic_frequencies              
             thermochemistry_properties = ['ZPE','DeltaE2U','DeltaE2H','DeltaE2G','U0','H0','U','H','G','S']
             for each_property in thermochemistry_properties:
                 self.molecule.__dict__['harmonic_'+each_property] = self.molecule.__dict__[each_property]
                 self.molecule.__dict__[each_property] = self.molecule.__dict__['anharmonic_'+each_property]
-        #if os.path.exists('model.json'): os.remove('model.json')
+        if self.molecule.infrared_intensities == []:
+            del(self.molecule.infrared_intensities)
         if os.path.exists(os.path.join(self.working_directory,'gaussian_freq_mol.json')): os.remove(os.path.join(self.working_directory,'gaussian_freq_mol.json'))
 
     def freq_pyscf(self):
         self.successful = False
-        self.successful = self.model.interface.thermo_calculation(molecule=self.molecule)
+        self.model.interface.predict(molecule=self.molecule, calculate_hessian=True)
+        from .interfaces import pyscf_interface
+        self.successful = pyscf_interface.thermo_calculation(molecule=self.molecule)
     
     @classmethod
     def freq_modified_from_TorchANI(cls,molecule,normal_mode_normalization,model=None, **kwargs):
@@ -383,15 +391,20 @@ class freq():
         # converting from sqrt(hartree / (amu * angstrom^2)) to cm^-1 
         wavenumbers = unit_converter * frequencies
 
+        # In case of complex numbers, get real part of them
+        wavenumbers = wavenumbers.real
+
         # Note that the normal modes are the COLUMNS of the eigenvectors matrix
         mw_normalized = eigenvectors.T
         md_unnormalized = mw_normalized * inv_sqrt_mass
         norm_factors = 1 / np.linalg.norm(md_unnormalized, axis=1)  # units are sqrt(AMU)
         md_normalized = md_unnormalized * np.expand_dims(norm_factors, axis=1)
+        md_normalized = md_normalized.real
 
         rmasses = norm_factors**2  # units are AMU
         # converting from Ha/(AMU*A^2) to mDyne/(A*AMU) 
         fconstants = mhessian2fconst * eigenvalues * rmasses  # units are mDyne/A
+        fconstants = fconstants.real
 
         if normal_mode_normalization == 'mass deweighted normalized':
             modes = (md_normalized).reshape(frequencies.size, -1, 3)
@@ -402,16 +415,18 @@ class freq():
 
         # the first 6 (5 for linear) entries are for rotation and translation
         # we skip them because we are only interested in vibrational modes
-        nskip = 6
-        if molecule.is_it_linear():
-            nskip = 5
+        #nskip = 6
+        #if molecule.is_it_linear():
+        #    nskip = 5
         # Ugly fix of negative frequency problem in local minimum:
         # If there are two large negative frequencies ( <-100 cm^-1 ), skip the first 5 or 6 frequencies 
         # Otherwise, sort by absolute value of frequecies and skip the first 5 or 6 frequencies 
-        if wavenumbers[1] > -100:
-            idx = np.sort(abs(wavenumbers).argsort()[nskip:])
-        else:
-            idx = np.array([ii for ii in range(nskip,len(wavenumbers))])
+        #if wavenumbers[1] > -100:
+        #    idx = np.sort(abs(wavenumbers).argsort()[nskip:])
+        #else:
+        #    idx = np.array([ii for ii in range(nskip,len(wavenumbers))])
+        nskip = 0
+        idx = np.array([ii for ii in range(nskip,len(wavenumbers))])
         molecule.frequencies = wavenumbers[idx]    # in cm^-1
         molecule.force_constants = fconstants[idx] # in mDyne/A
         molecule.reduced_masses = rmasses[idx]     # in AMU
@@ -420,6 +435,7 @@ class freq():
             for imode in idx:
                 molecule.atoms[iatom].normal_modes.append(list(modes[imode][iatom]))
             molecule.atoms[iatom].normal_modes = np.array(molecule.atoms[iatom].normal_modes)
+ 
             
 class thermochemistry():
     """
@@ -443,7 +459,33 @@ class thermochemistry():
         ZPE = mol.ZPE
         Hof = mol.DeltaHf298
 
-
+    The thermochemical properties available in ``molecule`` object after the calculation:
+    
+    * ``ZPE``: Zero-point energy
+    
+    * ``DeltaE2U``: Thermal correction to Energy (only available in Gaussian)
+    
+    * ``DeltaE2H``: Thermal correction to Enthalpy (only available in Gaussian)
+    
+    * ``DeltaE2G``: Thermal correction to Gibbs free energy (only available in Gaussian)
+    
+    * ``U0``: Internal energy at 0K
+    
+    * ``H0``: Enthalpy at 0K       
+    
+    * ``U``: Internal energy (only available in Gaussian)
+    
+    * ``H``: Enthalpy
+    
+    * ``G``: Gibbs free energy
+    
+    * ``S``: Entropy (only available in Gaussian)
+    
+    * ``atomization_energy_0K``
+    
+    * ``ZPE_exclusive_atomization_energy_0K``
+    
+    * ``DeltaHf298``: Heat of formation at 298 K
     """
     def __init__(self, model=None, molecule=None, program=None, normal_mode_normalization='mass deweighted normalized'):
         if model != None:
@@ -500,6 +542,73 @@ class thermochemistry():
         self.molecule.ZPE_exclusive_atomization_energy_0K = atomization_energy + self.molecule.ZPE
         self.molecule.DeltaHf298 = DeltaHf298
         
+class dmc():
+    # '''
+    # Run diffusion monte carlo simulation for molecule(s) using `PyVibDMC <https://github.com/rjdirisio/pyvibdmc>`_.
+    # '''
+
+    def __init__(self, model: models.model, initial_molecule:data.molecule = None, initial_molecular_database: data.molecular_database = None, energy_scaling_factor:float = 1., ):
+        from .constants import Bohr2Angstrom
+        
+        
+        
+        if not initial_molecular_database:
+            initial_molecular_database = data.molecular_database([initial_molecule])
+        
+        self.model = model
+        self.atoms = list(initial_molecular_database[0].element_symbols)
+        self.start_structures = initial_molecular_database.xyz_coordinates / Bohr2Angstrom * 1.01
+        self.energy_scaling_factor = energy_scaling_factor
+
+
+    
+    def potential_function(self, coordinates):
+        from .constants import Bohr2Angstrom
+        molDB = data.molecular_database.from_numpy(coordinates=coordinates * Bohr2Angstrom, species=np.repeat([self.atoms], coordinates.shape[0], axis=0))
+        self.model.predict(molecular_database=molDB, calculate_energy=True)
+        return molDB.get_properties('energy') * self.energy_scaling_factor
+    
+    def initialize(self, number_of_walkers, generation_method='harmonic_sampling',**kwargs):
+        import pyvibdmc as pv
+        initializer = pv.InitialConditioner(coord=self.start_structures,
+                                    atoms=self.atoms,
+                                    num_walkers=number_of_walkers,
+                                    technique=generation_method,
+                                    **kwargs)
+        self.start_structures = initializer.run()
+
+    def run(self, run_dir: str = 'DMC', weighting: str = 'discrete', number_of_walkers: int = 5000, number_of_timesteps: int = 10000, equilibration_steps: int = 500, dump_trajectory_interval: int = 500, dump_wavefunction_interval: int = 1000, descendant_weighting_steps: int = 300, time_step: int = 1 * constants.au2fs, initialize: bool = False):
+        from pyvibdmc import potential_manager as pm
+        import pyvibdmc as pv
+        
+        if initialize:
+            self.initialize(number_of_walkers=number_of_walkers,)
+        
+        DMC_job = pv.DMC_Sim(sim_name='DMC',
+                            output_folder=run_dir,
+                            weighting=weighting, #or 'continuous'. 'continuous' keeps the ensemble size constant.
+                            num_walkers=number_of_walkers, #number of geometries exploring the potential surface
+                            num_timesteps=number_of_timesteps, #how long the simulation will go. (num_timesteps *      atomic units of time)
+                            equil_steps=equilibration_steps, #how long before we start collecting wave functions
+                            chkpt_every=dump_trajectory_interval, #checkpoint the simulation every "chkpt_every" time steps
+                            wfn_every=dump_wavefunction_interval, #collect a wave function every "wfn_every" time steps
+                            desc_wt_steps=descendant_weighting_steps, #number of time steps you allow for descendant weighting per wave function
+                            atoms=self.atoms,
+                            delta_t=time_step * constants.fs2au, #the size of the time step in fs
+                            potential=pm.Potential_Direct(potential_function=self.potential_function),
+                            start_structures=self.start_structures, #can provide a single geometry, or an ensemble of geometries
+                            masses=None #can put in artificial masses, otherwise it auto-pulls values from the atoms string
+        )
+        DMC_job.run()
+        self.load(f"{run_dir}/DMC_sim_info.hdf5")
+    
+    def load(self, filename):
+        import pyvibdmc as pv
+        self.result = pv.SimInfo(filename)
+
+    def get_zpe(self, start_step=1000):
+        return self.result.get_zpe(onwards=start_step, ret_cm=False)
+
 def numerical_gradients(molecule, model_with_function_to_predict_energy, eps=1e-5, kwargs_funtion_predict_energy={}, return_molecular_database=False):
     if return_molecular_database:
         molDB = data.molecular_database()
@@ -517,16 +626,15 @@ def numerical_gradients(molecule, model_with_function_to_predict_energy, eps=1e-
         model_with_function_to_predict_energy.predict(molecule=current_molecule, **kwargs_funtion_predict_energy)
         if return_molecular_database: molDB.molecules.append(current_molecule)
         return current_molecule.energy
-    env = environment_variables()
-    nthreads = env.get_nthreads()
+    from multiprocessing import cpu_count
+    nthreads = cpu_count()
     if nthreads == 1:
         energies = np.array([get_energy(each) for each in coordinates_list])
     else:
         from multiprocessing.pool import ThreadPool as Pool
-        env.set_nthreads(1)
+        model_with_function_to_predict_energy.set_num_threads(1)
         pool = Pool(processes=nthreads)
         energies = np.array(pool.map(get_energy, coordinates_list))
-        env.set_nthreads(nthreads)
     relenergy = energies[-1]
     gradients = (energies[:-1]-relenergy)/eps
     if return_molecular_database: return gradients.reshape(natoms,3), molDB

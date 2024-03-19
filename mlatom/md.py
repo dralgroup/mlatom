@@ -149,7 +149,7 @@ class md():
         while not stop:
             trajectory_step = data.molecular_trajectory_step()
             if istep == 0:
-                molecule = self.molecule_with_initial_conditions.copy(atomic_labels=['xyz_coordinates','xyz_velocities'],molecular_labels=[])
+                molecule = self.molecule_with_initial_conditions.copy()
                 if not 'energy_gradients' in molecule.atoms[0].__dict__:
                     self.model.predict(molecule=molecule,
                                     calculate_energy = True,
@@ -162,7 +162,7 @@ class md():
                 pass 
             else:
                 previous_molecule = molecule
-                molecule = self.molecule_with_initial_conditions.copy(atomic_labels=['xyz_coordinates','xyz_velocities'],molecular_labels=[])
+                molecule = self.molecule_with_initial_conditions.copy()
                 molecule.xyz_coordinates=previous_molecule.xyz_coordinates
                 velocity = previous_molecule.get_xyz_vectorial_properties('xyz_velocities')
                 for iatom in range(self.Natoms):

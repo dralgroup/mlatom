@@ -43,7 +43,7 @@ from .. import constants
 from .. import data
 from .. import models
 from .. import stopper
-from ..utils import doc_inherit
+from ..decorators import doc_inherit
 
 def molDB2PhysNetData(molDB, 
                       property_to_learn=None,
@@ -176,19 +176,19 @@ class physnet(models.ml_model, models.tensorflow_model):
             best_checkpoint = os.path.join(best_dir, 'best_model.ckpt')
             self.set_best_dict(**dict(np.load(best_loss_file)))
             self.NASdict = np.load(os.path.join(directory, 'NAS.npz')) if os.path.exists(os.path.join(directory, 'NAS.npz')) else None
-            self.model = NeuralNetwork(F=self.hyperparameters['num_features'].value,           
-                                    K=self.hyperparameters['num_basis'].value,                
-                                    sr_cut=self.hyperparameters['cutoff'].value,              
-                                    num_blocks=self.hyperparameters['num_blocks'].value, 
-                                    num_residual_atomic=self.hyperparameters['num_residual_atomic'].value,
-                                    num_residual_interaction=self.hyperparameters['num_residual_interaction'].value,
-                                    num_residual_output=self.hyperparameters['num_residual_output'].value,
-                                    use_electrostatic=(self.hyperparameters['use_electrostatic'].value == 1),
-                                    use_dispersion=(self.hyperparameters['use_dispersion'].value == 1),
-                                    s6=self.hyperparameters['grimme_s6'].value,
-                                    s8=self.hyperparameters['grimme_s8'].value,
-                                    a1=self.hyperparameters['grimme_a1'].value,
-                                    a2=self.hyperparameters['grimme_a2'].value,
+            self.model = NeuralNetwork(F=self.hyperparameters.num_features,           
+                                    K=self.hyperparameters.num_basis,                
+                                    sr_cut=self.hyperparameters.cutoff,              
+                                    num_blocks=self.hyperparameters.num_blocks, 
+                                    num_residual_atomic=self.hyperparameters.num_residual_atomic,
+                                    num_residual_interaction=self.hyperparameters.num_residual_interaction,
+                                    num_residual_output=self.hyperparameters.num_residual_output,
+                                    use_electrostatic=(self.hyperparameters.use_electrostatic == 1),
+                                    use_dispersion=(self.hyperparameters.use_dispersion == 1),
+                                    s6=self.hyperparameters.grimme_s6,
+                                    s8=self.hyperparameters.grimme_s8,
+                                    a1=self.hyperparameters.grimme_a1,
+                                    a2=self.hyperparameters.grimme_a2,
                                     Eshift=self.NASdict['Eshift'] if self.NASdict else 0.0,  
                                     Escale=self.NASdict['Escale'] if self.NASdict else 1.0, 
                                     activation_fn=shifted_softplus, 
@@ -267,16 +267,16 @@ class physnet(models.ml_model, models.tensorflow_model):
         with self.session.graph.as_default():
             n_subtrain = len(molecular_database)
             n_valid =  len(validation_molecular_database)
-            batch_size= min(self.hyperparameters['batch_size'].value, n_subtrain)
-            valid_batch_size = min(self.hyperparameters['valid_batch_size'].value, n_valid)
+            batch_size= min(self.hyperparameters.batch_size, n_subtrain)
+            valid_batch_size = min(self.hyperparameters.valid_batch_size, n_valid)
             dataset = molDB2PhysNetData(molecular_database, property_to_learn, xyz_derivative_property_to_learn)
             valid_dataset = molDB2PhysNetData(validation_molecular_database, property_to_learn, xyz_derivative_property_to_learn)
-            subtrain_provider = DataProvider(dataset, n_subtrain, 0, batch_size, 0, seed=self.hyperparameters['seed'].value)
-            validate_provider = DataProvider(valid_dataset, 0, n_valid, 0, self.hyperparameters['valid_batch_size'].value, seed=self.hyperparameters['seed'].value)
+            subtrain_provider = DataProvider(dataset, n_subtrain, 0, batch_size, 0, seed=self.hyperparameters.seed)
+            validate_provider = DataProvider(valid_dataset, 0, n_valid, 0, self.hyperparameters.valid_batch_size, seed=self.hyperparameters.seed)
 
             self.NASdict = {'Eshift': subtrain_provider.EperA_mean,'Escale': subtrain_provider.EperA_stdev}
 
-            steps_per_epoch = min((n_subtrain - 1) // batch_size + 1, self.hyperparameters['max_steps'].value)
+            steps_per_epoch = min((n_subtrain - 1) // batch_size + 1, self.hyperparameters.max_steps)
             
             summary_interval = self.hyperparameters.summary_interval if self.hyperparameters.summary_interval else steps_per_epoch
             validation_interval = self.hyperparameters.validation_interval if self.hyperparameters.validation_interval else steps_per_epoch
@@ -288,19 +288,19 @@ class physnet(models.ml_model, models.tensorflow_model):
             Eref_v, Earef_v, Fref_v, Z_v, Dref_v, Qref_v, Qaref_v, R_v, idx_i_v, idx_j_v, batch_seg_v = valid_queue.dequeue_op
 
             if not self.model:
-                self.model = NeuralNetwork(F=self.hyperparameters['num_features'].value,           
-                                        K=self.hyperparameters['num_basis'].value,                
-                                        sr_cut=self.hyperparameters['cutoff'].value,              
-                                        num_blocks=self.hyperparameters['num_blocks'].value, 
-                                        num_residual_atomic=self.hyperparameters['num_residual_atomic'].value,
-                                        num_residual_interaction=self.hyperparameters['num_residual_interaction'].value,
-                                        num_residual_output=self.hyperparameters['num_residual_output'].value,
-                                        use_electrostatic=(self.hyperparameters['use_electrostatic'].value == 1),
-                                        use_dispersion=(self.hyperparameters['use_dispersion'].value == 1),
-                                        s6=self.hyperparameters['grimme_s6'].value,
-                                        s8=self.hyperparameters['grimme_s8'].value,
-                                        a1=self.hyperparameters['grimme_a1'].value,
-                                        a2=self.hyperparameters['grimme_a2'].value,
+                self.model = NeuralNetwork(F=self.hyperparameters.num_features,           
+                                        K=self.hyperparameters.num_basis,                
+                                        sr_cut=self.hyperparameters.cutoff,              
+                                        num_blocks=self.hyperparameters.num_blocks, 
+                                        num_residual_atomic=self.hyperparameters.num_residual_atomic,
+                                        num_residual_interaction=self.hyperparameters.num_residual_interaction,
+                                        num_residual_output=self.hyperparameters.num_residual_output,
+                                        use_electrostatic=(self.hyperparameters.use_electrostatic == 1),
+                                        use_dispersion=(self.hyperparameters.use_dispersion == 1),
+                                        s6=self.hyperparameters.grimme_s6,
+                                        s8=self.hyperparameters.grimme_s8,
+                                        a1=self.hyperparameters.grimme_a1,
+                                        a2=self.hyperparameters.grimme_a2,
                                         Eshift=subtrain_provider.EperA_mean,  
                                         Escale=subtrain_provider.EperA_stdev,   
                                         activation_fn=shifted_softplus, 
@@ -399,13 +399,13 @@ class physnet(models.ml_model, models.tensorflow_model):
 
                 #define loss function (used to train the model)
                 l2loss = tf.reduce_mean(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)) 
-                loss_t = eloss_train + self.hyperparameters['force_weight'].value * floss_train + self.hyperparameters['charge_weight'].value * qloss_train + self.hyperparameters['dipole_weight'].value * dloss_train + self.hyperparameters['nhlambda'].value * nhloss_t + self.hyperparameters['l2lambda'].value * l2loss
-                loss_v = eloss_valid + self.hyperparameters['force_weight'].value * floss_valid + self.hyperparameters['charge_weight'].value * qloss_valid + self.hyperparameters['dipole_weight'].value * dloss_valid + self.hyperparameters['nhlambda'].value * nhloss_v + self.hyperparameters['l2lambda'].value * l2loss
+                loss_t = eloss_train + self.hyperparameters.force_weight * floss_train + self.hyperparameters.charge_weight * qloss_train + self.hyperparameters.dipole_weight * dloss_train + self.hyperparameters.nhlambda * nhloss_t + self.hyperparameters.l2lambda * l2loss
+                loss_v = eloss_valid + self.hyperparameters.force_weight * floss_valid + self.hyperparameters.charge_weight * qloss_valid + self.hyperparameters.dipole_weight * dloss_valid + self.hyperparameters.nhlambda * nhloss_v + self.hyperparameters.l2lambda * l2loss
 
             #create trainer
-            trainer  = Trainer(self.hyperparameters['learning_rate'].value, self.hyperparameters['decay_steps'].value, self.hyperparameters['decay_rate'].value, scope="trainer")
+            trainer  = Trainer(self.hyperparameters.learning_rate, self.hyperparameters.decay_steps, self.hyperparameters.decay_rate, scope="trainer")
             with tf.name_scope("trainer_ops"):
-                train_op = trainer.build_train_op(loss_t, self.hyperparameters['ema_decay'].value, self.hyperparameters['max_norm'].value)
+                train_op = trainer.build_train_op(loss_t, self.hyperparameters.ema_decay, self.hyperparameters.max_norm)
                 save_variable_backups_op = trainer.save_variable_backups()
                 load_averaged_variables_op = trainer.load_averaged_variables()
                 restore_variable_backups_op = trainer.restore_variable_backups()
@@ -508,13 +508,13 @@ class physnet(models.ml_model, models.tensorflow_model):
             if log: logging.info("starting training...")
             while not coord.should_stop():
                 #finish training when maximum number of iterations is reached
-                if self.step > self.hyperparameters['max_steps'].value or (stop_train == True):
+                if self.step > self.hyperparameters.max_steps or (stop_train == True):
                     coord.request_stop()
                     break
 
                 #perform training step 
                 self.step += 1
-                _, tmploss, emse, emae, fmse, fmae, qmse, qmae, dmse, dmae = self.session.run([train_op, loss_t, emse_t, emae_t, fmse_t, fmae_t, qmse_t, qmae_t, dmse_t, dmae_t], options=run_options, feed_dict={self.model.keep_prob: self.hyperparameters['keep_prob'].value}, run_metadata=run_metadata)
+                _, tmploss, emse, emae, fmse, fmae, qmse, qmae, dmse, dmae = self.session.run([train_op, loss_t, emse_t, emae_t, fmse_t, fmae_t, qmse_t, qmae_t, dmse_t, dmae_t], options=run_options, feed_dict={self.model.keep_prob: self.hyperparameters.keep_prob}, run_metadata=run_metadata)
                 
                 #update averages
                 num_t, tmploss_avg_t, emse_avg_t, emae_avg_t, fmse_avg_t, fmae_avg_t, qmse_avg_t, qmae_avg_t, dmse_avg_t, dmae_avg_t = update_averages(num_t, tmploss_avg_t, tmploss, emse_avg_t, emse, emae_avg_t, emae, fmse_avg_t, fmse, fmae_avg_t, fmae, qmse_avg_t, qmse, qmae_avg_t, qmae, dmse_avg_t, dmse, dmae_avg_t, dmae)
@@ -532,7 +532,7 @@ class physnet(models.ml_model, models.tensorflow_model):
                     #initialize averages to 0
                     num_v, tmploss_avg_v, emse_avg_v, emae_avg_v, fmse_avg_v, fmae_avg_v, qmse_avg_v, qmae_avg_v, dmse_avg_v, dmae_avg_v = reset_averages()
                     #compute averages
-                    for i in range(n_valid // self.hyperparameters['valid_batch_size'].value):
+                    for i in range(n_valid // self.hyperparameters.valid_batch_size):
                         tmploss, emse, emae, fmse, fmae, qmse, qmae, dmse, dmae = self.session.run([loss_v, emse_v, emae_v, fmse_v, fmae_v, qmse_v, qmae_v, dmse_v, dmae_v])
                         num_v, tmploss_avg_v, emse_avg_v, emae_avg_v, fmse_avg_v, fmae_avg_v, qmse_avg_v, qmae_avg_v, dmse_avg_v, dmae_avg_v = update_averages(num_v, tmploss_avg_v, tmploss, emse_avg_v, emse, emae_avg_v, emae, fmse_avg_v, fmse, fmae_avg_v, fmae, qmse_avg_v, qmse, qmae_avg_v, qmae, dmse_avg_v, dmse, dmae_avg_v, dmae)
 
@@ -540,8 +540,8 @@ class physnet(models.ml_model, models.tensorflow_model):
                     results = {}
                     results["loss_valid"] = tmploss_avg_v
 
-                    if self.hyperparameters['earlystopping'].value:
-                        stop_train, counter = early_stop(tmploss_avg_v, best_loss, counter, patience=self.hyperparameters['patience'].value, threshold_ratio=self.hyperparameters['threshold'].value)
+                    if self.hyperparameters.earlystopping:
+                        stop_train, counter = early_stop(tmploss_avg_v, best_loss, counter, patience=self.hyperparameters.patience, threshold_ratio=self.hyperparameters.threshold)
 
                     if dataset.E is not None:
                         results["energy_mae_valid"]  = emae_avg_v
@@ -604,8 +604,9 @@ class physnet(models.ml_model, models.tensorflow_model):
                     if dataset.D is not None:
                         results["dipole_mae_best"]  = best_dmae
                         results["dipole_rmse_best"] = best_drmse
-                    summary = create_summary(results)
-                    summary_writer.add_summary(summary, global_step=self.step)
+                    if log:
+                        summary = create_summary(results)
+                        summary_writer.add_summary(summary, global_step=self.step)
 
                     #restore backup variables
                     self.session.run(restore_variable_backups_op)
@@ -637,7 +638,7 @@ class physnet(models.ml_model, models.tensorflow_model):
                             summary_writer.add_run_metadata(run_metadata, 'step %d' % self.step, global_step=self.step)
 
                     if dataset.E is not None:
-                        if self.verbose: print(str(self.step)+'/'+str(self.hyperparameters['max_steps'].value), "loss:", results["loss_train"], "best:", best_loss, "emae:", results["energy_mae_train"], "best:", best_emae)
+                        if self.verbose: print(str(self.step)+'/'+str(self.hyperparameters.max_steps), "loss:", results["loss_train"], "best:", best_loss, "emae:", results["energy_mae_train"], "best:", best_emae)
                         sys.stdout.flush()
         # original session stop
 

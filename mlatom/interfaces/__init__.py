@@ -37,3 +37,7 @@ def gaussian(**kwargs):
 def pyscf(**kwargs):
     from .pyscf_interface import pyscf_methods as interface
     return interface(**kwargs)
+
+def orca(**kwargs):
+    from .orca_interface import orca_methods as interface
+    return interface(**kwargs)

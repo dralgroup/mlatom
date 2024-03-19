@@ -3,7 +3,7 @@ import sys,os
 from . import models
 
 def printHeader(args):
-    with open(os.path.dirname(__file__)+'/ref.json','r') as f:
+    with open(os.path.dirname(__file__)+'/ref.json','r', encoding='utf-8') as f:
         refs = json.load(f)
     refItems = {}
     # ML tasks
@@ -38,6 +38,8 @@ def printHeader(args):
             refItems['DPMD model'] = refs['DPMD']
     if (args.MLprog.lower() == 'physnet' or args.MLmodelType.lower() == 'physnet'):
         refItems['PhysNet model & program'] = refs['PhysNet']
+    if (args.MLprog.lower() == 'mace' or args.MLmodelType.lower() == 'mace'):
+        refItems['MACE model & program'] = refs['MACE']
     if (args.MLprog.lower() in [ 'gap', 'gap_fit', 'gapfit'] or args.MLmodelType.lower() == 'gap-soap'):
         refItems['GAP model'] = refs['GAP']
         if (args.MLmodelType.lower() == 'gap-soap' or args.MLmodelType.lower() == ''):
@@ -127,10 +129,64 @@ def printHeader(args):
             refItems['D4']  = refs['D4']
             refItems['D4 program']  = refs['D4prog']
     
-    if (args.geomopt or args.freq):# or args.ts or args.irc):
+    if args.geomopt:
         if 'optprog=ase' in ' '.join(args.args2pass).lower():
             refItems['Atomic simulation environment (ASE)']  = refs['ASE']
         elif 'optprog=gaussian' in ' '.join(args.args2pass).lower():
+            refItems['Gaussian program']  = refs['Gaussian']
+        elif args.freq and 'optprog=pyscf' in ' '.join(args.args2pass).lower():
+            refItems['PySCF program']  = refs['PySCF']
+        elif "GAUSS_EXEDIR" in os.environ:
+            refItems['Gaussian program']  = refs['Gaussian']
+        else:
+            try:
+                import ase
+                refItems['Atomic simulation environment (ASE)']  = refs['ASE']
+            except:
+                try: 
+                    import scipy
+                    refItems['SciPy']  = refs['SciPy']
+                except:
+                    pass
+                    
+    if args.freq:
+        if not args.freqProg:
+            args.freqProg = args.optProg            
+        if 'freqprog=ase' in ' '.join(args.args2pass).lower():
+            refItems['Atomic simulation environment (ASE)']  = refs['ASE']
+        elif 'freqprog=gaussian' in ' '.join(args.args2pass).lower():
+            refItems['Gaussian program']  = refs['Gaussian']
+        elif args.freq and 'freqprog=pyscf' in ' '.join(args.args2pass).lower():
+            refItems['PySCF program']  = refs['PySCF']
+        elif "GAUSS_EXEDIR" in os.environ:
+            refItems['Gaussian program']  = refs['Gaussian']
+        else:
+            try:
+                import pyscf
+                refItems['PySCF program']  = refs['PySCF']
+            except:
+                try: 
+                    import ase
+                    refItems['Atomic simulation environment (ASE)']  = refs['ASE']
+                except:
+                    pass
+                    
+    if args.ts:
+        if 'optprog=ase' in ' '.join(args.args2pass).lower():
+            refItems['Atomic simulation environment (ASE)']  = refs['ASE']
+        elif 'optprog=gaussian' in ' '.join(args.args2pass).lower():
+            refItems['Gaussian program']  = refs['Gaussian']
+        elif "GAUSS_EXEDIR" in os.environ:
+            refItems['Gaussian program']  = refs['Gaussian']
+        else:
+            refItems['Atomic simulation environment (ASE)']  = refs['ASE']
+                
+    if args.irc:
+        if 'optprog=ase' in ' '.join(args.args2pass).lower():
+            refItems['Atomic simulation environment (ASE)']  = refs['ASE']
+        elif 'optprog=gaussian' in ' '.join(args.args2pass).lower():
+            refItems['Gaussian program']  = refs['Gaussian']
+        else:
             refItems['Gaussian program']  = refs['Gaussian']
     
     if 'periodkernel' in ' '.join(args.args2pass).lower():

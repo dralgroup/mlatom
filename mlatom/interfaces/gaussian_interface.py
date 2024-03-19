@@ -16,7 +16,7 @@ from mlatom import data
 from mlatom import models
 from mlatom import stopper
 from mlatom import simulations
-from mlatom.utils import doc_inherit
+from mlatom.decorators import doc_inherit
 
 
 class gaussian_methods(models.model):
@@ -34,13 +34,17 @@ class gaussian_methods(models.model):
         The format of method should be the same as that in Gaussian, e.g., ``'B3LYP/6-31G*'``
         
     '''
-    def __init__(self,method='B3LYP/6-31G*',nthreads=1,save_files_in_current_directory=False, working_directory=None, **kwargs):
+    def __init__(self,method='B3LYP/6-31G*',nthreads=None,save_files_in_current_directory=False, working_directory=None, **kwargs):
         if not "GAUSS_EXEDIR" in os.environ:
             if pythonpackage: raise ValueError('enviromental variable GAUSS_EXEDIR is not set')
             else: stopper.stopMLatom('enviromental variable GAUSS_EXEDIR is not set')
         self.method = method 
         self.find_energy_to_read_in_Gaussian()
-        self.nthreads = nthreads
+        if nthreads is None:
+            from multiprocessing import cpu_count
+            self.nthreads = cpu_count()
+        else:
+            self.nthreads = nthreads
         self.save_files_in_current_directory = save_files_in_current_directory
         self.working_directory = working_directory
         if 'writechk' in kwargs:
@@ -193,7 +197,15 @@ def run_gaussian_job(**kwargs):
         elif external_task.lower() == 'freq':
             gaussian_keywords += "#p freq external='%s %s'\n" % (pythonbin, path_to_this_file)
         elif external_task.lower() == 'freq(anharmonic)':
-            gaussian_keywords += "#p freq(anharmonic) external='%s %s'\n" % (pythonbin, path_to_this_file)
+            if 'frequency_keywords' in kwargs:
+                if len(kwargs['frequency_keywords']) !=0:
+                    extra_keywords = ','.join(kwargs['frequency_keywords'])
+                    extra_keywords = ','+extra_keywords
+                else:
+                    extra_keywords = ''
+            else:
+                extra_keywords = ''
+            gaussian_keywords += f"#p freq(anharmonic{extra_keywords}) external='%s %s'\n" % (pythonbin, path_to_this_file)
         elif external_task.lower() == 'ts':
             gaussian_keywords += "#p opt(ts,calcfc,noeigen,nomicro) external='%s %s'\n" % (pythonbin, path_to_this_file)
         elif external_task.lower() == 'irc':
@@ -238,7 +250,7 @@ def check_gaussian():
         elif 'g09' in Gaussianroot:
             version = 'g09'
         Gaussianbin = os.path.join(Gaussianroot,version)
-    else :
+    else:
         stopper.stopMLatom('Cannot find Gaussian software in the environment, set $GAUSS_EXEDIR environmental variable')
     version = version.replace('g', '')
     return Gaussianbin, version
@@ -348,6 +360,11 @@ def write_gaussian_EOu(EOu_file, derivs, molecule):
             fEOu.write('\n')
             # dipole derivatives            DDip(I), I=1,9*NAtoms
             ddip = np.zeros(9*natoms)
+            if 'dipole_derivatives' in molecule.__dict__.keys():
+                # Rescale the dipole derivatives by a factor of 0.1 so that anharmonic 
+                # infrared intensities can be printed properly when using AIQM1
+                # Later the intensities will be rescaled by a factor of 100
+                ddip = molecule.dipole_derivatives * constants.Bohr2Angstrom * constants.Debye2au / 10.0
             output = writer.write(ddip)
             fEOu.write(output)
             fEOu.write('\n')
@@ -364,12 +381,23 @@ def read_freq_thermochemistry_from_Gaussian_output(outputfile, molecule):
     molecule.frequencies = []
     molecule.force_constants = []
     molecule.reduced_masses = []
+    molecule.infrared_intensities = []
     for atom in molecule.atoms:
         atom.normal_modes = []
+    
+    # Ugly fix: read from last job step
+    termination_list = [0]
     for iline in range(len(lines)):
+        if 'termination' in lines[iline]:
+            termination_list.append(iline+1)
+    istart = termination_list[-2]
+
+    for iline in range(istart,len(lines)):
         if 'Frequencies --' in lines[iline]: molecule.frequencies += [float(xx) for xx in lines[iline].split()[2:]]
         if 'Red. masses --' in lines[iline]: molecule.reduced_masses += [float(xx) for xx in lines[iline].split()[3:]]
         if 'Frc consts  --' in lines[iline]: molecule.force_constants += [float(xx) for xx in lines[iline].split()[3:]]
+        if 'IR Inten    --' in lines[iline]: 
+            if 'dipole_derivatives' in molecule.__dict__.keys(): molecule.infrared_intensities += [float(xx)*100 for xx in lines[iline].split()[3:]]
         if 'Atom  AN      X      Y      Z' in lines[iline]:
             for iatom in range(natoms):
                 xyzs = np.array([float(xx) for xx in lines[iline+iatom+1].split()[2:]])
@@ -390,7 +418,6 @@ def read_freq_thermochemistry_from_Gaussian_output(outputfile, molecule):
             molecule.S = float(lines[iline+2].split()[-1]) * constants.kcalpermol2Hartree / 1000.0
         if 'Normal termination of Gaussian' in lines[iline]:
             successful = True
-            break
     for atom in molecule.atoms:
         atom.normal_modes = np.array(atom.normal_modes)
     return successful
@@ -406,6 +433,10 @@ def read_anharmonic_frequencies(outputfile,molecule):
     fundamental_bands_flag = True 
     overtones_flag = True 
     combination_bands_flag = True 
+    anharmonic_infrared_intensities = []
+    anharmonic_overtones_infrared_intensities = [] 
+    anharmonic_combination_bands_infrared_intensities = [] 
+    IRflags = []
     with open(outputfile,'r') as f:
         lines = f.readlines()
     for iline in range(len(lines)):
@@ -463,11 +494,67 @@ def read_anharmonic_frequencies(outputfile,molecule):
             molecule.anharmonic_S = eval(lines[iline+6].strip().split()[-3].replace('D','E')) * constants.kJpermol2Hartree / 1000.0
             molecule.anharmonic_G = molecule.anharmonic_H - temperature * molecule.anharmonic_S
             molecule.anharmonic_DeltaE2G = molecule.anharmonic_G - E 
+        # Read infrared intensities if found
+        if 'I(anharm)' in lines[iline]:
+            if 'dipole_derivatives' in molecule.__dict__.keys():
+                IRflags.append(iline+1) 
+    
+    # Read infrared intensities if found
+    if len(IRflags) == 3:
+        # Read fundamental bands intensities
+        flag = IRflags[0]
+        for ii in range(len(molecule.frequencies)):
+            templine = lines[flag+ii]
+            try:
+                intensity = eval(templine.strip().split()[-1]) * 100 # the intensities are rescaled by a factor of 100
+                anharmonic_infrared_intensities.append(intensity)
+            except:
+                anharmonic_infrared_intensities.append(math.nan)
+        # Read overtones intensities
+        flag = IRflags[1]
+        read_overtone = True  
+        icount = 0
+        while read_overtone:
+            templine = lines[flag+icount]
+            temp = lines[flag+icount].strip().split()
+            if temp == []:
+                read_overtone = False 
+            else:
+                try:
+                    intensity = eval(temp[-1]) * 100 # the intensities are rescaled by a factor of 100
+                    anharmonic_overtones_infrared_intensities.append(intensity)
+                except:
+                    anharmonic_overtones_infrared_intensities.append(math.nan)
+                icount += 1 
+
+        # Read combination bands intensities
+        flag = IRflags[2]
+        read_combinaion_band = True 
+        icount = 0 
+        while read_combinaion_band:
+            templine = lines[flag+icount]
+            temp = lines[flag+icount].strip().split() 
+            if temp == []:
+                read_combinaion_band = False 
+            else:
+                try:
+                    intensity = eval(temp[-1]) * 100 # the intensities are rescaled by a factor of 100
+                    anharmonic_combination_bands_infrared_intensities.append(intensity)
+                except:
+                    anharmonic_combination_bands_infrared_intensities.append(math.nan)
+                icount += 1 
+        
 
     molecule.anharmonic_frequencies = []
     order = np.argsort(harmonic_frequencies)
     for each in order:
         molecule.anharmonic_frequencies.append(anharmonic_frequencies[each])
+    if anharmonic_infrared_intensities != []:
+        molecule.anharmonic_infrared_intensities = []
+        for each in order:
+            molecule.anharmonic_infrared_intensities.append(anharmonic_infrared_intensities[each])
+        molecule.anharmonic_overtones_infrared_intensities = anharmonic_overtones_infrared_intensities
+        molecule.anharmonic_combination_bands_infrared_intensities = anharmonic_combination_bands_infrared_intensities
     molecule.anharmonic_overtones = anharmonic_overtones
     molecule.harmonic_overtones = harmonic_overtones 
     molecule.anharmonic_combination_bands = anharmonic_combination_bands 
@@ -545,6 +632,25 @@ def read_Hessian_matrix_from_Gaussian_output(filename,molecule):
             hessian[ii,jj] = hessian[jj,ii]
     hessian /= constants.Bohr2Angstrom**2
     molecule.hessian = hessian
+
+def read_xyz_coordinates_from_Gaussian_output(filename:str):
+    lines = open(filename,'r').readlines()
+    # Choose the last standard orientation 
+    for iline in range(len(lines)):
+        if 'Standard orientation:' in lines[iline]:
+            flag = iline+5
+    xyz_string = ''
+    icount = 0
+    while True:
+        xyz = lines[flag+icount].strip().split()
+        if len(xyz) > 1:
+            xyz_string += f'{xyz[1]}  {xyz[3]}  {xyz[4]}  {xyz[5]}\n'
+        else:
+            break 
+        icount += 1
+    natoms = icount + 1
+    xyz_string = f'{natoms}\n\n' + xyz_string[:-1]
+    return data.molecule.from_xyz_string(string=xyz_string)
 
 def read_Hessian_matrix_from_Gaussian_chkfile(filename,molecule):
     natoms = len(molecule.atoms)
@@ -638,7 +744,8 @@ class Gaussian_output_reading_assistant():
             newmolecule = molecule.copy()
             freq_flag = read_freq_thermochemistry_from_Gaussian_output(filename,newmolecule)
             #read_Hessian_matrix_from_Gaussian_output(filename,molecule)
-            read_Hessian_matrix_from_Gaussian_chkfile(filename[:-4]+'.chk',molecule)
+            if os.path.exists(filename[:-4]+'.chk'):
+                read_Hessian_matrix_from_Gaussian_chkfile(filename[:-4]+'.chk',molecule)
         
         # !!!
         # need to be fixed later in method **read_freq_thermochemistry_from_Gaussian_output** above

@@ -11,9 +11,9 @@
 import os
 import numpy as np
 from .. import constants, models
-from ..utils import doc_inherit
+from ..decorators import doc_inherit
 
-class xtb_methods(models.model):
+class xtb_methods(models.OMP_model):
     '''
     xTB interface
 
@@ -55,6 +55,14 @@ class xtb_methods(models.model):
         except:
             msg = 'Cannot find the xtb program, please set the environment variable: export xtb=...'
             raise ValueError(msg)
+        
+        if 'nthreads' in kwargs:
+            self.nthreads = kwargs['nthreads']
+        else:
+            self.nthreads = 1
+        if 'stacksize' in kwargs:
+            os.environ["OMP_STACKSIZE"] = kwargs['stacksize']
+        
     @doc_inherit
     def predict(self, molecular_database=None, molecule=None,
                 calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False):

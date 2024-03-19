@@ -12,8 +12,9 @@ from typing import Any, Union, Dict
 import os, sys, uuid, time
 import numpy as np
 import shutil
+import logging
 from sgdml import __version__ as sGDMLver
-from sgdml import DONE, NOT_DONE
+from sgdml import DONE, NOT_DONE, ColoredLogger
 from sgdml.train import GDMLTrain
 from sgdml.predict import GDMLPredict
 from sgdml.utils import io, ui
@@ -24,7 +25,9 @@ from .. import constants
 from .. import data
 from .. import models
 from .. import stopper
-from ..utils import doc_inherit
+from ..decorators import doc_inherit
+
+logging.setLoggerClass(logging.Logger)
 
 def molDB2sGDMLdata(molDB,
                     property_to_learn='energy',
@@ -61,9 +64,9 @@ def _dictTransform(d):
 
 class sgdml(models.ml_model):
     '''
-    Create an `sGDML <https://doi.org/10.1038/s41467-018-06169-2>`_ model object. 
+    Create an `sGDML <https://doi.org/10.1038/s41467-018-06169-2>`__ model object. 
     
-    Interfaces to `sGDML <https://doi.org/10.1016/j.cpc.2019.02.007>`_.
+    Interfaces to `sGDML <https://doi.org/10.1016/j.cpc.2019.02.007>`__.
 
     Arguments:
         model_file (str, optional): The filename that the model to be saved with or loaded from.
@@ -167,6 +170,8 @@ class sgdml(models.ml_model):
         if lazy_training is None: lazy_training = self.lazy_training
 
         self.hyperparameters.update(hyperparameters)
+        
+        logging.setLoggerClass(ColoredLogger)
 
         dataset = molDB2sGDMLdata(molecular_database, property_to_learn, xyz_derivative_property_to_learn, name='training set')
         n_train = dataset['R'].shape[0]
@@ -189,15 +194,15 @@ class sgdml(models.ml_model):
                                       n_train=n_train,
                                       n_valid=n_valid,
                                       task_dir=task_dir,
-                                      sigs=self.hyperparameters['sigma'].value,
+                                      sigs=self.hyperparameters.sigma,
                                       overwrite=overwrite,
                                       max_memory=max_memory,
                                       max_processes=max_processes,
                                       use_torch=use_torch,
-                                      gdml=self.hyperparameters['gdml'].value,
-                                      use_E=not self.hyperparameters['no_E'].value,
-                                      use_E_cstr=self.hyperparameters['E_cstr'].value,
-                                      perms=self.hyperparameters['perms'].value)
+                                      gdml=self.hyperparameters.gdml,
+                                      use_E=not self.hyperparameters.no_E,
+                                      use_E_cstr=self.hyperparameters.E_cstr,
+                                      perms=self.hyperparameters.perms)
         models = self.train_models(tasks,
                          task_dir,
                          valid_dataset,
@@ -210,6 +215,8 @@ class sgdml(models.ml_model):
         self.model = self.select(models)
 
         if save_model: self.save(self.model_file)
+        
+        logging.setLoggerClass(logging.Logger)
 
     def create(self, dataset,
                valid_dataset,
@@ -280,7 +287,7 @@ class sgdml(models.ml_model):
                     tasks.append(dict(task))
             task = tasks[0]
         else:
-            if self.hyperparameters['no_E'].value:
+            if self.hyperparameters.no_E:
                 if self.verbose: log.info(
                     'Energy labels will be ignored for training.\n'
                     + 'Note: If available in the dataset file, the energy labels will however still be used to generate stratified training, test and validation datasets. Otherwise a random sampling is used.'
@@ -322,7 +329,7 @@ class sgdml(models.ml_model):
                 perms=perms,
                 use_sym=not gdml,
                 use_E=use_E,
-                use_E_cstr=self.hyperparameters['E_cstr'].value,
+                use_E_cstr=self.hyperparameters.E_cstr,
                 callback=ui.callback if self.verbose else None,
             )
 
@@ -342,7 +349,7 @@ class sgdml(models.ml_model):
         if n_written > 0:
             if self.verbose: log.done(
                 'Writing {:d}/{:d} task(s) with m={} training points each'.format(
-                    n_written, len(self.hyperparameters['sigma'].value), task['R_train'].value.shape[0].value
+                    n_written, len(self.hyperparameters.sigma), task['R_train'].value.shape[0].value
                 )
             )
         
@@ -1098,6 +1105,7 @@ class sgdml(models.ml_model):
         '''
             batch_size (int, optional): The batch size for batch-predictions.
         '''
+        logging.setLoggerClass(ColoredLogger)
         molDB, property_to_predict, xyz_derivative_property_to_predict, hessian_to_predict = \
             super().predict(molecular_database=molecular_database, molecule=molecule, calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, property_to_predict = property_to_predict, xyz_derivative_property_to_predict = xyz_derivative_property_to_predict, hessian_to_predict = hessian_to_predict)
         
@@ -1117,6 +1125,8 @@ class sgdml(models.ml_model):
             if xyz_derivative_property_to_predict:
                 grads = F.reshape(len(batch), -1, 3) * -1
                 batch.add_xyz_vectorial_properties(grads, xyz_derivative_property_to_predict)
+                
+        logging.setLoggerClass(logging.Logger)
 
 def printHelp():
     helpText = __doc__.replace('.. code-block::\n\n', '') + '''

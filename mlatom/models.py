@@ -14,7 +14,7 @@ import numpy as np
 from collections import UserDict
 
 from . import data, stats, stopper, interfaces
-from .utils import doc_inherit
+from .decorators import doc_inherit
 try:
     import torch
 except:
@@ -43,7 +43,7 @@ class model():
         self, 
         molecular_database: data.molecular_database = None, 
         molecule: data.molecule = None,
-        calculate_energy: bool = True, 
+        calculate_energy: bool = False, 
         calculate_energy_gradients: bool = False, 
         calculate_hessian: bool = False,
     ):
@@ -68,6 +68,11 @@ class model():
             errmsg = 'Either molecule or molecular_database should be provided in input'
             raise ValueError(errmsg)
         return molecular_database
+    
+    def _call_impl(self, *args, **kwargs):
+        return self.predict(*args, **kwargs)
+    
+    __call__ : Callable[..., Any] = _call_impl
 
 class torch_model(model):
     # models that utilize PyTorch should inherit this class
@@ -121,15 +126,23 @@ class methods(model):
         Methods listed above can be accepted without specifying a program.
         The required programs still have to be installed though as described in the installation manual.
         Programs needed for making above methods work:
-        * TorchANI for ``'AIQM1'``, ``'AIQM1@DFT'``, ``'AIQM1@DFT*'``, ``'ANI-1ccx'``, ``'ANI-1x'``, ``'ANI-1x-D4'``, ``'ANI-2x'``, ``'ANI-2x-D4'``
-        * dftd4 for ``'AIQM1'``, ``'AIQM1@DFT'``, ``'ANI-1x-D4'``, ``'ANI-2x-D4'``, ``'D4'``
-        * MNDO or Sparrow for ``'AIQM1'``, ``'AIQM1@DFT'``, ``'AIQM1@DFT*'``, ``'MNDO'``, ``'MNDO/d'``, ``'ODM2*'``, ``'ODM3*'``,  ``'OM2'``, ``'OM3'``, ``'PM3'``, ``'SCC-DFTB'``, ``'SCC-DFTB-heats'``
-        * MNDO for ``'CNDO/2'``, ``'MINDO/3'``, ``'MNDO/H'``, ``'MNDO/dH'``, ``'MNDOC'``, ``'ODM2'``, ``'ODM3'``, ``'OM1'``
-        * Sparrow for ``'DFTB0'``, ``'DFTB2'``, ``'DFTB3'``, ``'PM6'``, ``'RM1'``
-        * xtb for ``'GFN2-xTB'``
-        * Orca for ``'CCSD(T)*/CBS'``
+
+        .. table::
+            :align: center
+
+            ===============  ==========================================================================================================================================================================
+            Program          Methods                                                                                                                                                                   
+            ===============  ==========================================================================================================================================================================
+            TorchANI         ``'AIQM1'``, ``'AIQM1@DFT'``, ``'AIQM1@DFT*'``, ``'ANI-1ccx'``, ``'ANI-1x'``, ``'ANI-1x-D4'``, ``'ANI-2x'``, ``'ANI-2x-D4'``                                              
+            dftd4            ``'AIQM1'``, ``'AIQM1@DFT'``, ``'ANI-1x-D4'``, ``'ANI-2x-D4'``, ``'D4'``                                                                                                  
+            MNDO or Sparrow  ``'AIQM1'``, ``'AIQM1@DFT'``, ``'AIQM1@DFT*'``, ``'MNDO'``, ``'MNDO/d'``, ``'ODM2*'``, ``'ODM3*'``,  ``'OM2'``, ``'OM3'``, ``'PM3'``, ``'SCC-DFTB'``, ``'SCC-DFTB-heats'``
+            MNDO             ``'CNDO/2'``, ``'MINDO/3'``, ``'MNDO/H'``, ``'MNDO/dH'``, ``'MNDOC'``, ``'ODM2'``, ``'ODM3'``, ``'OM1'``                                                                  
+            Sparrow          ``'DFTB0'``, ``'DFTB2'``, ``'DFTB3'``, ``'PM6'``, ``'RM1'``                                                                                                               
+            xtb              ``'GFN2-xTB'``                                                                                                                                                            
+            Orca             ``'CCSD(T)*/CBS'``                                                                                                                                                        
+            ===============  ==========================================================================================================================================================================
         
-        And other methods supported by supported programs (e.g.: ``'gaussian'``, ``''xtb''``, ``'pyscf'``), can also be accepted with a program specifed.
+        And other methods supported by supported programs (e.g.: ``'gaussian'``, ``'xtb'``, ``'pyscf'``), can also be accepted with a program specifed.
     '''
 
     methods_map = {
@@ -142,6 +155,7 @@ class methods(model):
     'ccsdtstarcbs': ['CCSD(T)*/CBS'],
     'gaussian': [],
     'pyscf': [],
+    'orca': [],
     }
     
     def __init__(self, method: str = None, program: str = None, **kwargs):
@@ -202,6 +216,7 @@ class methods(model):
             tt = type(self.__dict__[key])
             if tt in [str, dict]:
                 model_dict[key] = self.__dict__[key]
+            model_dict['nthreads'] = self.nthreads
 
         if format == 'json':
             import json
@@ -263,6 +278,7 @@ class ml_model(model):
                 'model_file': os.path.abspath(self.model_file)
             },
             # 'hyperparameters': self.hyperparameters,
+            'nthreads': self.nthreads,
         }
         return model_dict
 
@@ -315,7 +331,10 @@ class ml_model(model):
         xyz_derivative_property_to_learn = self.get_xyz_derivative_property_to_learn(training_kwargs)
         if property_to_learn == None and xyz_derivative_property_to_learn == None:
             property_to_learn = 'y'
-            training_kwargs = {'property_to_learn': 'y'}
+            if training_kwargs is None:
+                training_kwargs = {'property_to_learn': 'y'}
+            else:
+                training_kwargs['property_to_learn'] = 'y'
         
         property_to_predict = self.get_property_to_predict(prediction_kwargs)
         xyz_derivative_property_to_predict = self.get_xyz_derivative_property_to_predict(prediction_kwargs)
@@ -391,7 +410,7 @@ class ml_model(model):
                 CV_errors.append(CVerror)
                 
         if debug:
-            for each in self.hyperparameters.__keys__:
+            for each in self.hyperparameters.keys():
                 print(f"  Hyperparameter {each} = {self.hyperparameters[each].value}")
             print(f"    Validation loss: {error}")
         
@@ -455,6 +474,19 @@ class ml_model(model):
             elif optimization_algorithm.lower() == 'tpe':
                 import hyperopt
                 import numpy as np
+                from hyperopt.std_out_err_redirect_tqdm import DummyTqdmFile
+                def fileno(self):
+                    if self.file.name == '<stdin>':
+                        return 0
+                    elif self.file.name == '<stdout>':
+                        return 1
+                    elif self.file.name == '<stderr>':
+                        return 2
+                    else:
+                        return 3
+
+                DummyTqdmFile.fileno = fileno
+
                 validation_loss_wraper_for_hyperopt = lambda d: validation_loss([d[k] for k in hyperparameters])
                 space_mapping = {'linear': hyperopt.hp.uniform, 'log': hyperopt.hp.loguniform, 'normal': hyperopt.hp.normal, 'lognormal': hyperopt.hp.lognormal, 'discrete': hyperopt.hp.quniform, 'discretelog': hyperopt.hp.qloguniform, 'discretelognormal': hyperopt.hp.qlognormal, 'choices': hyperopt.hp.choice}
                 def get_space(key):
@@ -777,6 +809,8 @@ class hyperparameter():
     def __repr__(self):
         return f'hyperparameter {str(self.__dict__)}'
     def _set_dtype_cast_method(self, dtype):
+        if type(dtype) == tuple:
+            dtype = dtype[0] 
         if dtype == np.ndarray:
             self._cast_dtype = np.array
         else:
@@ -856,8 +890,8 @@ class kreg(krr, OMP_model, MKL_model):
     Create a KREG model object
 
     Arguments:
-        model_file (str, optional): The filename that the model to be saved with or loaded from.
-        ml_program (str, optional): Specify which ML program to use. Avaliable optioins: ``'KREG_API'``, ``'MLatomF``.
+        model_file (str, optional): The name of the file where the model should be dumped to or loaded from.
+        ml_program (str, optional): Specify which ML program to use. Avaliable options: ``'KREG_API'``, ``'MLatomF``.
         equilibrium_molecule (:class:`mlatom.data.molecule` | None): Specify the equilibrium geometry to be used to generate RE descriptor. The geometry with lowest energy/value will be selected if set to ``None``.
         prior
         hyperparameters (Dict[str, Any] | :class:`mlatom.models.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
@@ -1036,7 +1070,7 @@ class kreg(krr, OMP_model, MKL_model):
                     self.kreg_api.predict(molecular_database=molecular_database,molecule=molecule,property_to_predict=property_to_predict,xyz_derivative_property_to_predict=xyz_derivative_property_to_predict)
                 else:
                     stopper.stopMLatom('KREG_API model not found')
-            else:
+            elif self.ml_program.casefold() == 'MLatomF'.casefold():
                 with tempfile.TemporaryDirectory() as tmpdirname:
                     molDB.write_file_with_xyz_coordinates(filename = f'{tmpdirname}/predict.xyz')
                     mlatomfargs = ['useMLmodel', 'MLmodelIn=%s' % self.model_file]
@@ -1161,7 +1195,7 @@ class model_tree_node(model):
                 mol.__dict__[self.name] = data.properties_tree_node(name=self.name, parent=parent, children=children)
         
         if self.children == None and self.operator == 'predict':
-            self.model.predict(**kwargs) 
+            self.model.predict(**kwargs)
             for mol in molDB.molecules:
                 self.get_properties_from_molecule(mol, properties, atomic_properties)
         else:
@@ -1181,11 +1215,11 @@ class model_tree_node(model):
     def get_properties_from_molecule(self, molecule, properties=[], atomic_properties=[]):
         property_values = molecule.__dict__[self.name].__dict__
         for property_name in properties:
-            if property_name in molecule.__dict__: property_values[property_name] = molecule.__dict__[property_name]
+            if property_name in molecule.__dict__: property_values[property_name] = molecule.__dict__.pop(property_name)
         for property_name in atomic_properties:
             property_values[property_name] = []
             for atom in molecule.atoms:
-                property_values[property_name].append(atom.__dict__[property_name])
+                property_values[property_name].append(atom.__dict__.pop(property_name))
             property_values[property_name] = np.array(property_values[property_name]).astype(float)
     
     def update_molecular_properties(self, molecular_database=None, molecule=None, properties=[], atomic_properties=[]):
@@ -1210,7 +1244,8 @@ class model_tree_node(model):
             'name': self.name,
             'children': [child.dump(format='dict') for child in self.children] if self.children else None,
             'operator': self.operator,
-            'model': self.model.dump(format='dict') if self.model else None
+            'model': self.model.dump(format='dict') if self.model else None,
+            'nthreads': self.nthreads,
         }
 
         if format == 'json':
@@ -1255,21 +1290,25 @@ def load_pickle(filename):
 
 def load_dict(model_dict):
     type = model_dict.pop('type')
+    nthreads = model_dict.pop('nthreads') if 'nthreads' in model_dict else 0
     if type == 'method':
         kwargs = {}
         if 'kwargs' in model_dict:
             kwargs = model_dict.pop('kwargs')
-        return methods(**model_dict, **kwargs)
+        model = methods(**model_dict, **kwargs)
 
     if type == 'ml_model':
-        return globals()[model_dict['ml_model_type'].split('.')[-1]](**model_dict['kwargs'])
+        model = globals()[model_dict['ml_model_type'].split('.')[-1]](**model_dict['kwargs'])
 
     if type == 'model_tree_node':
         children = [load_dict(child_dict) for child_dict in model_dict['children']] if model_dict['children'] else None
         name = model_dict['name']
         operator = model_dict['operator']
         model = load_dict(model_dict['model']) if model_dict['model'] else None
-        return model_tree_node(name=name, children=children, operator=operator, model=model)
+        model = model_tree_node(name=name, children=children, operator=operator, model=model)
+
+    model.set_num_threads(nthreads)
+    return model
 
 if __name__ == '__main__':
     pass

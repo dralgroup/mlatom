@@ -66,7 +66,9 @@ class vibrational_spectrum():
         if return_spectrum:
             return freqs_shown, pows_shown
 
-    def plot_power_spectrum(self,filename,lb=None,ub=None,normalize=True,title='',return_spectrum=False):
+    def plot_power_spectrum(self,filename,autocorrelation_depth=1024,zero_padding=1024,lb=None,ub=None,normalize=True,title='',return_spectrum=False):
+        self.autocorrelation_depth = autocorrelation_depth 
+        self.zero_padding = zero_padding
         if lb==None:
             lb = 0
         if ub == None:
@@ -92,6 +94,10 @@ class vibrational_spectrum():
 
     def Hann(self,k,N):
         return 0.5*(1-np.cos(2*np.pi*k/N))
+    
+    def rmavg(self,p):
+        avg = np.mean(p)
+        return np.array(p)/avg
     
     def ft_ir(self,fft_array,dt):
         comp_arr = nf.fft(fft_array)
@@ -139,7 +145,7 @@ class vibrational_spectrum():
 
         for iatom in range(len(data[0])):
             for icoord in range(3):
-                data_ = [eval(data[i][iatom][icoord]) for i in range(Ntotal)]
+                data_ = [data[i][iatom][icoord] for i in range(Ntotal)]
                 if np.mean(np.array(data_)) > 1e-8:
                     tcf = statsmodels.tsa.stattools.acf(data_,nlags=int(self.autocorrelation_depth/self.dt)-1,fft=True)
                 else:
@@ -153,7 +159,7 @@ class vibrational_spectrum():
             tcf[i] = tcf[i] * self.Hann(i,len(tcf))
         tcf = [tcf[i] for i in range(len(tcf))]
         # zeropadding
-        tcf += [0]*int(self.self.zero_padding/self.dt)
+        tcf += [0]*int(self.zero_padding/self.dt)
         fft_array = np.array(tcf)
         fft_array = self.rmavg(fft_array)
         freqs_shown,pows_shown = self.ft_ps(fft_array,self.dt)

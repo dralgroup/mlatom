@@ -12,9 +12,9 @@
 import os
 import numpy as np
 from .. import constants, simulations, models
-from ..utils import doc_inherit 
+from ..decorators import doc_inherit 
 
-class sparrow_methods(models.model):
+class sparrow_methods(models.OMP_model):
     '''
     Sparrow interface
 
@@ -57,9 +57,9 @@ class sparrow_methods(models.model):
     
     @doc_inherit
     def predict(self, molecular_database=None, molecule=None,
-                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False):
+                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, **kwargs):
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
-            
+        
         # Not very good method naming in Sparrow...
         # ODM2 is not implemented, ODM2 is just ODM2*, same for ODM3/ODM3*
         if self.method == 'ODM2*': method_to_pass = 'ODM2'
@@ -127,14 +127,20 @@ class sparrow_methods(models.model):
                     if self.availability_of_gradients_for_methods[self.method]:
                         gradients = np.loadtxt(f'{tmpdirname}/gradients.dat', comments='#') / constants.Bohr2Angstrom 
                     else:
+                        save_files_in_current_directory = self.save_files_in_current_directory
+                        self.save_files_in_current_directory = False
                         gradients = simulations.numerical_gradients(mol, self, 1e-5, kwargs_funtion_predict_energy = {'calculate_energy_gradients': False, 'calculate_hessian': False})
+                        self.save_files_in_current_directory = save_files_in_current_directory
                     for iatom in range(len(mol.atoms)):
                         mol.atoms[iatom].energy_gradients = gradients[iatom]
                 if calculate_hessian:
                     if self.availability_of_gradients_for_methods[self.method]:
                         mol.hessian = np.loadtxt(f'{tmpdirname}/hessian.dat', comments='#') / (constants.Bohr2Angstrom**2)
                     else:
+                        save_files_in_current_directory = self.save_files_in_current_directory
+                        self.save_files_in_current_directory = False
                         mol.hessian = simulations.numerical_hessian(mol, self, 5.29167e-4, 1e-5, kwargs_funtion_predict_energy = {'calculate_energy_gradients': False, 'calculate_hessian': False})
+                        self.save_files_in_current_directory = save_files_in_current_directory
 
 if __name__ == '__main__':
     pass

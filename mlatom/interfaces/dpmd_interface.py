@@ -14,7 +14,7 @@ from .. import constants
 from .. import data
 from .. import models
 from .. import stopper
-from ..utils import doc_inherit
+from ..decorators import doc_inherit
 
 if 'DeePMDkit' in os.environ:
     DeePMDdir = os.environ['DeePMDkit']
@@ -270,6 +270,9 @@ class dpmd(models.ml_model, models.tensorflow_model):
                 stdout = FNULL
             if not stderr:
                 stderr = FNULL
+        else:
+            stdout = sys.stdout
+            stderr = sys.stderr
 
         if os.path.exists(self.model_file):
             print(f'{self.model_file} exists')

@@ -12,7 +12,7 @@ from typing import Any, Union, Dict, List, Callable, Tuple
 from .. import data
 from .. import models
 from .. import constants
-from ..utils import doc_inherit
+from ..decorators import doc_inherit
 
 import os
 import uuid
@@ -32,6 +32,7 @@ import mace
 from mace import data as mace_data
 from mace import modules, tools
 from mace.tools import torch_geometric, torch_tools, utils
+from mace.tools.checkpoint import CheckpointBuilder, CheckpointIO
 from mace.tools.scripts_utils import (
     SubsetCollection,
     LRScheduler,
@@ -219,6 +220,8 @@ class mace(models.ml_model, models.torch_model):
         self.device = tools.init_device(device)
         self.hyperparameters = self.hyperparameters.copy()
         self.hyperparameters.update(hyperparameters)
+        if not self.verbose:
+            self.hyperparameters.log_level = 'ERROR'
         if model_file: 
             if os.path.isfile(model_file):
                 self.load(model_file)
@@ -265,7 +268,6 @@ class mace(models.ml_model, models.torch_model):
             
         
         args = self.hyperparameters
-        if not self.verbose: args.log_level = "WARN"
         
         if validation_molecular_database == 'sample_from_molecular_database':
             idx = np.arange(len(molecular_database))
@@ -276,7 +278,7 @@ class mace(models.ml_model, models.torch_model):
         
         tag = tools.get_tag(name=args.model, seed=args.seed)
         tools.set_seeds(args.seed)
-        tools.setup_logger(level=args.log_level, tag=tag, directory=args.log_dir)
+        if self.verbose: tools.setup_logger(level=args.log_level, tag=tag, directory=args.log_dir)
         
         config_type_weights = ast.literal_eval(args.config_type_weights) if type(args.config_type_weights) == 'str' else  args.config_type_weights
         
@@ -656,7 +658,7 @@ class mace(models.ml_model, models.torch_model):
                 loss_fn=loss_fn_energy,
             )
 
-        checkpoint_handler = tools.CheckpointHandler(
+        checkpoint_handler = CheckpointHandler_modified(
             directory=args.checkpoints_dir,
             tag=tag,
             keep=args.keep_checkpoints,
@@ -830,6 +832,27 @@ class mace(models.ml_model, models.torch_model):
                 -1 / constants.Hartree2eV * forces for forces_list in forces_collection for forces in forces_list
             ])
             molDB.add_xyz_vectorial_properties(forces_list, xyz_derivative_property_to_predict)
+
+class CheckpointHandler_modified(tools.CheckpointHandler):
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.io = CheckpointIO(*args, **kwargs)
+        self.builder = CheckpointBuilder()
+        self.old_cpk_path = None
+
+    def save(
+        self, state: tools.CheckpointState, epochs: int, keep_last: bool = False
+    ) -> None:
+
+        if self.old_cpk_path and not keep_last:
+            os.remove(self.old_cpk_path)
+ 
+        checkpoint = self.builder.create_checkpoint(state)
+        self.io.save(checkpoint, epochs, keep_last)
+        filename = self.io._get_checkpoint_filename(epochs, self.io.swa_start)
+        latest_model_path = os.path.join(self.io.directory, filename.replace('epoch', 'model_epoch'))
+        torch.save(state.model, latest_model_path)
+        self.old_cpk_path = latest_model_path
             
 def printHelp():
     helpText = __doc__.replace('.. code-block::\n\n', '') + '''
