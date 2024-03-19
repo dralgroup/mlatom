@@ -12,7 +12,7 @@ import os
 import numpy as np
 from requests.structures import CaseInsensitiveDict
 from .. import stopper, simulations, models
-from ..utils import doc_inherit
+from ..decorators import doc_inherit
 
 class mndo_methods(models.model):
     '''

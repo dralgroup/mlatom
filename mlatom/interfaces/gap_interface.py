@@ -14,7 +14,7 @@ from .. import constants
 from .. import data
 from .. import models
 from .. import stopper
-from ..utils import doc_inherit
+from ..decorators import doc_inherit
 
 
 GAPbin = os.environ['gap_fit'] if 'gap_fit' in os.environ else ''
@@ -147,13 +147,16 @@ class gap(models.ml_model):
         stdout=None,
         stderr=None,
     ):
-
+        
         if not self.verbose:
             FNULL = open(os.devnull, 'w')
             if not stdout:
                 stdout = FNULL
             if not stderr:
                 stderr = FNULL
+        else:
+            stdout = sys.stdout
+            stderr = sys.stderr
 
         if os.path.exists(self.model_file):
             self.model_file = f'GAPmodel_{str(uuid.uuid4())}.xml'
@@ -174,7 +177,7 @@ class gap(models.ml_model):
             if self.gapdict['n_sparse'] > 6 * len(molecular_database):
                 self.gapdict['n_sparse'] = 6 * len(molecular_database)
 
-            self.gapfitdict['default_sigma'] = f'{{{self.hyperparameters["default_sigma_e"].value}, {self.hyperparameters["default_sigma_f"].value}, {self.hyperparameters["default_sigma_v"].value}, {self.hyperparameters["default_sigma_h"].value}}}'
+            self.gapfitdict['default_sigma'] = f'{{{self.hyperparameters.default_sigma_e}, {self.hyperparameters.default_sigma_f}, {self.hyperparameters.default_sigma_v}, {self.hyperparameters.default_sigma_h}}}'
 
             if property_to_learn:
                 self.gapfitdict['energy_parameter_name'] = 'energy'

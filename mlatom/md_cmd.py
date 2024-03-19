@@ -6,8 +6,6 @@ from .initial_conditions import generate_initial_conditions
 from .md import md
 from . import constants
 from . import data
-from . import simulations
-from .interfaces import gaussian
 
 class Args(ArgsBase):
     def __init__(self):

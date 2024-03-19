@@ -29,6 +29,9 @@ class CLItasks(object):
             return globals()[self.args.task](self.args)
 
 def run_with_mlatomF(args):
+    if args.nthreads:
+        os.environ["OMP_NUM_THREADS"] = str(args.nthreads)
+        os.environ["MKL_NUM_THREADS"] = str(args.nthreads)
     if args.deltaLearn:
         pre_delta_learning(args)
     results = interface_MLatomF.ifMLatomCls.run(args.args2pass)
@@ -328,6 +331,7 @@ def learningCurve(args):
             os.chdir('../..')
         os.chdir('..')
     os.chdir('..')
+    return results
   
 def XYZ2X(args):
     interface_MLatomF.ifMLatomCls.run(args.argsraw)
@@ -341,7 +345,7 @@ def SMI2XYZ(args):
     molDB.write_file_with_xyz_coordinates(args.XYZout)
 
 def analyze(args):
-    interface_MLatomF.ifMLatomCls.run(args.args2pass)
+    return interface_MLatomF.ifMLatomCls.run(args.args2pass)
 
 def sample(args):
     interface_MLatomF.ifMLatomCls.run(args.args2pass)
@@ -403,7 +407,8 @@ def freq(args):
     molDB = loading_data(args.XYZfile, charges=args.charges, multiplicities=args.multiplicities)
     model = loading_model(args)
     kwargs = {}
-    if args.optProg:        kwargs['program'] = args.optprog
+    if args.freqProg:       kwargs['program'] = args.freqProg
+    elif args.optProg:      kwargs['program'] = args.optProg
     for imol, mol in enumerate(molDB):
         mol.number = imol+1
         if args.ase.linear:
@@ -449,17 +454,17 @@ def freq(args):
         elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4:
             printing_animethod_results(methodname=model.method, molecule=mol)
             print('')
-        print(fmt % ('ZPE-exclusive internal energy at      0 K', mol.energy))
-        print(fmt % ('Zero-point vibrational energy', mol.ZPE))
-        print(fmt % ('Internal energy                  at   0 K', mol.U0))
-        print(fmt % ('Enthalpy                         at 298 K', mol.H))
-        print(fmt % ('Gibbs free energy                at 298 K', mol.G))
+        if hasattr(mol, 'energy'):  print(fmt % ('ZPE-exclusive internal energy at      0 K', mol.energy))
+        if hasattr(mol, 'ZPE'):     print(fmt % ('Zero-point vibrational energy', mol.ZPE))
+        if hasattr(mol, 'U0'):      print(fmt % ('Internal energy                  at   0 K', mol.U0))
+        if hasattr(mol, 'H'):       print(fmt % ('Enthalpy                         at 298 K', mol.H))
+        if hasattr(mol, 'G'):       print(fmt % ('Gibbs free energy                at 298 K', mol.G))
         # To-do: add entropy
         if 'DeltaHf298' in mol.__dict__:
             print('')
             fmt = ' %-41s: %15.5f Hartree %15.5f kcal/mol'
-            print(fmt % ('Atomization enthalpy             at   0 K', mol.atomization_energy_0K, mol.atomization_energy_0K * constants.Hartree2kcalpermol))
-            print(fmt % ('ZPE-exclusive atomization energy at   0 K', mol.ZPE_exclusive_atomization_energy_0K, mol.ZPE_exclusive_atomization_energy_0K * constants.Hartree2kcalpermol))
+            if 'atomization_energy_0K' in mol.__dict__:               print(fmt % ('Atomization enthalpy             at   0 K', mol.atomization_energy_0K, mol.atomization_energy_0K * constants.Hartree2kcalpermol))
+            if 'ZPE_exclusive_atomization_energy_0K' in mol.__dict__: print(fmt % ('ZPE-exclusive atomization energy at   0 K', mol.ZPE_exclusive_atomization_energy_0K, mol.ZPE_exclusive_atomization_energy_0K * constants.Hartree2kcalpermol))
             print(fmt % ('Heat of formation                at 298 K', mol.DeltaHf298, mol.DeltaHf298 * constants.Hartree2kcalpermol))
             # To-do: make it work for ANI-1ccx
             if args.AIQM1:
@@ -546,6 +551,7 @@ def loading_method(args):
         else:
             kwargs['program'] = args.qmprog                    
     method = models.methods(**kwargs)
+    method.set_num_threads(args.nthreads)
     return method
 
 def loading_model(args):
@@ -571,6 +577,7 @@ def loading_model(args):
     else:
         stopper.stopMLatom("unknown MLmodelType/MLprog")
     model.parse_args(args)
+    model.set_num_threads(args.nthreads)
     return model
 
 def sampling(args=None, XYZfile=None, XfileIn=None, sampling=None, Nuse=None, 

@@ -13,8 +13,7 @@ import sys
 from .. import data
 from .. import models
 from .. import stopper
-#from .. import environment_variables
-from ..utils import doc_inherit
+from ..decorators import doc_inherit
 
 class dftd4_methods(models.model):
     '''
@@ -38,15 +37,12 @@ class dftd4_methods(models.model):
         self.working_directory = working_directory
         if 'nthreads' in kwargs:
             self.nthreads = kwargs['nthreads']
-        # else:
-        #     self.nthreads = environment_variables.environment_variables().get_nthreads()
     
     @doc_inherit
     def predict(self, molecular_database=None, molecule=None,
                 calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, **kwargs):
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
 
-        # environment_variables.environment_variables().set_nthreads(self.nthreads)
         import os
         try: dftd4bin = os.environ['dftd4bin']
         except:

@@ -22,7 +22,7 @@ try:
 except:
     raise ValueError('ASE is not installed')
 
-def optimize_geometry(initial_molecule, model, convergence_criterion_for_forces, maximum_number_of_steps, optimization_algorithm='LBFGS'):
+def optimize_geometry(initial_molecule, model, convergence_criterion_for_forces, maximum_number_of_steps, optimization_algorithm='LBFGS', **kwargs):
     if optimization_algorithm == None:
         optimization_algorithm = 'LBFGS'
     
@@ -36,6 +36,34 @@ def optimize_geometry(initial_molecule, model, convergence_criterion_for_forces,
         xyzfilename = f'{tmpdirname}/tmp.xyz'
         initial_molecule.write_file_with_xyz_coordinates(filename=xyzfilename)
         atoms = io.read(xyzfilename, index=':', format='xyz')[0]
+    if 'constraints' in kwargs:
+        constraints = kwargs['constraints']
+        from ase.constraints import FixInternals 
+        
+        all_constraints = []
+        # Fix bond lengths
+        if 'bond_length' in constraints:
+            from ase.constraints import FixBondLengths
+            bond_lengths_constraints = FixBondLengths(constraints['bond_length'])
+            all_constraints.append(bond_lengths_constraints)
+        # Fix internal coordinates
+        if 'bonds' in constraints:
+            bonds_constraints = constraints['bonds']
+        else:
+            bonds_constraints = None 
+        if 'angles' in constraints:
+            angles_constraints = constraints['angles']
+        else:
+            angles_constraints = None 
+        if 'dihedrals' in constraints:
+            dihedrals_constraints = constraints['dihedrals']
+        else:
+            dihedrals_constraints = None 
+        internal_constraints = FixInternals(bonds=bonds_constraints,angles_deg=angles_constraints,dihedrals_deg=dihedrals_constraints)
+        all_constraints.append(internal_constraints)
+
+        atoms.set_constraint(all_constraints)
+            
     # atoms.set_calculator(MLatomCalculator(model=model, save_optimization_trajectory=True))
     # atoms.set_calculator() is deprecated
     atoms.calc = MLatomCalculator(model=model, save_optimization_trajectory=True)
@@ -63,7 +91,7 @@ def transition_state(initial_molecule, model,
     if optimization_algorithm.casefold() == 'dimer'.casefold():
         return dimer_method(initial_molecule, model, 
                             convergence_criterion_for_forces,
-                            maximum_number_of_steps,  **kwargs)
+                            maximum_number_of_steps, **kwargs)
     elif optimization_algorithm.casefold() == 'NEB'.casefold():
         return nudged_elastic_band(initial_molecule, kwargs.pop('final_molecule'), model, 
                             convergence_criterion_for_forces,
@@ -86,7 +114,7 @@ def dimer_method(initial_molecule, model,
     from ase.dimer import DimerControl, MinModeAtoms, MinModeTranslate
 
     with DimerControl(**kwargs) as d_control:
-        d_atoms = MinModeAtoms(atoms, d_control)
+        d_atoms = MinModeAtoms(atoms, d_control, random_seed = kwargs['random_seed'] if 'random_seed' in kwargs else 0)
         d_atoms.displace()
         with MinModeTranslate(d_atoms) as dim_rlx:
             dim_rlx.run(fmax=convergence_criterion_for_forces,
@@ -171,37 +199,46 @@ def thermochemistry(molecule):
     cm2ev = 100.0 * units._c * units._hplanck / units._e
     ev2kcal = units.mol / units.kcal
     freqs = copy.deepcopy(molecule.frequencies)
+    # Check negative frequencies 
+    nnegative = 0
+    for ii in range(len(freqs)):
+        if freqs[ii] < 1:
+            nnegative += 1
+        else:
+            break 
+    if nnegative == len(freqs):
+        print('* warning * All the frequencies are negative, skip thermochemistry calculation')
+        return 
+    elif nnegative > 0:
+        print(f'* warning * {nnegative} negative frequencies found, remove them before thermochemistry calculation')
+        freqs = freqs[nnegative:]
+    # print(freqs)
     if 'shape' not in molecule.__dict__.keys():
         molecule.shape = 'nonlinear'
     if molecule.shape.lower() == 'linear': add_freqs = np.zeros(5)
     else: add_freqs = np.zeros(6)
-    freqs = np.array(list(add_freqs) + list(freqs)).astype(float)
     vib_energies = freqs * cm2ev
     geometry = 'nonlinear'
     if molecule.shape.lower() == 'linear': geometry = 'linear'
     spin = (molecule.multiplicity - 1) / 2
     
-    # Ugly solution because no time to understand what 'atoms' in ASE is exactly (probably corresponds to MLatom's 'molecular_database')
     with tempfile.TemporaryDirectory() as tmpdirname:
         xyzfilename = f'{tmpdirname}/tmp.xyz'
         molecule.write_file_with_xyz_coordinates(filename=xyzfilename)
         mol = io.read(xyzfilename, index=':', format='xyz')[0]
     
-    if molecule.frequencies[0] > 0:
-        if 'symmetry_number' not in molecule.__dict__.keys():
-            molecule.symmetry_number = 1
-        thermo = IdealGasThermo(vib_energies=vib_energies,
-                                potentialenergy=energy,
-                                atoms=mol,
-                                geometry=geometry,
-                                symmetrynumber=molecule.symmetry_number,
-                                spin=spin)
-        
-        molecule.G = thermo.get_gibbs_energy(temperature=298.15, pressure=101325.) * ev2kcal * constants.kcalpermol2Hartree
-        molecule.H = thermo.get_enthalpy(temperature=298.15, verbose=True) * ev2kcal * constants.kcalpermol2Hartree
-        molecule.H0 = thermo.get_enthalpy(temperature=0.0, verbose=True) * ev2kcal * constants.kcalpermol2Hartree
-        molecule.U0 = molecule.H0
-        molecule.ZPE = thermo.get_ZPE_correction() * ev2kcal * constants.kcalpermol2Hartree
-    else:
-        print(' * Warning * The first frequency is negative, thermochemical properties not calculated')
+    if 'symmetry_number' not in molecule.__dict__.keys():
+        molecule.symmetry_number = 1
+    thermo = IdealGasThermo(vib_energies=vib_energies,
+                            potentialenergy=energy,
+                            atoms=mol,
+                            geometry=geometry,
+                            symmetrynumber=molecule.symmetry_number,
+                            spin=spin)
+    
+    molecule.G = thermo.get_gibbs_energy(temperature=298.15, pressure=101325.) * ev2kcal * constants.kcalpermol2Hartree
+    molecule.H = thermo.get_enthalpy(temperature=298.15, verbose=True) * ev2kcal * constants.kcalpermol2Hartree
+    molecule.H0 = thermo.get_enthalpy(temperature=0.0, verbose=True) * ev2kcal * constants.kcalpermol2Hartree
+    molecule.U0 = molecule.H0
+    molecule.ZPE = thermo.get_ZPE_correction() * ev2kcal * constants.kcalpermol2Hartree
     

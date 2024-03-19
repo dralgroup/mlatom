@@ -40,6 +40,7 @@ def generate_initial_conditions(molecule=None, generation_method=None, number_of
         ``'user-defined'`` (default)   Use user-defined initial conditions
         ``'random'``                   Generate random velocities
         =============================  =============================================
+
         
     Returns:
         A molecular database (:class:`ml.data.molecular_database`) with ``number_of_initial_conditions`` initial conditions
@@ -77,18 +78,25 @@ def generate_initial_conditions(molecule=None, generation_method=None, number_of
     init_cond_db = data.molecular_database()
     Natoms = len(molecule.atoms)
 
-    if generation_method == 'user-defined':
-        init_cond_db.read_from_xyz_file(file_with_initial_xyz_coordinates)
-        init_cond_db.add_xyz_vectorial_properties_from_file(file_with_initial_xyz_velocities, xyz_vectorial_property='xyz_velocities')
-    elif generation_method == 'random':
-        for irepeat in range(number_of_initial_conditions):
-            new_molecule = molecule.copy(atomic_labels = ['xyz_coordinates'], molecular_labels = [])
-            velocities = generate_random_velocities(new_molecule,eliminate_angular_momentum,degrees_of_freedom,temp=initial_temperature,ekin=initial_kinetic_energy)
-            for iatom in range(Natoms):
-                new_molecule.atoms[iatom].xyz_velocities = velocities[iatom]
-            init_cond_db.molecules.append(new_molecule)
-        
-    #init_cond_db.molecules.append(molecule) # Replace with actual new initial conditions
+    iteration = 0
+    target_number_of_initial_conditions = number_of_initial_conditions
+    while len(init_cond_db) < target_number_of_initial_conditions:
+        init_cond_db = data.molecular_database()
+        iteration += 1
+        if generation_method.casefold() == 'user-defined'.casefold():
+            init_cond_db.read_from_xyz_file(file_with_initial_xyz_coordinates)
+            init_cond_db.add_xyz_vectorial_properties_from_file(file_with_initial_xyz_velocities, xyz_vectorial_property='xyz_velocities')
+        elif generation_method.casefold() == 'random'.casefold():
+            for irepeat in range(number_of_initial_conditions):
+                new_molecule = molecule.copy(atomic_labels = ['xyz_coordinates'], molecular_labels = [])
+                velocities = generate_random_velocities(new_molecule,eliminate_angular_momentum,degrees_of_freedom,temp=initial_temperature,ekin=initial_kinetic_energy)
+                for iatom in range(Natoms):
+                    new_molecule.atoms[iatom].xyz_velocities = velocities[iatom]
+                init_cond_db.molecules.append(new_molecule)
+    
+    if len(init_cond_db) > target_number_of_initial_conditions:
+       init_cond_db = init_cond_db[:target_number_of_initial_conditions]
+
     return init_cond_db
 
 def read_velocities_from_file(filename):

@@ -125,7 +125,6 @@ class molecule:
             self.atoms = []
         else:
             self.atoms = atoms
-        # todo: initialize with input data
 
     def read_from_xyz_file(self, filename: str, format: Union[str, None] = None) -> molecule:
         '''
@@ -381,7 +380,7 @@ class molecule:
     @property 
     def xyz_coordinates(self) -> np.ndarray:
         '''
-        The XYZ geometry the molecule.
+        The XYZ geometry of the molecule.
         '''
         return self.get_xyz_vectorial_properties('xyz_coordinates')
     
@@ -503,9 +502,7 @@ class molecule:
         distmat = np.zeros((natoms, natoms))
         for iatomind in range(natoms):
             for jatomind in range(iatomind+1,natoms):
-                aa = self.atoms[iatomind]
-                bb = self.atoms[jatomind]
-                distmat[iatomind][jatomind] = np.sqrt(np.sum(np.square(aa.xyz_coordinates-bb.xyz_coordinates)))
+                distmat[iatomind][jatomind] = self.internuclear_distance(iatomind, jatomind)
                 distmat[jatomind][iatomind] = distmat[iatomind][jatomind]
         return distmat
     
@@ -516,7 +513,7 @@ class molecule:
             for jatomind in range(iatomind+1,natoms):
                 aa = self.atoms[iatomind]
                 bb = self.atoms[jatomind]
-                dist = np.sqrt(np.sum(np.square(aa.xyz_coordinates-bb.xyz_coordinates)))
+                dist = self.internuclear_distance(iatomind, jatomind)
                 an = aa.atomic_number ; bn = bb.atomic_number
                 if an == 1 or bn == 1:
                     if dist < 1.2:
@@ -525,6 +522,11 @@ class molecule:
                     if dist < 2.0:
                         bonds.append([iatomind, jatomind])
         return bonds
+    
+    def internuclear_distance(self, atom1_index, atom2_index):
+        aa = self.atoms[atom1_index]
+        bb = self.atoms[atom2_index]
+        return np.sqrt(np.sum(np.square(aa.xyz_coordinates-bb.xyz_coordinates)))
     
     def is_it_linear(self):
         eps = 1.0E-8
@@ -817,6 +819,18 @@ class molecular_database:
         for i in range(vectors.shape[0]):
             self.molecules[i].add_xyz_vectorial_property(vectors[i], xyz_vectorial_property=xyz_vectorial_property)
 
+    def add_xyz_vectorial_properties_from_string(self, string: str,  xyz_vectorial_property: str = 'xyz_vector') -> None:
+        xyz_strings = conversions.split_xyz_string(string)
+        for imol, xyz_string in enumerate(xyz_strings):
+            fxyz = xyz_string.split('\n')
+            natoms = int(fxyz.pop(0))
+            fxyz.pop(0)
+            assert natoms == len(self[imol]), 'the number of atom does not match'
+            for line, atom in zip(fxyz, self[imol]):
+                yy = line.split()[-3:]
+                vector = array(yy).astype(float)
+                setattr(atom, xyz_vectorial_property, vector)
+
     def add_xyz_vectorial_properties_from_file(self, filename: str, xyz_vectorial_property: str = 'xyz_vector') -> None:
         '''
         Add a XYZ derivatives from a text file to the molecules.
@@ -826,26 +840,8 @@ class molecular_database:
             xyz_vectorial_property (str, optional): the name assign to the vectorial properties.
         '''
         with open(filename, 'r') as fxyz:
-            nlines = 0
-            natoms = 0
-            imol = -1
-            iatom = -1
-            for line in fxyz:
-                nlines += 1
-                if nlines == 1:
-                    natoms = int(line)
-                    imol += 1
-                    mol = self.molecules[imol]
-                elif nlines > 2 and nlines <= 2 + natoms:
-                    iatom += 1
-                    yy = line.split()[-3:]
-                    vector = array([float(xx) for xx in yy]).astype(float)
-                    mol.atoms[iatom].__dict__[xyz_vectorial_property] = vector
-                    if nlines == 2 + natoms:
-                        mol = None
-                        nlines = 0
-                        natoms = 0
-                        iatom = -1
+            string = fxyz.read()
+            self.add_xyz_vectorial_properties_from_string(string=string, xyz_vectorial_property=xyz_vectorial_property)
 
     def write_file_with_xyz_coordinates(self, filename: str) -> None:
         '''
@@ -1189,6 +1185,11 @@ class molecular_database:
             coordinates.append(mol.xyz_coordinates)
         return array(coordinates)
 
+    @xyz_coordinates.setter
+    def xyz_coordinates(self, value):
+        for i, mol in enumerate(self):
+            mol.xyz_coordinates = value[i]
+
 def class_instance_to_dict(inst):
     dd = copy.deepcopy(inst.__dict__)
     for key in dd.keys():
@@ -1272,6 +1273,11 @@ def dict_to_molecule_class_instance(dd):
             if 'parent' in dd[key].keys():
                 dict_to_properties_tree_node_class_instance(dd, key, mol)    
             else:
+                mol.__dict__[key] = dd[key]
+        elif type(dd[key]) == list:
+            try:
+                mol.__dict__[key] = np.array(dd[key]).astype(float)
+            except:
                 mol.__dict__[key] = dd[key]
         else:
             mol.__dict__[key] = dd[key]

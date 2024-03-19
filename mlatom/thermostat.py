@@ -40,6 +40,12 @@ class Andersen_thermostat(Thermostat):
     def update_velocities_first_half_step(self,**kwargs):
         if 'molecule' in kwargs:
             molecule = kwargs['molecule']
+        else:
+            molecule = None 
+        if 'molecular_database' in kwargs:
+            molecular_database = kwargs['molecular_database']
+        else:
+            molecular_database = None
         if 'time_step' in kwargs:
             time_step = kwargs['time_step']
         
@@ -54,21 +60,37 @@ class Andersen_thermostat(Thermostat):
         hartree2kcal = constants.Hartree2kcalpermol
         bohr2angstrom = constants.Bohr2Angstrom
 
-        for iatom in range(len(molecule.atoms)):
-            ri = np.random.random(1)[0]
-            if ri < pp:
-                vel = []
-                v_modulus = self.temperature / cal2J / 1000 * R_const / molecule.atoms[iatom].nuclear_mass / constants.ram2au / (constants.au2fs / bohr2angstrom)**2 / hartree2kcal
+        if not molecule is None:
+            for iatom in range(len(molecule.atoms)):
+                ri = np.random.random(1)[0]
+                if ri < pp:
+                    vel = []
+                    v_modulus = self.temperature / cal2J / 1000 * R_const / molecule.atoms[iatom].nuclear_mass / constants.ram2au / (constants.au2fs / bohr2angstrom)**2 / hartree2kcal
+                    v_modulus = np.sqrt(v_modulus)
+                    for ii in range(3):
+                        vel.append(v_modulus * np.random.randn(1)[0])
+                    molecule.atoms[iatom].xyz_velocities = vel
+            return molecule
+        
+        elif not molecular_database is None:
+            vel = molecular_database.get_xyz_vectorial_properties('xyz_velocities')
+            for iatom in range(len(molecular_database[0])):
+                ri = np.random.random(len(molecular_database))
+                mask = ri < pp
+                v_modulus = self.temperature / cal2J / 1000 * R_const / molecular_database[0][iatom].nuclear_mass / constants.ram2au / (constants.au2fs / bohr2angstrom)**2 / hartree2kcal
                 v_modulus = np.sqrt(v_modulus)
-                for ii in range(3):
-                    vel.append(v_modulus * np.random.randn(1)[0])
-                molecule.atoms[iatom].xyz_velocities = vel
-        return molecule
+                vel[mask, iatom] =  v_modulus * np.random.randn(np.sum(mask),3)
+            molecular_database.add_xyz_vectorial_properties(vel,'xyz_velocities')
+            return molecular_database
 
     def update_velocities_second_half_step(self,**kwargs):
         if 'molecule' in kwargs:
             molecule = kwargs['molecule']
-        return molecule
+            return molecule
+        if 'molecular_database' in kwargs:
+            molecular_database = kwargs['molecular_database']
+            return molecular_database
+        
 
 class Nose_Hoover_thermostat(Thermostat):
     '''

@@ -134,7 +134,7 @@ class Doc():
   | GAP        | GAP-SOAP             |
   +------------+----------------------+
   | PhysNet    | PhysNet              |
-  +------------+----------------------+
+  +------------+----------------------+ 
   | MACE       | MACE                 | 
   +------------+----------------------+
   | DeePMD-kit | DeepPot-SE [default] |
@@ -183,13 +183,6 @@ class Doc():
       ODM2*
       GFN2-xTB
       CCSD(T)*/CBS             only single-point calculations
-      d4                       use DFT-D4 to calculate d4 dispersion corrections
-
-    QM programs:
-      Gaussian
-      pyscf
-      mndo
-      sparrow
 
     Data set tasks:
       XYZ2X                    convert XYZ coordinates into descriptor X
@@ -254,9 +247,9 @@ class Doc():
       XYZfile=S                file S with XYZ coordinates
     
     Optional input for choosing interfaced program:
-      optprog=scipy            use scipy package [default]
-      optprog=gaussian         use Gaussian program
-      optprog=ASE              use ASE
+      optProg=scipy            use scipy package [default]
+      optProg=gaussian         use Gaussian program
+      optProg=ASE              use ASE
       optxyz=S                 save optimized geometries in file S [default: optgeoms.xyz]
     The following options only used for ASE program:
         ase.fmax=R                    threshold of maximum force (in eV/A)
@@ -283,8 +276,9 @@ class Doc():
       XYZfile=S                file S with XYZ coordinates
     
     Optional input for choosing interfaced program:
-      optprog=gaussian         use Gaussian program [default]
-      optprog=ASE              use ASE
+      freqProg=gaussian         use Gaussian program [primary default]
+      freqProg=PySCF            use PySCF program    [secondary default]
+      freqProg=ASE              use ASE
       when do frequence analysis with ASE, the following options are also required:
       ase.linear=N,...,N            0 for nonlinear molecule, 1 for linear molecule
                                     [default vaules: 0]
@@ -292,7 +286,7 @@ class Doc():
                                     [default vaules: 1]
       
   Example:
-    MLatom.py AIQM1 freq XYZfile=opt.xyz optprog=ASE
+    MLatom.py AIQM1 freq XYZfile=opt.xyz freqProg=ASE
 ''',
   'useMLmodel':'''
   Use existing ML model
@@ -907,7 +901,7 @@ class Doc():
     Specify which QM program to use for calculation 
 
     Programs available:
-    gaussian, pyscf, mndo, sparrow
+    gaussian, pyscf, mndo, sparrow, orca
         
     Examples:
       MLatom.py method=b3lyp/6-31G* qmprog=gaussian xyzfile=sp.xyz yestfile=enest.dat

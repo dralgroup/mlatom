@@ -25,16 +25,16 @@ def split_xyz_string(string):
     lines = string.strip().split('\n')
     xyz_strings = []
     new_string =True
-    for i in range(len(lines)):
+    for line in lines:
         if new_string:
-            xyz_string = lines[i] + '\n'
-            lines_left = int(lines[i]) + 1
+            xyz_string = [line]
+            lines_left = int(line) + 1
             new_string = False
         else:
-            xyz_string += lines[i] + '\n'
+            xyz_string.append(line)
             lines_left -= 1
             if not lines_left:
-                xyz_strings.append(xyz_string)
+                xyz_strings.append('\n'.join(xyz_string))
                 new_string = True
     return xyz_strings
 
