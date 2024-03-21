@@ -12,6 +12,8 @@ The MLatom can be also conveniently installed via pip:
 
 Dependences may need to be also installed as described on the official website.
 
+<p align="center"><img src="http://mlatom.com/docs/_images/image1.png"/></p>
+
 ## Contributions and derivatives
 
 We highly welcome the contributions to the MLatom project. You may also create your own private derivatives of the project by following the license requirements.
