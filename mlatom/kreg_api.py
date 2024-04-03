@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 import mkl
 import numpy as np 
-from . import data, stopper
+from . import models
 from .fortran import KREG
 
-class KREG_API():
+class KREG_API(models.model):
     def __init__(self):
         # Hyperparameters
         self.sigma         = None # Kernel width in Gaussian kernel function
@@ -95,14 +95,7 @@ class KREG_API():
             calculate_energy_gradients = True 
         else:
             calculate_energy_gradients = False
-        if molecular_database != None:
-            molDB = molecular_database 
-        elif molecule != None:
-            molDB = data.molecular_database()
-            molDB.molecules.append(molecule)
-        else:
-            errmsg = 'Either molecule or molecular_database should be provided in input'
-            raise ValueError(errmsg)
+        molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
         XYZpredict = molDB.xyz_coordinates
         Npredict = len(XYZpredict)
         #print(self.ac2dArray)

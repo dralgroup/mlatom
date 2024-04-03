@@ -1,7 +1,7 @@
   !---------------------------------------------------------------------------!
   !                                                                           !
   !     MLatom: a Package for Atomistic Simulations with Machine Learning     !
-  !                             MLatom 3.2.0                                  !
+  !                             MLatom 3.3.0                                  !
   !                                   @                                       !
   !                 Xiamen Atomistic Computing Suite (XACS)                   !
   !                                                                           !
@@ -27,17 +27,13 @@
   ! Mario Barbatti, Olexandr Isayev, Cheng Wang, Bao-Xin Xue,                 !
   ! Max Pinheiro Jr, Yuming Su, Yiheng Dai, Yangtao Chen, Lina Zhang,         ! 
   ! Shuang Zhang, Arif Ullah, Quanhao Zhang, Yanchi Ou.                       !
-  ! J. Chem. Theory Comput., 2024, 20, 1193-1213.                             !
+  ! J. Chem. Theory Comput. 2024, 20, 1193-1213.                              !
   !                                                                           !
-  ! Pavlo O. Dral, Fuchun Ge, Bao-Xin Xue, Yi-Fan Hou, Max Pinheiro Jr,       !
-  ! Jianxing Huang, Mario Barbatti, Top. Curr. Chem. 2021, 379, 27            !
-  ! Pavlo O. Dral, J. Comput. Chem. 2019, 40, 2339-2347.                      !
-  !                                                                           !
-  ! Pavlo O. Dral, Fuchun Ge, Yi-Fan Hou, Peikun Zheng, Yuxinxin Chen,        !
-  ! Bao-Xin Xue, Max Pinheiro Jr, Yuming Su, Yiheng Dai, Yangtao Chen,        !
-  ! Shuang Zhang, Lina Zhang, Arif Ullah, Quanhao Zhang, Yanchi Ou,           !
+  ! Pavlo O. Dral, Fuchun Ge, Yi-Fan Hou, Peikun Zheng, Yuxinxin Chen, Bao-Xin!
+  ! Xue, Max Pinheiro Jr, Yuming Su, Yiheng Dai, Yangtao Chen, Shuang Zhang,  !
+  ! Lina Zhang, Arif Ullah, Quanhao Zhang, Sebastian V. Pios, Yanchi Ou,      !
   ! MLatom: A Package for Atomistic Simulations with Machine Learning,        !
-  ! version 3.2.0, Xiamen University, Xiamen, China, 2013-2024.               !
+  ! version 3.3.0, Xiamen University, Xiamen, China, 2013-2024.               !
   !                                                                           !
   ! The citations for MLatom's interfaces and features shall be eventually    !
   ! included too. See header.py, ref.json and http://mlatom.com.              !

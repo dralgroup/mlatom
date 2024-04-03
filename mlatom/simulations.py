@@ -12,7 +12,7 @@ from . import constants, data, models, stopper
 from .md import md as md
 from .initial_conditions import generate_initial_conditions
 from .md2vibr import vibrational_spectrum
-import os, math, time
+import os, math
 import numpy as np
 import warnings
 warnings.filterwarnings("ignore")
@@ -20,17 +20,35 @@ warnings.filterwarnings("ignore")
 def run_in_parallel(molecular_database=None, task=None, task_kwargs={}, nthreads=None, create_and_keep_temp_directories=False):
     import joblib
     from joblib import Parallel, delayed
+    nmols = len(molecular_database)
+    if nthreads == None: nthreads = joblib.cpu_count()
+    if nmols < nthreads:
+        nthreads_per_model = [nthreads//nmols for ii in range(nmols)]
+        extra_threads = nthreads - sum(nthreads_per_model)
+        nthreads = nmols
+        for ii in range(extra_threads):
+            nthreads_per_model[ii] = +1
+    else:
+        nthreads_per_model = [1 for ii in range(nthreads)]
     def task_loc(imol):
         mol = molecular_database[imol]
         if create_and_keep_temp_directories:
-            current_time = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
-            directory = time.strftime(f'job_{task}_{imol}_mol{mol.id}_{current_time}')
+            cwd = os.getcwd()
+            directory = f'job_{task.__name__}_{imol+1}'
             if not os.path.exists(directory):
                 os.makedirs(directory)
             os.chdir(directory)
+        savednthreads = 'savednthreads'
+        if 'model' in task_kwargs:
+            mm = task_kwargs['model']
+            if 'nthreads' in mm.__dict__:
+                if mm.nthreads is None or mm.nthreads == 0:
+                    savednthreads = mm.nthreads
+                    mm.nthreads = nthreads_per_model[imol]
         result = task(molecule=mol, **task_kwargs)
+        if savednthreads != 'savednthreads': mm.nthreads = savednthreads
+        if create_and_keep_temp_directories: os.chdir(cwd)
         return result
-    if nthreads == None: nthreads = joblib.cpu_count()
     results = Parallel(n_jobs=nthreads)(delayed(task_loc)(i) for i in range(len(molecular_database)))
     return results
 
@@ -39,14 +57,15 @@ class optimize_geometry():
     Geometry optimization.
 
     Arguments:
-        model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): Any model or method which provides energies and forces.
-        initial_molecule (:class:`mlatom.data.molecule`): The molecule object to optimize.
-        ts (bool, optional): Whether to do transition state search. Currently only be done with program=Gaussian or ASE.
-        program (str, optional): The engine used in geometry optimization. Currently supports Gaussian, ASE, and scipy.
-        optimization_algorithm (str, optional): The optimization algorithm used in ASE. Default value: LBFGS (ts=False), dimer (ts=False).
-        maximum_number_of_steps (int, optional): The maximum number of steps for ASE and SciPy. Default value: 200.
-        convergence_criterion_for_forces (float, optional): Forces convergence criterion in ASE. Default value: 0.02 eV/Angstroms.
-        working_directory (str, optional): Working directory. Default value: '.', i.e., current directory.
+        model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): any model or method which provides energies and forces.
+        initial_molecule (:class:`mlatom.data.molecule`): the molecule object to optimize.
+        ts (bool, optional): whether to do transition state search. Currently only be done with program=Gaussian or ASE.
+        program (str, optional): the engine used in geometry optimization. Currently supports Gaussian, ASE, and scipy.
+        optimization_algorithm (str, optional): the optimization algorithm used in ASE. Default value: LBFGS (ts=False), dimer (ts=False).
+        maximum_number_of_steps (int, optional): the maximum number of steps for ASE and SciPy. Default value: 200.
+        convergence_criterion_for_forces (float, optional): forces convergence criterion in ASE. Default value: 0.02 eV/Angstroms.
+        working_directory (str, optional): working directory. Default value: '.', i.e., current directory.
+        constraints (dict, optional): constraints for geometry optimization. Currently only available with program=ASE and follows the same conventions as in ASE: ``constraints={'bonds':[[target,[index0,index1]], ...],'angles':[[target,[index0,index1,index2]], ...],'dihedrals':[[target,[index0,index1,index2,index3]], ...]}`` (check `FixInternals class in ASE <https://wiki.fysik.dtu.dk/ase/ase/constraints.html>`__ for more information).
 
     Examples:
 
@@ -69,10 +88,12 @@ class optimize_geometry():
 
     """
 
-    def __init__(self, model=None, initial_molecule=None, molecule=None, ts=False, program=None, optimization_algorithm=None, maximum_number_of_steps=None, convergence_criterion_for_forces=None,working_directory=None, **kwargs):
+    def __init__(self, model=None,  model_predict_kwargs={}, initial_molecule=None, molecule=None, ts=False, program=None, optimization_algorithm=None, maximum_number_of_steps=None, convergence_criterion_for_forces=None,working_directory=None, **kwargs):
         self.kwargs = kwargs
         if model != None:
             self.model = model
+        
+        self.model_predict_kwargs = model_predict_kwargs
 
         if not initial_molecule is None and not molecule is None:
             stopper.stopMLatom('molecule and initial_molecule cannot be used at the same time')
@@ -142,8 +163,7 @@ class optimize_geometry():
         # Run Gaussian
         external_task='opt'
         if self.ts: external_task = 'ts'
-        gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.initial_molecule, external_task=external_task, cwd=self.working_directory)
-        
+        gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.initial_molecule, external_task=external_task, cwd=self.working_directory, model_predict_kwargs=self.model_predict_kwargs)
         # Get results
         outputfile = f'{filename}.log'
         if not os.path.exists(outputfile): outputfile = f'{filename}.out'
@@ -166,13 +186,16 @@ class optimize_geometry():
         if self.ts:
             self.optimization_trajectory = ase_interface.transition_state(initial_molecule=self.initial_molecule,
                                             model=self.model,
+                                            model_predict_kwargs=self.model_predict_kwargs,
                                             convergence_criterion_for_forces=self.convergence_criterion_for_forces,
                                             maximum_number_of_steps=self.maximum_number_of_steps,
                                             optimization_algorithm=self.optimization_algorithm,
-                                            **self.kwargs)
+                                            **self.kwargs
+                                            )
         else:
             self.optimization_trajectory = ase_interface.optimize_geometry(initial_molecule=self.initial_molecule,
                                             model=self.model,
+                                            model_predict_kwargs=self.model_predict_kwargs,
                                             convergence_criterion_for_forces=self.convergence_criterion_for_forces,
                                             maximum_number_of_steps=self.maximum_number_of_steps,
                                             optimization_algorithm=self.optimization_algorithm,
@@ -193,7 +216,7 @@ class optimize_geometry():
             istep += 1
             current_molecule = self.initial_molecule.copy()
             current_molecule.xyz_coordinates = coordinates.reshape(len(current_molecule.atoms),3)
-            self.model.predict(molecule=current_molecule, calculate_energy=True, calculate_energy_gradients=True)
+            self.model.predict(molecule=current_molecule, calculate_energy=True, calculate_energy_gradients=True, **self.model_predict_kwargs)
             if not 'energy' in current_molecule.__dict__:
                 if pythonpackage: raise ValueError('model did not return any energy')
                 else: stopper.stopMLatom('model did not return any energy')
@@ -216,6 +239,11 @@ class irc():
         if 'ts_molecule' in kwargs:
             self.ts_molecule = kwargs['ts_molecule'].copy(atomic_labels=['xyz_coordinates','number'],molecular_labels=[])
 
+        if 'model_predict_kwargs' in kwargs:
+            self.model_predict_kwargs = kwargs['model_predict_kwargs']
+        else:
+            self.model_predict_kwargs = {}
+
         from .interfaces import gaussian_interface
         if 'number' in self.ts_molecule.__dict__.keys(): suffix = f'_{self.ts_molecule.number}'
         else: suffix = ''
@@ -223,7 +251,7 @@ class irc():
         self.model.dump(filename='model.json', format='json')
         
         # Run Gaussian
-        gaussian_interface.run_gaussian_job(filename=f'{filename}.com', molecule=self.ts_molecule, external_task='irc')
+        gaussian_interface.run_gaussian_job(filename=f'{filename}.com', molecule=self.ts_molecule, external_task='irc', model_predict_kwargs=self.model_predict_kwargs)
         
         #if os.path.exists('model.json'): os.remove('model.json')
 
@@ -232,12 +260,12 @@ class freq():
     Frequence analysis.
 
     Arguments:
-        model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): Any model or method which provides energies and forces and Hessian.
-        molecule (:class:`mlatom.data.molecule`): The molecule object with necessary information.
-        program (str, optional): The engine used in frequence analysis through modified TorchANI (if Gaussian not found or any other string is given), pyscf or Gaussian interfaces.
-        normal_mode_normalization (str, optional): Normal modes output scheme. It should be one of: mass weighted normalized, mass deweighted unnormalized, and mass deweighted normalized (default). 
-        anharmonic (bool): Whether to do anharmonic frequence calculation.
-        working_directory (str, optional): Working directory. Default value: '.', i.e., current directory.
+        model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): any model or method which provides energies and forces and Hessian.
+        molecule (:class:`mlatom.data.molecule`): the molecule object with necessary information.
+        program (str, optional): the engine used in frequence analysis through modified TorchANI (if Gaussian not found or any other string is given), pyscf or Gaussian interfaces.
+        normal_mode_normalization (str, optional): normal modes output scheme. It should be one of: mass weighted normalized, mass deweighted unnormalized, and mass deweighted normalized (default). 
+        anharmonic (bool): whether to do anharmonic frequence calculation.
+        working_directory (str, optional): working directory. Default value: '.', i.e., current directory.
 
     Examples:
 
@@ -255,9 +283,10 @@ class freq():
 
 
     """
-    def __init__(self, model=None, molecule=None, program=None, normal_mode_normalization='mass deweighted normalized', anharmonic=False, anharmonic_kwargs={}, working_directory=None):
+    def __init__(self, model=None, model_predict_kwargs={}, molecule=None, program=None, normal_mode_normalization='mass deweighted normalized', anharmonic=False, anharmonic_kwargs={}, working_directory=None):
         if model != None:
             self.model = model
+        self.model_predict_kwargs = model_predict_kwargs
         self.molecule = molecule
         if program != None:
             self.program = program
@@ -281,7 +310,7 @@ class freq():
         else:
             if not 'shape' in self.molecule.__dict__:
                 self.molecule.shape = 'nonlinear'
-            self.freq_modified_from_TorchANI(molecule=self.molecule,normal_mode_normalization=self.normal_mode_normalization,model=self.model)
+            self.freq_modified_from_TorchANI(molecule=self.molecule,normal_mode_normalization=self.normal_mode_normalization,model=self.model, model_predict_kwargs=self.model_predict_kwargs)
         
     def freq_gaussian(self, anharmonic):
         self.successful = False
@@ -295,9 +324,9 @@ class freq():
         
         # Run Gaussian
         if anharmonic:
-            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq(anharmonic)',cwd=self.working_directory)
+            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq(anharmonic)',cwd=self.working_directory,**self.anharmonic_kwargs, model_predict_kwargs=self.model_predict_kwargs)
         else:
-            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq',cwd=self.working_directory)
+            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq',cwd=self.working_directory, model_predict_kwargs=self.model_predict_kwargs)
         
         # Get results
         outputfile = f'{filename}.log'
@@ -323,7 +352,7 @@ class freq():
 
     def freq_pyscf(self):
         self.successful = False
-        self.model.interface.predict(molecule=self.molecule, calculate_hessian=True)
+        self.model.interface.predict(molecule=self.molecule, calculate_energy=True, calculate_hessian=True, **self.model_predict_kwargs)
         from .interfaces import pyscf_interface
         self.successful = pyscf_interface.thermo_calculation(molecule=self.molecule)
     
@@ -357,6 +386,10 @@ class freq():
         # to mass weighted cartesian coordinates (x' = sqrt(m)x).
         # """
         # Calculate hessian
+        if 'model_predict_kwargs' in kwargs:
+            model_predict_kwargs = kwargs['model_predict_kwargs']
+        else:
+            model_predict_kwargs = {}
 
         if not model is None:
             model.predict(molecule=molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=True)
@@ -442,10 +475,10 @@ class thermochemistry():
     Thermochemical properties calculation.
 
     Arguments:
-        model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): Any model or method which provides energies and forces and Hessian.
-        molecule (:class:`mlatom.data.molecule`): The molecule object with necessary information.
-        program (str): The engine used in thermochemical properties calculation. Currently support Gaussian and ASE.
-        normal_mode_normalization (str, optional): Normal modes output scheme. It should be one of: mass weighted normalized, mass deweighted unnormalized, and mass deweighted unnormalized (default). 
+        model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): any model or method which provides energies and forces and Hessian.
+        molecule (:class:`mlatom.data.molecule`): the molecule object with necessary information.
+        program (str): the engine used in thermochemical properties calculation. Currently support Gaussian and ASE.
+        normal_mode_normalization (str, optional): normal modes output scheme. It should be one of: mass weighted normalized, mass deweighted unnormalized, and mass deweighted unnormalized (default). 
     .. code-block:: python
 
         # Initialize molecule
@@ -543,15 +576,18 @@ class thermochemistry():
         self.molecule.DeltaHf298 = DeltaHf298
         
 class dmc():
-    # '''
-    # Run diffusion monte carlo simulation for molecule(s) using `PyVibDMC <https://github.com/rjdirisio/pyvibdmc>`_.
-    # '''
+    '''
+    Run diffusion Monte Carlo simulation for molecule(s) using `PyVibDMC <https://github.com/rjdirisio/pyvibdmc>`_.
+    
+    Arguments:
+        model (:class:`mlatom.models.model`): The potential energy surfaces model. The unit should be Hartree, otherwise a correct ``energy_scaling_factor`` need to be set. 
+        initial_molecule (:class:`mlatom.data.molecule`): The initial geometry for the walkers. Usually a energy minimum geometry should be provided. By default every coordinate will be scaled by 1.01 to make it slightly distorted.
+        energy_scaling_factor (float, optional): A factor that will be multiplied to the model's energy pridiction.    
+    '''
 
     def __init__(self, model: models.model, initial_molecule:data.molecule = None, initial_molecular_database: data.molecular_database = None, energy_scaling_factor:float = 1., ):
         from .constants import Bohr2Angstrom
-        
-        
-        
+
         if not initial_molecular_database:
             initial_molecular_database = data.molecular_database([initial_molecule])
         
@@ -577,7 +613,21 @@ class dmc():
                                     **kwargs)
         self.start_structures = initializer.run()
 
-    def run(self, run_dir: str = 'DMC', weighting: str = 'discrete', number_of_walkers: int = 5000, number_of_timesteps: int = 10000, equilibration_steps: int = 500, dump_trajectory_interval: int = 500, dump_wavefunction_interval: int = 1000, descendant_weighting_steps: int = 300, time_step: int = 1 * constants.au2fs, initialize: bool = False):
+    def run(self, run_dir: str = 'DMC', weighting: str = 'discrete', number_of_walkers: int = 5000, number_of_timesteps: int = 10000, equilibration_steps: int = 500, dump_trajectory_interval: int = 500, dump_wavefunction_interval: int = 1000, descendant_weighting_steps: int = 300, time_step: float = 1 * constants.au2fs, initialize: bool = False):
+        '''
+        Run the DMC simulation.
+        
+        Arguments:
+            run_dir (str): The folder for the output files.
+            weighting (str): ``'discrete'`` or ``'continuous'``. ``'continuous'`` keeps the ensemble size constant.
+            number_of_walkers (int): The number of geometries exploring the potential surface.
+            number_of_timesteps (int): The number of steps the simulation will go.
+            equilibration_steps (int): The number of steps for equilibration.
+            dump_trajectory_interval (int): The interval for dumping walkers' trajectories.
+            dump_wavefunction_interval (int): The interval for collecting wave function.
+            descendant_weighting_steps (int): The number of time steps for descendant weighting per wave function.
+            time_step (float): The length of each time step in fs.            
+        '''
         from pyvibdmc import potential_manager as pm
         import pyvibdmc as pv
         
@@ -603,10 +653,19 @@ class dmc():
         self.load(f"{run_dir}/DMC_sim_info.hdf5")
     
     def load(self, filename):
+        '''
+        Load previous simulation results from a HDF5 file.
+        '''
         import pyvibdmc as pv
         self.result = pv.SimInfo(filename)
 
-    def get_zpe(self, start_step=1000):
+    def get_zpe(self, start_step=1000) -> float:
+        '''
+        Return calculated zero-point energy in Hartree.
+        
+        Arguments:
+            start_step (int): The starting step for averaging the energies.
+        '''
         return self.result.get_zpe(onwards=start_step, ret_cm=False)
 
 def numerical_gradients(molecule, model_with_function_to_predict_energy, eps=1e-5, kwargs_funtion_predict_energy={}, return_molecular_database=False):

@@ -125,6 +125,8 @@ class molecule:
             self.atoms = []
         else:
             self.atoms = atoms
+        
+        self.electronic_states = []
 
     def read_from_xyz_file(self, filename: str, format: Union[str, None] = None) -> molecule:
         '''
@@ -137,6 +139,8 @@ class molecule:
             - ``'COLUMBUS'``
 
             - ``'NEWTON-X'`` or ``'NX'``
+
+            - ``'turbomol'``
             
         Arguments:
             filename (str): The name of the file to be read.
@@ -159,6 +163,8 @@ class molecule:
 
             - ``'NEWTON-X'`` or ``'NX'``
 
+            - ``'turbomol'``
+            
         Arguments:
             string (str): The string input.
             format (str, optional): The format of the string.
@@ -187,6 +193,15 @@ class molecule:
                                     nuclear_charge=float(yy[1]),
                                     xyz_coordinates=coords,
                                     nuclear_mass=float(yy[-1])))
+        elif format.casefold() == 'turbomole':
+            for line in fxyz:
+                yy = line.split()
+                if len(yy) != 4:
+                    continue 
+                else:
+                    coords = array([float(xx)*constants.Bohr2Angstrom for xx in yy[0:3]]).astype(float)                    
+                    self.atoms.append(atom(element_symbol=yy[3].capitalize(),
+                                      xyz_coordinates=coords))
         return self
 
     def read_from_numpy(self, coordinates: np.ndarray, species: np.ndarray) -> molecule:
@@ -308,6 +323,8 @@ class molecule:
 
             - ``'NEWTON-X'`` or ``'NX'``
 
+            - ``'turbomol'``
+
         Arguments:
             filename (str): The name of the file to be written.
             format (str, optional): The format of the file.
@@ -330,6 +347,12 @@ class molecule:
                                                                       atom.xyz_coordinates[1] * constants.Angstrom2Bohr,
                                                                       atom.xyz_coordinates[2] * constants.Angstrom2Bohr,
                                                                       atom.nuclear_mass))
+            elif format.casefold() in ['TURBOMOLE'.casefold()]:
+                fw.writelines('$coord\n')
+                for atom in self.atoms:
+                    fw.writelines('%25.13f %25.13f %25.13f %-3s \n' % (atom.xyz_coordinates[0] * constants.Angstrom2Bohr, atom.xyz_coordinates[1] * constants.Angstrom2Bohr, atom.xyz_coordinates[2] * constants.Angstrom2Bohr, atom.element_symbol))
+                fw.writelines('$user-defined bonds\n')
+                fw.writelines('$end\n')
 
 
     def get_xyz_string(self) -> str:
@@ -391,6 +414,14 @@ class molecule:
 
     def get_energy_gradients(self):
         return self.get_xyz_vectorial_properties('energy_gradients')
+    
+    @property
+    def energy_gradients(self):
+        return self.get_energy_gradients()
+    
+    @energy_gradients.setter
+    def energy_gradients(self, value):
+        self.add_xyz_derivative_property(value, property_name='energy', xyz_derivative_property='energy_gradients')
 
     def get_number_of_atoms(self):
         return len(self)
@@ -573,7 +604,35 @@ class molecule:
         
     def __getitem__(self, item):
         return self.atoms[item]
+
+    @property 
+    def state_energies(self) -> np.ndarray:
+        '''
+        The electronic state energies of the molecule.
+        '''
+        return np.array([state.energy for state in self.electronic_states])
         
+    @property 
+    def state_gradients(self) -> np.ndarray:
+        '''
+        The electronic state energy gradients of the molecule.
+        '''
+        return np.array([state.energy_gradients for state in self.electronic_states])
+        
+    @property 
+    def energy_gaps(self) -> np.ndarray:
+        '''
+        The energy gaps of different states.
+        '''
+        return self.state_energies - self.state_energies[:, np.newaxis]
+    
+    @property 
+    def excitation_energies(self) -> np.ndarray:
+        '''
+        The excitation energies of the molecule from ground state.
+        '''
+        return self.state_energies[1:] - self.electronic_states[0].energy if len(self.electronic_states) > 1 else []
+
 class properties_tree_node():
     def __init__(self, name=None, parent=None, children=None, properties=None):
         self.name = name
@@ -1269,6 +1328,8 @@ def dict_to_molecule_class_instance(dd):
         if key == 'atoms':
             for aa in dd[key]:
                 mol.atoms.append(dict_to_atom_class_instance(aa))
+        elif key == 'electronic_states':
+            mol.electronic_states = [dict_to_molecule_class_instance(state_dict) for state_dict in dd[key]]
         elif type(dd[key]) == dict:
             if 'parent' in dd[key].keys():
                 dict_to_properties_tree_node_class_instance(dd, key, mol)    
@@ -1330,6 +1391,13 @@ class molecular_trajectory():
                     'mass':None,
                     'species':None,
                     }
+            data['state_energies'] = []
+            data['state_gradients'] = []
+            if 'nonadiabatic_coupling_vectors' in self.steps[0].molecule.atoms[0].__dict__: data['nonadiabatic_coupling_vectors'] = []
+            data['random_number'] = []
+            data['hopping_probabilities'] = []
+            if 'current_state' in self.steps[0].__dict__: data['current_state'] = []
+            #'state_gradients'
             dp_flag = True
             for istep in self.steps:
                 if not 'dipole_moment' in istep.molecule.__dict__.keys():
@@ -1343,9 +1411,34 @@ class molecular_trajectory():
                 data['position'].append(istep.molecule.xyz_coordinates)
                 data['velocities'].append(istep.molecule.get_xyz_vectorial_properties('xyz_velocities'))
                 data['gradients'].append(istep.molecule.get_energy_gradients())
+                if len(istep.molecule.electronic_states) > 1:
+                    data['state_energies'].append(istep.molecule.state_energies)
+                    state_gradients = []
+                    for i in range(0, len(istep.molecule.electronic_states)):
+                        if 'energy_gradients' in istep.molecule.electronic_states[i].atoms[0].__dict__:
+                            state_gradients.append(istep.molecule.electronic_states[i].get_energy_gradients())
+                        else:
+                            state_gradients.append(None)
+                    data['state_gradients'].append(np.array(state_gradients))
+                if 'nonadiabatic_coupling_vectors' in data.keys(): data['nonadiabatic_coupling_vectors'].append(istep.molecule.get_xyz_vectorial_properties('nonadiabatic_coupling_vectors'))
                 data['kinetic_energy'].append(istep.molecule.kinetic_energy)
                 data['potential_energy'].append(istep.molecule.energy)
                 data['total_energy'].append(istep.molecule.kinetic_energy+istep.molecule.energy)
+                if 'random_number' in data.keys():
+                    try:
+                        data['random_number'].append(istep.random_number)
+                    except AttributeError:
+                        data['random_number'].append(np.nan)
+                if 'hopping_probabilities' in data.keys():
+                    try:
+                        data['hopping_probabilities'].append(max(istep.hopping_probabilities))
+                    except AttributeError:
+                        data['hopping_probabilities'].append(np.nan)
+                if 'current_state' in data.keys():
+                    try:
+                        data['current_state'].append(istep.current_state)
+                    except AttributeError:
+                        data['current_state'].append(np.nan)
                 if dp_flag:
                     data['dipole_moment'].append(istep.molecule.dipole_moment)
             with h5md(filename) as trajH5:
@@ -1394,6 +1487,22 @@ class molecular_trajectory():
                 # gradients
                 for iatom in range(Natoms):
                     molecule_istep.atoms[iatom].energy_gradients = data['gradients'][istep][iatom]
+
+                if 'state_energies' in data.keys():
+                    molecule_istep.electronic_states=[]
+                    molecule_istep.electronic_states.extend([molecule_istep.copy() for _ in range(len(data['state_energies'][istep]))])
+                    for i in range(0, len(data['state_energies'][istep])):
+                        molecule_istep.electronic_states[i].energy = data['state_energies'][istep][i]
+                if 'state_gradients' in data.keys():
+                    if not molecule_istep.electronic_states:
+                        molecule_istep.electronic_states=[]
+                        molecule_istep.electronic_states.extend([molecule_istep.copy() for _ in range(len(data['state_gradients'][istep]))])
+                    for i in range(0, len(data['state_gradients'][istep])):
+                        if data['state_gradients'][istep][i] is not None:
+                            molecule_istep.electronic_states[i].add_xyz_derivative_property(np.array(data['state_gradients'][istep][i]).astype(float), 'energy', 'energy_gradients')
+                if 'nonadiabatic_coupling_vectors' in data.keys():
+                    for iatom in range(Natoms):
+                        molecule_istep.atoms[iatom].nonadiabatic_coupling_vectors = data['nonadiabatic_coupling_vectors'][istep][iatom]
                 # kinetic_energy 
                 # molecule_istep.kinetic_energy = data['kinetic_energy'][istep]
                 # potential_energy 
@@ -1406,6 +1515,15 @@ class molecular_trajectory():
                 trajectory_step.molecule = molecule_istep
                 trajectory_step.step = istep 
                 trajectory_step.time = data['time'][istep]
+                # random_number
+                if 'random_number' in data.keys():
+                    trajectory_step.random_number = data['random_number'][istep]
+                # prob
+                if 'hopping_probabilities' in data.keys():
+                    trajectory_step.hopping_probabilities = data['hopping_probabilities'][istep]
+                # current_state
+                if 'current_state' in data.keys():
+                    trajectory_step.current_state = data['current_state'][istep]
                 self.steps.append(trajectory_step)
         
         elif format.casefold() == 'json'.casefold():

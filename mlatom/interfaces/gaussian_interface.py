@@ -186,6 +186,16 @@ def run_gaussian_job(**kwargs):
     if 'memory' in kwargs:
         memory = f"%mem={kwargs['memory']}\n"
     gaussian_keywords = f'{memory}%nproc={nthreads}\n' + gaussian_keywords 
+    
+    if 'model_predict_kwargs' in kwargs:
+        model_predict_kwargs_str = str(kwargs['model_predict_kwargs'])
+    else:
+        model_predict_kwargs_str = "{}"
+    
+    model_predict_kwargs_str_file = 'model_predict_kwargs'
+    with open(model_predict_kwargs_str_file, 'w') as f:
+        f.write(model_predict_kwargs_str)
+    
     if 'external_task' in kwargs:
         pythonbin = sys.executable
         path_to_this_file=os.path.abspath(__file__)
@@ -193,9 +203,9 @@ def run_gaussian_job(**kwargs):
         if 'gaussian_keywords' in kwargs:
             gaussian_keywords += "\nexternal='%s %s'\n" % (pythonbin, path_to_this_file)
         elif external_task.lower() == 'opt':
-            gaussian_keywords += "#p opt(nomicro) external='%s %s'\n" % (pythonbin, path_to_this_file)
+            gaussian_keywords += "#p opt(nomicro) external='%s %s %s'\n" % (pythonbin, path_to_this_file, model_predict_kwargs_str_file)
         elif external_task.lower() == 'freq':
-            gaussian_keywords += "#p freq external='%s %s'\n" % (pythonbin, path_to_this_file)
+            gaussian_keywords += "#p freq external='%s %s %s'\n" % (pythonbin, path_to_this_file, model_predict_kwargs_str_file)
         elif external_task.lower() == 'freq(anharmonic)':
             if 'frequency_keywords' in kwargs:
                 if len(kwargs['frequency_keywords']) !=0:
@@ -205,11 +215,11 @@ def run_gaussian_job(**kwargs):
                     extra_keywords = ''
             else:
                 extra_keywords = ''
-            gaussian_keywords += f"#p freq(anharmonic{extra_keywords}) external='%s %s'\n" % (pythonbin, path_to_this_file)
+            gaussian_keywords += f"#p freq(anharmonic{extra_keywords}) external='%s %s %s'\n" % (pythonbin, path_to_this_file, model_predict_kwargs_str_file)
         elif external_task.lower() == 'ts':
-            gaussian_keywords += "#p opt(ts,calcfc,noeigen,nomicro) external='%s %s'\n" % (pythonbin, path_to_this_file)
+            gaussian_keywords += "#p opt(ts,calcfc,noeigen,nomicro) external='%s %s %s'\n" % (pythonbin, path_to_this_file, model_predict_kwargs_str_file)
         elif external_task.lower() == 'irc':
-            gaussian_keywords += "#p irc(calcfc) external='%s %s'\n" % (pythonbin, path_to_this_file)
+            gaussian_keywords += "#p irc(calcfc) external='%s %s %s'\n" % (pythonbin, path_to_this_file, model_predict_kwargs_str_file)
     else:
         if 'gaussian_keywords' in kwargs:
             gaussian_keywords += '\n'
@@ -282,7 +292,7 @@ def write_gaussian_input_file(**kwargs):
         f.writelines('\n') 
         f.writelines(additional_input)
 
-def gaussian_external(EIn_file, EOu_file):
+def gaussian_external(EIn_file, EOu_file, model_predict_kwargs):
     # write new coordinate into 'xyz_temp.dat'
     derivs, molecule = read_gaussian_EIn(EIn_file)
     # calculate energy, gradients, hessian for new coordinates
@@ -298,7 +308,7 @@ def gaussian_external(EIn_file, EOu_file):
     model = models.load('model.json')
     calc_hessian = False
     if derivs == 2: calc_hessian = True
-    model.predict(molecule=molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=calc_hessian)
+    model.predict(molecule=molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=calc_hessian, **model_predict_kwargs)
     if not 'energy' in molecule.__dict__:
         if pythonpackage: raise ValueError('model did not return any energy')
         else: stopper.stopMLatom('model did not return any energy')
@@ -330,11 +340,7 @@ def read_gaussian_EIn(EIn_file):
     return derivs, molecule
 
 def write_gaussian_EOu(EOu_file, derivs, molecule):
-    try:
-        import fortranformat
-    except:
-        if pythonpackage: raise ValueError('Python module fortranformat was not found')
-        else: stopper.stopMLatom('Python module fortranformat was not found')
+    import fortranformat
     with open(EOu_file, 'w') as fEOu:
         # energy, dipole-moment (xyz)   E, Dip(I), I=1,3
         if 'dipole_moment' in molecule.__dict__.keys():
@@ -590,9 +596,12 @@ def read_mulliken_charges_from_Gaussian_output(lines,flag,mol):
 def read_dipole_moment_from_Gaussian_output(lines,flag,mol):
     if flag == -1:
         return
-    raw = lines[flag].strip().split() 
-    dipole = np.array([eval(raw[1]),eval(raw[3]),eval(raw[5]),eval(raw[7])])
-    mol.dipole_moment = dipole
+    try:
+        raw = lines[flag].strip().split() 
+        dipole = np.array([eval(raw[1]),eval(raw[3]),eval(raw[5]),eval(raw[7])])
+        mol.dipole_moment = dipole
+    except: 
+        return 
 
 def read_electronic_energy_from_Gaussian_output(lines,flag,mol,energy_to_read):
     if flag == -1:
@@ -664,23 +673,28 @@ def read_Hessian_matrix_from_Gaussian_chkfile(filename,molecule):
     outputs = []
     for readable in stdout:
         outputs.append(readable)
+    flag = None
     for iline in range(len(outputs)):
         if 'Input for Opt=FCCards' in outputs[iline]:
             flag = iline+1 
-    flag += 1 + int((3*natoms-0.5)//6 + 1)# Skip energy and forces
-    hessian_len = int(((3*natoms)*(3*natoms+1)//2-0.5)//6 + 1)
-    hessian_array = []
-    for ii in range(hessian_len):
-        hessian_array += [eval(each) for each in outputs[flag+ii].strip().split()]
-    #print(hessian_array)
-    for ii in range(3*natoms):
-        hessian[:ii+1,ii] = hessian_array[(ii+1)*ii//2:(ii+2)*(ii+1)//2]
-    for ii in range(3*natoms):
-        for jj in range(ii+1,3*natoms):
-            hessian[jj,ii] = hessian[ii,jj]
-    #print(hessian[:,-2])
-    hessian /= constants.Bohr2Angstrom**2
-    molecule.hessian = hessian
+    # If there is only 1 atom, chk does not have hessian matrix
+    if flag is None:
+        molecule.hessian = hessian
+    else:
+        flag += 1 + int((3*natoms-0.5)//6 + 1)# Skip energy and forces
+        hessian_len = int(((3*natoms)*(3*natoms+1)//2-0.5)//6 + 1)
+        hessian_array = []
+        for ii in range(hessian_len):
+            hessian_array += [eval(each) for each in outputs[flag+ii].strip().split()]
+        #print(hessian_array)
+        for ii in range(3*natoms):
+            hessian[:ii+1,ii] = hessian_array[(ii+1)*ii//2:(ii+2)*(ii+1)//2]
+        for ii in range(3*natoms):
+            for jj in range(ii+1,3*natoms):
+                hessian[jj,ii] = hessian[ii,jj]
+        #print(hessian[:,-2])
+        hessian /= constants.Bohr2Angstrom**2
+        molecule.hessian = hessian
 
 
 
@@ -770,5 +784,7 @@ class Gaussian_output_reading_assistant():
 
 
 if __name__ == '__main__': 
-    _, EIn_file, EOu_file, _, _, _ = sys.argv[1:]    
-    gaussian_external(EIn_file, EOu_file)
+    model_predict_kwargs_str_file, _, EIn_file, EOu_file, _, _, _ = sys.argv[1:]
+    with open(model_predict_kwargs_str_file) as f:
+        model_predict_kwargs =  eval(f.read())
+    gaussian_external(EIn_file, EOu_file, model_predict_kwargs)

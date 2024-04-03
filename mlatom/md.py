@@ -15,9 +15,7 @@ from . import stopper
 
 class md():
     '''
-    MD object
-
-    Initialize and propagate MD
+    Molecular dynamics
 
     Arguments:
         model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): Any model or method which provides energies and forces.
@@ -52,6 +50,8 @@ class md():
          :class:`ml.md.Nose_Hoover_thermostat`      Hose-Hoover thermostat
          ``None`` (default)                         No thermostat is applied
         =======================================  ==============================
+
+    For theoretical details, see and cite original `paper <https://doi.org/10.1039/D3CP03515H>`__.
 
     Examples:
 
@@ -95,6 +95,7 @@ class md():
     Andersen_thermostat = Andersen_thermostat
     Nose_Hoover_thermostat = Nose_Hoover_thermostat
     def __init__(self, model=None,
+                 model_predict_kwargs={},
                  molecule_with_initial_conditions=None,
                  molecule=None,
                  ensemble='NVE',
@@ -105,6 +106,8 @@ class md():
                  filename=None, format='h5md',
                  stop_function=None, stop_function_kwargs=None):
         self.model = model
+        self.model_predict_kwargs ={'calculate_energy':True, 'calculate_energy_gradients':True}
+        self.model_predict_kwargs.update(model_predict_kwargs)
         if not molecule_with_initial_conditions is None and not molecule is None:
             stopper.stopMLatom('molecule and molecule_with_initial_conditions cannot be used at the same time')
         if not molecule_with_initial_conditions is None:
@@ -152,13 +155,9 @@ class md():
                 molecule = self.molecule_with_initial_conditions.copy()
                 if not 'energy_gradients' in molecule.atoms[0].__dict__:
                     self.model.predict(molecule=molecule,
-                                    calculate_energy = True,
-                                    calculate_energy_gradients = True)
+                                    **self.model_predict_kwargs)
                 forces = -np.copy(molecule.get_energy_gradients())
                 acceleration = forces / self.mass / constants.ram2au * (constants.Bohr2Angstrom**2) * constants.fs2au**2 #/ MLenergyUnits
-                # energy, forces = 
-                # acceleration = forces / atom_mass / 1822.888515 * (MLdistanceUnits**2) * (100.0/2.4188432)**2 / MLenergyUnits
-                # kin_en_raw = np.sum(velocity**2 * atom_mass) / 2.0
                 pass 
             else:
                 previous_molecule = molecule
@@ -169,10 +168,6 @@ class md():
                     molecule.atoms[iatom].xyz_velocities = np.copy(velocity[iatom])
 
                 # ensemble and/or thermostat
-                #kin_en_raw = np.sum(velocity**2 * atom_mass) / 2.0 # Raw kinetic energy
-                #KE,velocity,NHC_xi,NHC_vxi = Nose_Hoover_chain(kin_en_raw,velocity,dt,NHC_xi,NHC_vxi,args.Nc,YSlist,NHC_Q,Natoms,args.temp,MLdistanceUnits,DOF)
-                # molecule = self.propagation_algorithm.update_velocities_first_half_step(molecule = molecule,
-                #                                                                        time_step = self.time_step)
                 self.propagation_algorithm.update_velocities_first_half_step(molecule = molecule,
                                                                                        time_step = self.time_step)
 
@@ -189,8 +184,7 @@ class md():
                 for iatom in range(self.Natoms):
                     molecule.atoms[iatom].xyz_coordinates = np.copy(coord[iatom])
                 self.model.predict(molecule=molecule,
-                                   calculate_energy = True,
-                                   calculate_energy_gradients = True)
+                                   **self.model_predict_kwargs)
                 forces = -np.copy(molecule.get_energy_gradients())
                 acceleration = forces / self.mass / constants.ram2au * (constants.Bohr2Angstrom**2) * constants.fs2au**2 #/ MLenergyUnits
                 
@@ -201,11 +195,6 @@ class md():
                     molecule.atoms[iatom].xyz_coordinates = np.copy(coord[iatom])
                     molecule.atoms[iatom].xyz_velocities = np.copy(velocity[iatom])
 
-                # thermostat
-                # kin_en_raw = np.sum(velocity**2 * self.mass) / 2.0 # Raw kinetic energy (Unit: relative_mass MLdistanceUnits^2 / fs^2)
-                # # KE,velocity,NHC_xi,NHC_vxi = Nose_Hoover_chain(kin_en_raw,velocity,dt,NHC_xi,NHC_vxi,args.Nc,YSlist,NHC_Q,Natoms,args.temp,MLdistanceUnits,DOF)
-                # molecule = self.propagation_algorithm.update_velocities_second_half_step(molecule = molecule,
-                #                                                                         time_step = self.time_step)
                 self.propagation_algorithm.update_velocities_second_half_step(molecule = molecule,
                                                                                         time_step = self.time_step)
             velocity = np.copy(molecule.get_xyz_vectorial_properties('xyz_velocities'))

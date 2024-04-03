@@ -277,7 +277,8 @@ class ani(models.ml_model, models.torchani_model):
             reset_network (bool, optional): Whether to re-construct the network before training.
             reset_optimizer (bool, optional): Whether to re-define the optimizer before training .
             save_every_epoch (bool, optional): Whether to save model in every epoch, valid when ``save_model`` is ``True``.
-            energy_weighting_function (Callable[Array-like], optional): A weighting function :math:`\mathit{W}(\mathbf{E_ref})` that assign weights to training points based on their reference energies.
+            energy_weighting_function (Callable, optional): A weighting function :math:`\mathit{W}(\mathbf{E_ref})` that assign weights to training points based on their reference energies.
+            energy_weighting_function_kwargs (dict, optional): Extra weighting function arguments in a dictionary.
         '''
         if hyperparameters:
             self.hyperparameters.update(hyperparameters)

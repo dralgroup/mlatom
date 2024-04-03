@@ -11,16 +11,7 @@ from . import stopper
 import numpy as np 
 import numpy.fft as nf 
 
-try:
-    import matplotlib.pyplot as plt 
-except:
-    pass
 
-try:
-    import statsmodels.tsa.api as smt 
-    import statsmodels.tsa 
-except:
-    pass
 
 class vibrational_spectrum():
     def __init__(self,molecular_database,dt):
@@ -29,6 +20,8 @@ class vibrational_spectrum():
         self.nsteps = len(molecular_database.molecules)
 
     def plot_infrared_spectrum(self,filename,autocorrelation_depth=1024,zero_padding=1024,lb=None,ub=None,normalize=True,title='',return_spectrum=False,format='modulus'):
+        import matplotlib.pyplot as plt 
+
         self.autocorrelation_depth = autocorrelation_depth
         self.zero_padding = zero_padding
         if lb==None:
@@ -67,6 +60,8 @@ class vibrational_spectrum():
             return freqs_shown, pows_shown
 
     def plot_power_spectrum(self,filename,autocorrelation_depth=1024,zero_padding=1024,lb=None,ub=None,normalize=True,title='',return_spectrum=False):
+        import matplotlib.pyplot as plt 
+
         self.autocorrelation_depth = autocorrelation_depth 
         self.zero_padding = zero_padding
         if lb==None:
@@ -138,6 +133,9 @@ class vibrational_spectrum():
         return p
 
     def calc_VACF(self,velocities):
+        import statsmodels.tsa.api as smt
+        import statsmodels.tsa 
+
         data = velocities
         vacf = []
         Ntotal = len(data)
@@ -166,6 +164,8 @@ class vibrational_spectrum():
         return freqs_shown, pows_shown
     
     def infrared_spectrum(self,dipoles):
+        import statsmodels.tsa.api as smt 
+        import statsmodels.tsa
         tcf = statsmodels.tsa.stattools.acf(dipoles,nlags=int(self.autocorrelation_depth/self.dt)-1,fft=True)
         for i in range(len(tcf)):
             tcf[i] = tcf[i] * self.Hann(i,len(tcf))
