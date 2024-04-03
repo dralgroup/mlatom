@@ -15,14 +15,6 @@ from collections import UserDict
 
 from . import data, stats, stopper, interfaces
 from .decorators import doc_inherit
-try:
-    import torch
-except:
-    pass
-try:
-    from .kreg_api import KREG_API
-except:
-    pass
 
 class model():
     nthreads = 0
@@ -46,6 +38,7 @@ class model():
         calculate_energy: bool = False, 
         calculate_energy_gradients: bool = False, 
         calculate_hessian: bool = False,
+        **kwargs,
     ):
         '''
         Make predictions for molecular geometries with the model.
@@ -125,7 +118,8 @@ class methods(model):
 
         Methods listed above can be accepted without specifying a program.
         The required programs still have to be installed though as described in the installation manual.
-        Programs needed for making above methods work:
+    
+    **Available Programs and Their Corresponding Methods:** 
 
         .. table::
             :align: center
@@ -136,13 +130,14 @@ class methods(model):
             TorchANI         ``'AIQM1'``, ``'AIQM1@DFT'``, ``'AIQM1@DFT*'``, ``'ANI-1ccx'``, ``'ANI-1x'``, ``'ANI-1x-D4'``, ``'ANI-2x'``, ``'ANI-2x-D4'``                                              
             dftd4            ``'AIQM1'``, ``'AIQM1@DFT'``, ``'ANI-1x-D4'``, ``'ANI-2x-D4'``, ``'D4'``                                                                                                  
             MNDO or Sparrow  ``'AIQM1'``, ``'AIQM1@DFT'``, ``'AIQM1@DFT*'``, ``'MNDO'``, ``'MNDO/d'``, ``'ODM2*'``, ``'ODM3*'``,  ``'OM2'``, ``'OM3'``, ``'PM3'``, ``'SCC-DFTB'``, ``'SCC-DFTB-heats'``
-            MNDO             ``'CNDO/2'``, ``'MINDO/3'``, ``'MNDO/H'``, ``'MNDO/dH'``, ``'MNDOC'``, ``'ODM2'``, ``'ODM3'``, ``'OM1'``                                                                  
-            Sparrow          ``'DFTB0'``, ``'DFTB2'``, ``'DFTB3'``, ``'PM6'``, ``'RM1'``                                                                                                               
-            xtb              ``'GFN2-xTB'``                                                                                                                                                            
-            Orca             ``'CCSD(T)*/CBS'``                                                                                                                                                        
+            MNDO             ``'CNDO/2'``, ``'MINDO/3'``, ``'MNDO/H'``, ``'MNDO/dH'``, ``'MNDOC'``, ``'ODM2'``, ``'ODM3'``, ``'OM1'``, semiempirical OMx, DFTB, NDDO-type methods                                                                  
+            Sparrow          ``'DFTB0'``, ``'DFTB2'``, ``'DFTB3'``, ``'PM6'``, ``'RM1'``, semiempirical OMx, DFTB, NDDO-type methods                                                                                                              
+            xTB              ``'GFN2-xTB'``, semiempirical GFNx-TB methods                                                                                                                                                           
+            Orca             ``'CCSD(T)*/CBS'``, DFT                                                                                                                                                      
+            Gaussian         ab initio methods, DFT
+            PySCF            ab initio methods, DFT
             ===============  ==========================================================================================================================================================================
-        
-        And other methods supported by supported programs (e.g.: ``'gaussian'``, ``'xtb'``, ``'pyscf'``), can also be accepted with a program specifed.
+    
     '''
 
     methods_map = {
@@ -154,7 +149,9 @@ class methods(model):
     'dftd4': ['D4'],
     'ccsdtstarcbs': ['CCSD(T)*/CBS'],
     'gaussian': [],
+    'columbus': [],
     'pyscf': [],
+    'turbomole': [],
     'orca': [],
     }
     
@@ -729,6 +726,7 @@ class krr(ml_model):
                 mol.atoms[iatom].__dict__[xyz_derivative_property_to_predict] = gradients[3*iatom:3*iatom+3]
     
     def gaussian_kernel_function(self,coordi,coordj,calculate_value=True,calculate_gradients=False,calculate_gradients_j=False,calculate_Hessian=False,**kwargs):
+        import torch
         if 'Req' in kwargs:
             Req = kwargs['Req']
         if calculate_Hessian:
@@ -763,6 +761,7 @@ class krr(ml_model):
         return output
     
     def RE_descriptor_tensor(self,coord_tensor,Req):
+        import torch
         Natoms = len(coord_tensor)
         icount = 0 
         for iatom in range(Natoms):
@@ -776,9 +775,11 @@ class krr(ml_model):
         return descriptor
     
     def distance_tensor(self, atomi,atomj):
+        import torch
         return torch.sqrt(self.distance_squared_tensor(atomi,atomj))
     
     def distance_squared_tensor(self, atomi,atomj):
+        import torch
         return torch.sum(torch.square(atomi-atomj))
 
 class hyperparameter():
@@ -893,7 +894,7 @@ class kreg(krr, OMP_model, MKL_model):
         model_file (str, optional): The name of the file where the model should be dumped to or loaded from.
         ml_program (str, optional): Specify which ML program to use. Avaliable options: ``'KREG_API'``, ``'MLatomF``.
         equilibrium_molecule (:class:`mlatom.data.molecule` | None): Specify the equilibrium geometry to be used to generate RE descriptor. The geometry with lowest energy/value will be selected if set to ``None``.
-        prior
+        prior (default - None): the prior can be 'mean', None (0.0), or any floating point number.
         hyperparameters (Dict[str, Any] | :class:`mlatom.models.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
     '''
     hyperparameters = hyperparameters({'lambda': hyperparameter(value=2**-35, 
@@ -911,6 +912,7 @@ class kreg(krr, OMP_model, MKL_model):
         self.equilibrium_molecule = equilibrium_molecule
         self.ml_program = ml_program
         if self.ml_program.casefold() == 'KREG_API'.casefold():
+            from .kreg_api import KREG_API
             if self.model_file != None:
                 if self.model_file[-4:] != '.npz':
                     self.model_file += '.npz'
@@ -1030,6 +1032,7 @@ class kreg(krr, OMP_model, MKL_model):
                     mlatomfargs += self.additional_mlatomf_args
                 self.interface_mlatomf.ifMLatomCls.run(mlatomfargs, shutup=True)
         elif self.ml_program.casefold() == 'KREG_API'.casefold():
+            from .kreg_api import KREG_API
             if save_model:
                 if self.model_file == None:
                     self.model_file = f'kreg_{str(uuid.uuid4())}.npz'
@@ -1156,15 +1159,14 @@ class model_tree_node(model):
     def set_num_threads(self, nthreads=0):
         super().set_num_threads(nthreads)
         if self.nthreads:
-            for child in self.children:
-                child.set_num_threads(self.nthreads)
+            if self.children != None:
+                for child in self.children:
+                    child.set_num_threads(self.nthreads)
+            else:
+                self.model.set_num_threads(self.nthreads)
     
     def predict(self, **kwargs):
-        if 'molecular_database' in kwargs:
-            molDB = kwargs['molecular_database']
-        if 'molecule' in kwargs:
-            molDB = data.molecular_database()
-            molDB.molecules.append(kwargs['molecule'])
+        molDB = super().predict(**kwargs)
         
         if len(molDB) == 0: return
             
@@ -1174,6 +1176,10 @@ class model_tree_node(model):
         else: calculate_energy_gradients = False
         if 'calculate_hessian' in kwargs: calculate_hessian = kwargs['calculate_hessian']
         else: calculate_hessian = False
+        if 'nstates' in kwargs: nstates = kwargs['nstates']
+        else: nstates = 1
+        if 'current_state' in kwargs: current_state = kwargs['current_state']
+        else: current_state = 0
 
         properties = [] ; atomic_properties = []
         if calculate_energy: properties.append('energy')
@@ -1181,6 +1187,27 @@ class model_tree_node(model):
         if calculate_hessian: properties.append('hessian')
 
         for mol in molDB.molecules:
+            if nstates:
+                mol_copy = mol.copy()
+                mol_copy.electronic_states = []
+                if nstates >1:
+                    for _ in range(nstates - len(mol.electronic_states)):
+                        mol.electronic_states.append(mol_copy.copy())
+
+                for mol_el_st in mol.electronic_states:
+                    if not self.name in mol_el_st.__dict__:
+                        parent = None
+                        if self.parent != None:
+                            if self.parent.name in mol_el_st.__dict__:
+                                parent = mol_el_st.__dict__[self.parent.name]
+                        children = None
+                        if self.children != None:
+                            for child in self.children:
+                                if child.name in mol_el_st.__dict__:
+                                    if children == None: children = []
+                                    children.append(mol_el_st.__dict__[child.name])
+                        mol_el_st.__dict__[self.name] = data.properties_tree_node(name=self.name, parent=parent, children=children)
+                
             if not self.name in mol.__dict__:
                 parent = None
                 if self.parent != None:
@@ -1197,20 +1224,30 @@ class model_tree_node(model):
         if self.children == None and self.operator == 'predict':
             self.model.predict(**kwargs)
             for mol in molDB.molecules:
-                self.get_properties_from_molecule(mol, properties, atomic_properties)
+                if not mol.electronic_states:
+                    self.get_properties_from_molecule(mol, properties, atomic_properties)
+                for mol_el_st in mol.electronic_states:
+                    # mol_el_st.__dict__[self.name] = data.properties_tree_node(name=self.name, parent=parent, children=children)
+                    self.get_properties_from_molecule(mol_el_st, properties, atomic_properties)
         else:
             for child in self.children:
                 child.predict(**kwargs)
 
             if self.operator == 'sum':
                 for mol in molDB.molecules:
-                    mol.__dict__[self.name].sum(properties+atomic_properties)
+                    if not mol.electronic_states:
+                        mol.__dict__[self.name].sum(properties+atomic_properties)
+                    for mol_el_st in mol.electronic_states:
+                        mol_el_st.__dict__[self.name].sum(properties+atomic_properties)
             if self.operator == 'average':
                 for mol in molDB.molecules:
-                    mol.__dict__[self.name].average(properties+atomic_properties)
+                    if not mol.electronic_states:
+                        mol.__dict__[self.name].average(properties+atomic_properties)
+                    for mol_el_st in mol.electronic_states:
+                        mol_el_st.__dict__[self.name].average(properties+atomic_properties)
                     
         if self.parent == None:
-            self.update_molecular_properties(molecular_database=molDB, properties=properties, atomic_properties=atomic_properties)
+            self.update_molecular_properties(molecular_database=molDB, properties=properties, atomic_properties=atomic_properties, current_state=current_state)
         
     def get_properties_from_molecule(self, molecule, properties=[], atomic_properties=[]):
         property_values = molecule.__dict__[self.name].__dict__
@@ -1222,7 +1259,7 @@ class model_tree_node(model):
                 property_values[property_name].append(atom.__dict__.pop(property_name))
             property_values[property_name] = np.array(property_values[property_name]).astype(float)
     
-    def update_molecular_properties(self, molecular_database=None, molecule=None, properties=[], atomic_properties=[]):
+    def update_molecular_properties(self, molecular_database=None, molecule=None, properties=[], atomic_properties=[], current_state=0):
         molDB = molecular_database
         if molecule != None:
             molDB = data.molecular_database()
@@ -1230,10 +1267,22 @@ class model_tree_node(model):
 
         for mol in molDB.molecules:
             for property_name in properties:
-                mol.__dict__[property_name] = mol.__dict__[self.name].__dict__[property_name]
+                for mol_el_st in mol.electronic_states:
+                    mol_el_st.__dict__[property_name] = mol_el_st.__dict__[self.name].__dict__[property_name]
+                if not mol.electronic_states:
+                    mol.__dict__[property_name] = mol.__dict__[self.name].__dict__[property_name]
+                else:
+                    mol.__dict__[property_name] = mol.electronic_states[current_state].__dict__[property_name]
             for property_name in atomic_properties:
-                for iatom in range(len(mol.atoms)):
-                    mol.atoms[iatom].__dict__[property_name] = mol.__dict__[self.name].__dict__[property_name][iatom]
+                for mol_el_st in mol.electronic_states:
+                    for iatom in range(len(mol_el_st.atoms)):
+                        mol_el_st.atoms[iatom].__dict__[property_name] = mol_el_st.__dict__[self.name].__dict__[property_name][iatom]
+                if not mol.electronic_states:
+                    for iatom in range(len(mol.atoms)):
+                        mol.atoms[iatom].__dict__[property_name] = mol.__dict__[self.name].__dict__[property_name][iatom]
+                else:
+                    for iatom in range(len(mol.atoms)):
+                        mol.atoms[iatom].__dict__[property_name] = mol.electronic_states[current_state].atoms[iatom].__dict__[property_name]
 
     def dump(self, filename=None, format='json'):
         '''

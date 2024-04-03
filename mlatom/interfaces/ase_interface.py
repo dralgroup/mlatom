@@ -13,14 +13,12 @@ from .. import constants
 from .. import data
 from .. import stopper
     
-try:
-    import ase
-    from ase import io
-    from ase.calculators.calculator import Calculator, all_changes
-    from ase.thermochemistry import IdealGasThermo
-    import ase.units as units
-except:
-    raise ValueError('ASE is not installed')
+
+import ase
+from ase import io
+from ase.calculators.calculator import Calculator, all_changes
+from ase.thermochemistry import IdealGasThermo
+import ase.units as units
 
 def optimize_geometry(initial_molecule, model, convergence_criterion_for_forces, maximum_number_of_steps, optimization_algorithm='LBFGS', **kwargs):
     if optimization_algorithm == None:

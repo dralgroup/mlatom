@@ -11,16 +11,13 @@ import numpy as np
 import os
 from . import data, models, stopper
 
-try: 
-    import torch
-    import torchani
-    from torchani.utils import ChemicalSymbolsToInts
-except:
-    raise ValueError('Please install all Python modules required for TorchANI')
+import torch
+import torchani
+from torchani.utils import ChemicalSymbolsToInts
 
 class aiqm1(models.torchani_model):
     """
-    The Artificial intelligence–quantum mechanical method as in the `AIQM1 paper`_.
+    The Artificial intelligence-quantum mechanical method as in the `AIQM1 paper`_.
 
     Arguments:
         method (str, optional): AIQM method used. Currently supports AIQM1, AIQM1\@DFT*, and AIQM1\@DFT. Default value: AIQM1.
@@ -69,50 +66,66 @@ class aiqm1(models.torchani_model):
         self.aiqm1_model = models.model_tree_node(name=modelname, children=aiqm1_children, operator='sum')
     
     def predict(self, molecular_database=None, molecule=None,
-                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False):
-        if molecular_database != None:
-            molDB = molecular_database
-        elif molecule != None:
-            molDB = data.molecular_database()
-            molDB.molecules.append(molecule)
-        else:
-            errmsg = 'Either molecule or molecular_database should be provided in input'
-            raise ValueError(errmsg)
-        
+                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, nstates=1, current_state=0, **kwargs):
+        molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
+        if 'nthreads' in self.__dict__: self.aiqm1_model.nthreads = self.nthreads
         for mol in molDB.molecules:
             self.predict_for_molecule(molecule=mol,
-                                    calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian)
+                                    calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, nstates=nstates, 
+                                    current_state=current_state,
+                                    **kwargs)
         
     def predict_for_molecule(self, molecule=None,
-                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False):
+                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, nstates=1, current_state=0, **kwargs):
         
         for atom in molecule.atoms:
             if not atom.atomic_number in [1, 6, 7, 8]:
                 print(' * Warning * Molecule contains elements other than CHNO, no calculations performed')
                 return
         
+        if nstates >1:
+            mol_copy = molecule.copy()
+            mol_copy.electronic_states = []
+            for _ in range(nstates - len(molecule.electronic_states)):
+                molecule.electronic_states.append(mol_copy.copy())
+        
+        # for molecule in molecules:
         if len(molecule.atoms) == 1:
             molecule.energy = self.atomic_energies[self.method][molecule.atoms[0].atomic_number]
             standard_atom = data.atom(atomic_number=molecule.atoms[0].atomic_number)
             if molecule.charge != 0 or molecule.multiplicity != standard_atom.multiplicity:
                 odm2model = models.methods(method='ODM2*', program=self.qm_program)
                 mol_odm2 = molecule.copy()
-                odm2model.predict(molecule=mol_odm2)
+                odm2model.predict(molecule=mol_odm2, nstates=nstates, **kwargs)
                 mol_standard_odm2 = molecule.copy() ; mol_standard_odm2.charge = 0; mol_standard_odm2.multiplicity=standard_atom.multiplicity
-                odm2model.predict(molecule=mol_standard_odm2)
+                odm2model.predict(molecule=mol_standard_odm2, nstates=nstates, **kwargs)
                 molecule.energy = molecule.energy + mol_odm2.energy - mol_standard_odm2.energy
         else:
+            if nstates > 1 and isinstance(calculate_energy_gradients, list): 
+                if any(calculate_energy_gradients):
+                    calculate_energy_gradients = [True] * nstates
             self.aiqm1_model.predict(molecule=molecule,
-                                    calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian)
+                                    calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, nstates=nstates, 
+                                    current_state=current_state,
+                                    **kwargs)
             
             properties = [] ; atomic_properties = []
+            
+            calculate_energy_gradients = bool(np.array(calculate_energy_gradients).any())
+            calculate_hessian = bool(np.array(calculate_hessian).any())
             if calculate_energy: properties.append('energy')
             if calculate_energy_gradients: atomic_properties.append('energy_gradients')
             if calculate_hessian: properties.append('hessian')
             modelname = self.method.lower().replace('*','star').replace('@','at')
-            molecule.__dict__[f'{modelname}_nn'].standard_deviation(properties=properties+atomic_properties)
 
-class atomic_energy_shift():
+            if nstates >1:
+                for mol_el_st in molecule.electronic_states:
+                    mol_el_st.__dict__[f'{modelname}_nn'].standard_deviation(properties=properties+atomic_properties)
+            else:
+                molecule.__dict__[f'{modelname}_nn'].standard_deviation(properties=properties+atomic_properties)
+            
+
+class atomic_energy_shift(models.model):
     atomic_energy_shifts = {'AIQM1': {1: -4.29365862e-02, 6: -3.34329586e+01, 7: -4.69301173e+01, 8: -6.29634763e+01},
                             'AIQM1@DFT': {1: -4.27888067e-02, 6: -3.34869833e+01, 7: -4.69896148e+01, 8: -6.30294433e+01}}
     atomic_energy_shifts['AIQM1@DFT*'] = atomic_energy_shifts['AIQM1@DFT']
@@ -121,30 +134,35 @@ class atomic_energy_shift():
         self.method = method
         
     def predict(self, molecular_database=None, molecule=None,
-                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False):
-        if molecular_database != None:
-            molDB = molecular_database
-        elif molecule != None:
-            molDB = data.molecular_database()
-            molDB.molecules.append(molecule)
-        else:
-            errmsg = 'Either molecule or molecular_database should be provided in input'
-            raise ValueError(errmsg)
+                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, nstates=1, **kwargs):
+        molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
+        calculate_energy_gradients = bool(np.array(calculate_energy_gradients).any())
+        calculate_hessian = bool(np.array(calculate_hessian).any())
          
         for mol in molDB.molecules:
-            if calculate_energy:
-                sae = 0.0
-                for atom in mol.atoms:
-                    sae += self.atomic_energy_shifts[self.method][atom.atomic_number]
-                mol.energy = sae
-            if calculate_energy_gradients:
-                for atom in mol.atoms:
-                    atom.energy_gradients = np.zeros(3)
-            if calculate_hessian:
-                ndim = len(mol.atoms) * 3
-                mol.hessian = np.zeros(ndim*ndim).reshape(ndim,ndim)
+            molecules = [mol]
 
-class ani_nns_in_aiqm1():
+            if nstates >1:
+                mol_copy = mol.copy()
+                mol_copy.electronic_states = []
+                for _ in range(nstates - len(mol.electronic_states)):
+                    mol.electronic_states.append(mol_copy.copy())
+                molecules = mol.electronic_states
+            
+            for mol in molecules:
+                if calculate_energy:
+                    sae = 0.0
+                    for atom in mol.atoms:
+                        sae += self.atomic_energy_shifts[self.method][atom.atomic_number]
+                    mol.energy = sae
+                if calculate_energy_gradients:
+                    for atom in mol.atoms:
+                        atom.energy_gradients = np.zeros(3)
+                if calculate_hessian:
+                    ndim = len(mol.atoms) * 3
+                    mol.hessian = np.zeros(ndim*ndim).reshape(ndim,ndim)
+
+class ani_nns_in_aiqm1(models.torchani_model):
     species_order = [1, 6, 7, 8]
     
     def __init__(self, method='AIQM1', model_index = 0):
@@ -225,34 +243,39 @@ class ani_nns_in_aiqm1():
         self.nn = nn
     
     def predict(self, molecular_database=None, molecule=None,
-                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False):
-        if molecular_database != None:
-            molDB = molecular_database
-        elif molecule != None:
-            molDB = data.molecular_database()
-            molDB.molecules.append(molecule)
-        else:
-            errmsg = 'Either molecule or molecular_database should be provided in input'
-            raise ValueError(errmsg)
+                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, nstates=1, **kwargs):
+        molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
         
+        calculate_energy_gradients = bool(np.array(calculate_energy_gradients).any())
+        calculate_hessian = bool(np.array(calculate_hessian).any())
         species_to_tensor = ChemicalSymbolsToInts(self.species_order)
         
         for mol in molDB.molecules:
-            atomic_numbers = np.array([atom.atomic_number for atom in mol.atoms])
-            xyz_coordinates = torch.tensor(np.array(mol.xyz_coordinates).astype('float')).to(self.device).requires_grad_(calculate_energy_gradients or calculate_hessian)
-            xyz_coordinates = xyz_coordinates.unsqueeze(0)
-            species = species_to_tensor(atomic_numbers).to(self.device).unsqueeze(0)
-            ANI_NN_energy = self.model((species, xyz_coordinates)).energies
-            if calculate_energy: mol.energy = float(ANI_NN_energy)
-            if calculate_energy_gradients or calculate_hessian:
-                ANI_NN_energy_gradients = torch.autograd.grad(ANI_NN_energy.sum(), xyz_coordinates, create_graph=True, retain_graph=True)[0]
-                if calculate_energy_gradients:
-                    grads = ANI_NN_energy_gradients[0].detach().cpu().numpy()
-                    for iatom in range(len(mol.atoms)):
-                        mol.atoms[iatom].energy_gradients = grads[iatom]
-            if calculate_hessian:
-                ANI_NN_hessian = torchani.utils.hessian(xyz_coordinates, energies=ANI_NN_energy)
-                mol.hessian = ANI_NN_hessian[0].detach().cpu().numpy()
+            molecules = [mol]
+
+            if nstates >1:
+                mol_copy = mol.copy()
+                mol_copy.electronic_states = []
+                for _ in range(nstates - len(mol.electronic_states)):
+                    mol.electronic_states.append(mol_copy.copy())
+                molecules = mol.electronic_states
+            
+            for mol in molecules:
+                atomic_numbers = np.array([atom.atomic_number for atom in mol.atoms])
+                xyz_coordinates = torch.tensor(np.array(mol.xyz_coordinates).astype('float')).to(self.device).requires_grad_(calculate_energy_gradients or calculate_hessian)
+                xyz_coordinates = xyz_coordinates.unsqueeze(0)
+                species = species_to_tensor(atomic_numbers).to(self.device).unsqueeze(0)
+                ANI_NN_energy = self.model((species, xyz_coordinates)).energies
+                if calculate_energy: mol.energy = float(ANI_NN_energy)
+                if calculate_energy_gradients or calculate_hessian:
+                    ANI_NN_energy_gradients = torch.autograd.grad(ANI_NN_energy.sum(), xyz_coordinates, create_graph=True, retain_graph=True)[0]
+                    if calculate_energy_gradients:
+                        grads = ANI_NN_energy_gradients[0].detach().cpu().numpy()
+                        for iatom in range(len(mol.atoms)):
+                            mol.atoms[iatom].energy_gradients = grads[iatom]
+                if calculate_hessian:
+                    ANI_NN_hessian = torchani.utils.hessian(xyz_coordinates, energies=ANI_NN_energy)
+                    mol.hessian = ANI_NN_hessian[0].detach().cpu().numpy()
 
 if __name__ == '__main__':
     pass

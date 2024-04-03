@@ -26,8 +26,8 @@ class orca_methods(models.model):
         nthreads (int): equivalent to %pal nprocs in ORCA input file 
         nthreads_list (list): a list of number of nthreads used in CCSD(T)*/CBS method. The order should be [mp2_tz, mp2_qz, dlpno_normal_dz, dlpno_normal_tz, dlpno_tight_dz] 
         additional_keywords (list): list of keywords(str) to be added to orca input (first line)
-        input_file (str): name of your orca input file. Default will use "molecule_number_"
-        output_keywords (list): list of keywords that you want to extract from output file. (Currently customized keywords is only supported in energy calculation and in property.txt file)        
+        input_file (str): name of your orca input file. Default will use "[molecule number]_"
+        output_keywords (list): list of keywords that you want to extract from output file. (Currently customized keywords are only supported in energy calculation and in property.txt file)        
     
     
     .. note::

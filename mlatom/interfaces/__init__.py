@@ -34,6 +34,14 @@ def gaussian(**kwargs):
     from .gaussian_interface import gaussian_methods as interface
     return interface(**kwargs)
 
+def columbus(**kwargs):
+    from .columbus_interface import columbus_methods as interface
+    return interface(**kwargs)
+
+def turbomole(**kwargs):
+    from .turbomole_interface import turbomole_methods as interface
+    return interface(**kwargs)
+
 def pyscf(**kwargs):
     from .pyscf_interface import pyscf_methods as interface
     return interface(**kwargs)
