@@ -1,3 +1,9 @@
+# Updates
+
+- MLatom 3.3.0 - [surface-hopping dynamics](https://mlatom.com/docs/releases.html#mlatom-3-3-0)
+- MLatom 3.2.0 - [diffusion Monte Carlo and energy-weighted training](http://mlatom.com/docs/releases.html#mlatom-3-2-0)
+- MLatom 3.1.0 - [MACE interface](http://mlatom.com/releases/#Version_31)
+
 # MLatom
 
 MLatom is a package for atomistic simulations with machine learning.
