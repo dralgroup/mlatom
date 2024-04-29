@@ -202,53 +202,53 @@ class ArgsBase():
     @staticmethod
     def _args_extractor(string: str) -> List[str]:
         pair_dict = {'(': ')', '[': ']', '{': '}', '<': '>', "'": "'", '"': '"'}
-        pair_level = 0
         pair_right: List[str] = []
         tmp = ''
-        prev = ''
+        comment = False
         out_string_list: List[str] = []
         for chr in string:
             pair_right_last = pair_right[-1] if pair_right else ''
+            if chr == '#':
+                comment = True
+            if chr == '\n':
+                comment = False
+            if comment:
+                continue
             if chr in pair_dict.keys() and chr != pair_right_last:
-                pair_level += 1
                 pair_right.append(pair_dict[chr])
             elif chr == pair_right_last:
-                pair_level -= 1
                 pair_right.pop()
-            elif chr == ' ' and pair_level == 0 and prev.strip():  # end
-                out_string_list.append(tmp)
-                tmp = ''
-                prev = chr
-                continue
-            if '"' in pair_right or "'" in pair_right:
+            if pair_right:
                 tmp += chr
+            elif chr in [' ', '\n'] and tmp:  # end
+                out_string_list.append(tmp.strip())
+                tmp = ''
             else:
                 tmp += chr.strip()
-            prev = chr
-        if pair_level:
+        if pair_right:
             stopper.stopMLatom(f'pair character unmatched args: "{tmp}"')
         else:
             if tmp: out_string_list.append(tmp)
+        
         return out_string_list
     
     def parse_input_file(self, file: str):
-        try:
-            with open(file) as f:
-                content = f.read().splitlines()
-        except:
-            self._raise_error(f'can not open file {file}! exit!'); exit()
+        with open(file) as f:
+            content = self._args_extractor(f.read())
         self.parse_input_content(content)
     
     def parse_input_content(self, content: Union[List[str], str]):
-        help = False
         if type(content) is str:
-            content = content.splitlines()
-        for c in self._clean_input_content(content):
+            content = [content]
+        _content = []
+        for c in content:
+            _content.extend(self._args_extractor(c) if '\n' not in c else [c])
+        for c in _content:
             splitted = c.split('=')
             if len(splitted) == 1:
                 key = splitted[0]
                 if key.lower() in ['help', '-help', '-h', '--help']:
-                    help = True
+                    self._print_doc()
                 elif key.lower() in self.ignore_list:
                     pass
                 else:
@@ -265,8 +265,6 @@ class ArgsBase():
                     self.data[key] = value
             else:
                 self._raise_error(f'error happends at your input file, error content:\n    {c}')
-        if help:
-            self._print_doc()
     
     @classmethod
     def _multi_level_dict(cls, key: str, value: Any) -> Tuple[str, Union[AttributeDict, Dict[str, Union[str, Dict[str, Any]]]]]:
@@ -283,19 +281,7 @@ class ArgsBase():
         try: Doc.printDoc(self.args_dict)
         except: self._warning_print('Doc not imported')
         stopper.stopMLatom('')
-    
-    @classmethod
-    def _clean_input_content(cls, content: List[str]) -> List[str]:
-        to_return: List[str] = []
-        for c in content:
-            usable = c.split('#')[0].strip()
-            while usable.find(' =') != -1:
-                usable = usable.replace(' =', '=')
-            while usable.find('= ') != -1:
-                usable = usable.replace('= ', '=')
-            to_return.extend(cls._args_extractor(usable))
-        return to_return
-    
+
     @property
     def args_dict(self) -> Dict[str, Any]:
         return AttributeDict.normal_dict(self.data)
@@ -616,6 +602,14 @@ class mlatom_args(ArgsBase):
             'DOF':-6,
             'linear':0,
         })
+        # geomopt output
+        self.add_default_dict_args(
+            [
+                'printall',                # print out all information in geometry optimization
+                'printmin',                # print out minimal infomation in geometry optimization        
+                'dumpopttrajs'             # whether to dump optimization trajectory
+            ], ''
+        )
     
         self.defualt_args2pass = self.args_string_list(['', None])
 
@@ -628,23 +622,35 @@ class mlatom_args(ArgsBase):
         if len(argsraw) == 0:
             Doc.printDoc({})
             stopper.stopMLatom('At least one option should be provided')
-        elif len(argsraw) == 1:
-            if os.path.exists(argsraw[0]):
-                # self.parse_input_file(argsraw[0])
-                self.argsraw = []
-                with open(argsraw[0]) as f:
-                    content = f.read().splitlines()
-                    for c in self._clean_input_content(content):
-                        self.argsraw += [c]
-                self.parse_input_content(self.argsraw)
-            else:
-                self.parse_input_content(argsraw[0])
-        elif len(argsraw) >= 2:
+        elif len(argsraw) == 1 and os.path.exists(argsraw[0]):
+            self.parse_input_file(argsraw[0])
+        else:
             self.parse_input_content(argsraw)
         
         self._post_operations()
+            
+    def _post_operations(self):
+        if not self.MLprog:
+            if self.MLmodelType :
+                try: self.MLprog = default_MLprog[self.MLmodelType.lower()]
+                except: stopper.stopMLatom('Unkown MLmodelType')
+            else:
+                self.MLprog = 'MLatomF'
         self._checkArgs()
         self._check_hyperopt()
+        self._multi_lines_to_file()
+
+    def _multi_lines_to_file(self):
+        import hashlib
+        for arg in self.args2pass:
+            if '\n' in arg:
+                key, value = arg.split('=')
+                tmpfile = f"{key}_{hashlib.md5(value.encode('utf-8')).hexdigest()[:6]}"
+                if 'xyz' in key.lower():
+                    tmpfile += '.xyz'
+                with open(tmpfile, 'w') as f:
+                    f.write(value.strip("'").strip('"').strip() + '\n')
+                self.parse_input_content([f'{key}={tmpfile}'])
 
     def _check_hyperopt(self):
         self.hyperparameter_optimization = {
@@ -660,14 +666,6 @@ class mlatom_args(ArgsBase):
                 self._hyperopt_str_dict[key.split('.')[-1]] = value
         if self._hyperopt_str_dict:
             self.hyperparameter_optimization['optimization_algorithm'] = self.hyperopt.algorithm
-            
-    def _post_operations(self):
-        if not self.MLprog:
-            if self.MLmodelType :
-                try: self.MLprog = default_MLprog[self.MLmodelType.lower()]
-                except: stopper.stopMLatom('Unkown MLmodelType')
-            else:
-                self.MLprog = 'MLatomF'
 
     def _checkArgs(self):
         if not self._task:

@@ -250,6 +250,7 @@ class Doc():
       optProg=scipy            use scipy package [default]
       optProg=gaussian         use Gaussian program
       optProg=ASE              use ASE
+      optProg=geometric        use geomeTRIC
       optxyz=S                 save optimized geometries in file S [default: optgeoms.xyz]
     The following options only used for ASE program:
         ase.fmax=R                    threshold of maximum force (in eV/A)

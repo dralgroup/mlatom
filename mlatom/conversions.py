@@ -2,7 +2,7 @@ import numpy as np
 
 def smi2xyz(smi_strings):
     from openbabel import pybel as pb
-    if type(smi_strings) == str:
+    if isinstance(smi_strings, str):
         smi_strings =  smi_strings.strip().split('\n')
     xyz_strings = []
     for smi_string in smi_strings:
@@ -13,7 +13,7 @@ def smi2xyz(smi_strings):
 
 def xyz2smi(xyz_strings):
     from openbabel import pybel as pb
-    if type(xyz_strings) == str:
+    if isinstance(xyz_strings, str):
         xyz_strings = split_xyz_string(xyz_strings)
     smi_strings = []
     for string in xyz_strings:

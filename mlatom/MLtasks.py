@@ -367,7 +367,10 @@ def geomopt(args):
     molDB = loading_data(XYZfile=args.XYZfile, charges=args.charges, multiplicities=args.multiplicities)
     model = loading_model(args)
     fname = args.optXYZ
-    if os.path.exists(fname): stopper.stopMLatom(f'File {fname} already exists; please delete or rename it')
+    # if os.path.exists(fname): stopper.stopMLatom(f'File {fname} already exists; please delete or rename it')
+    if os.path.exists(fname): 
+        os.remove(fname)
+        print(f' * Warning * File {fname} already exists; MLatom will overwrite {fname}')
     db_opt = data.molecular_database()
     kwargs = {}
     if args.optProg:        kwargs['program'] = args.optprog
@@ -375,16 +378,28 @@ def geomopt(args):
     if args.ase.fmax:       kwargs['convergence_criterion_for_forces'] = float(args.ase.fmax)
     if args.ase.steps:      kwargs['maximum_number_of_steps'] = int(args.ase.steps)
     if args.ase.optimizer:  kwargs['optimization_algorithm'] = args.ase.optimizer
+    if len(molDB.molecules)<=10: 
+        kwargs['print_properties'] = 'all'
+    else:
+        kwargs['print_properties'] = 'min'
+    if args.printall:       kwargs['print_properties'] = 'all'
+    if args.printmin:       kwargs['print_properties'] = None
+    if args.dumpopttrajs:
+        kwargs['dump_trajectory_interval'] = 1
+    else:
+        kwargs['dump_trajectory_interval'] = None
+    kwargs['format'] = 'json'
     for imol, mol in enumerate(molDB):
         mol.number = imol+1
+        print(' %s ' % ('='*78))
+        print(' Optimization of molecule %d' % (imol+1))
+        print(' %s \n' % ('='*78))
+        kwargs['filename'] = f'opttraj{imol+1}.json'
         geomopt = simulations.optimize_geometry(model=model,
                                         initial_molecule=mol,
                                         **kwargs)
         db_opt.molecules.append(geomopt.optimized_molecule)
-        print(' %s ' % ('='*78))
-        print(' Optimization of molecule %d' % (imol+1))
-        print(' %s \n' % ('='*78))
-        print(f'   {"Iteration":^10s}    {"Energy (Hartree)":^25s}') # units?
+        print(f'\n\n   {"Iteration":^10s}    {"Energy (Hartree)":^25s}')
         for step in geomopt.optimization_trajectory.steps:
             print('   %10d    %25.13f' % (step.step+1, step.molecule.energy))
         if args.AIQM1 or args.AIQM1DFT or args.AIQM1DFTstar:
@@ -522,6 +537,8 @@ def MLTPA(args):
 # Reusable functions below. Name with -ing form
 def loading_data(XYZfile, Yfile=None, YgradXYZfile=None, charges=None, multiplicities=None):
     assert XYZfile, 'please provide data file(s) needed.'
+    if not os.path.exists(XYZfile):
+        stopper.stopMLatom(f'xyz file {XYZfile} is not found!')
     molecular_database = data.molecular_database.from_xyz_file(XYZfile)
     if Yfile: 
         molecular_database.add_scalar_properties_from_file(Yfile)

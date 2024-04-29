@@ -585,6 +585,37 @@ class molecule:
 
     def align(self, ref, pivot='CoM'):
         pass
+    
+    def info(self, properties = 'all', return_string=False):
+        printstrs = []
+        printstrs += [f" Molecule with {len(self.get_element_symbols())} atom(s): {', '.join(self.get_element_symbols())}", '']
+        if (properties == 'all' or 'xyz_coordinates' in properties) and 'xyz_coordinates' in self.atoms[0].__dict__:
+            printstrs += [f' XYZ coordinates, Angstrom\n']
+            iatom = 0
+            for atom in self.atoms:
+                iatom += 1
+                printstrs += [' %-4d %-3s %18.6f %18.6f %18.6f' % (iatom, atom.element_symbol,
+        atom.xyz_coordinates[0], atom.xyz_coordinates[1], atom.xyz_coordinates[2])]
+            printstrs += ['']
+        if (properties == 'all' or 'distance_matrix' in properties) and 'xyz_coordinates' in self.atoms[0].__dict__:
+            printstrs += [f' Interatomic distance matrix, Angstrom\n']
+            dist_mat = self.get_internuclear_distance_matrix()
+            printstrs += [f'{dist_mat}']
+            printstrs += ['']
+        if (properties == 'all' or 'energy' in properties) and 'energy' in self.__dict__:
+            printstrs += [' Energy: %18.6f Hartree\n' % self.energy]
+        if (properties == 'all' or 'energy_gradients' in properties) and 'energy_gradients' in self.atoms[0].__dict__:
+            printstrs += [f' Energy gradients, Hartree/Angstrom\n']
+            iatom = 0
+            for atom in self.atoms:
+                iatom += 1
+                printstrs += [' %-4d %-3s %18.6f %18.6f %18.6f' % (iatom, atom.element_symbol,
+        atom.energy_gradients[0], atom.energy_gradients[1], atom.energy_gradients[2])]
+            printstrs += ['']
+            printstrs += [' Energy gradients norm: %18.6f Hartree/Angstrom\n' % np.linalg.norm(self.energy_gradients)]
+        printstr = '\n'.join(printstrs)
+        if return_string: return printstr
+        else: print(printstr)
 
     def __add__(self, obj):
         if isinstance(obj, molecular_database):
@@ -593,7 +624,8 @@ class molecule:
             return molecular_database([self] + [obj])
         
     def __str__(self):
-        return f"molecule with {len(self.get_element_symbols())} atom(s): {', '.join(self.get_element_symbols())}"
+        printstr = self.info(properties = 'all', return_string=True)
+        return printstr
    
     def __iter__(self):
         for atom in self.atoms:

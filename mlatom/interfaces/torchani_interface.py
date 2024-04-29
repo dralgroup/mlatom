@@ -63,6 +63,7 @@ class ani(models.ml_model, models.torchani_model):
         #### Loss ####
         'force_coefficient':    models.hyperparameter(value=0.1, minval=0.05, maxval=5, optimization_space='linear'),
         'median_loss':          models.hyperparameter(value=False),
+        'validation_loss_type': models.hyperparameter(value='MSE', choices=['MSE', 'mean_RMSE']),
         #### Network ####
         "neurons":              models.hyperparameter(value=[[160, 128, 96]]),
         "activation_function":  models.hyperparameter(value=lambda: torch.nn.CELU(0.1), optimization_space='choice', choices=["CELU", "ReLU", "GELU"], dtype=(str, type, FunctionType)),
@@ -313,7 +314,7 @@ class ani(models.ml_model, models.torchani_model):
                 self.SGD_scheduler.load_state_dict(checkpoint['SGD_scheduler'])
     
         def validate():
-            total_mse = 0.0
+            total_error  = 0.0
             count = 0
             for properties in self.validation_set:
                 true_energies = properties['energies'].to(self.device).float()
@@ -326,9 +327,12 @@ class ani(models.ml_model, models.torchani_model):
                     weightings_e = 1
                 coordinates = properties['coordinates'].to(self.device).float()
                 _, predicted_energies = self.model((species, coordinates))
-                total_mse += loss_function(predicted_energies, true_energies, weightings_e, reduction='sum').nanmean().square().item()
+                if self.hyperparameters.validation_loss_type == 'mean_RMSE':                    
+                    total_error += loss_function(predicted_energies, true_energies, weightings_e, reduction='sum').nanmean().sqrt().item()
+                else:
+                    total_error += loss_function(predicted_energies, true_energies, weightings_e, reduction='sum').nanmean().item()
                 count += predicted_energies.shape[0]
-            return np.sqrt(total_mse/count)
+            return total_error/count
 
         def loss_function(prediction, reference, weightings=1, reduction='none'):
             return torch.nn.functional.mse_loss(prediction*weightings, reference*weightings, reduction=reduction)

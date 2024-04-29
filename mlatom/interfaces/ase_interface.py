@@ -24,6 +24,11 @@ def optimize_geometry(initial_molecule, model, convergence_criterion_for_forces,
     if optimization_algorithm == None:
         optimization_algorithm = 'LBFGS'
     
+    if 'model_predict_kwargs' in kwargs:
+        model_predict_kwargs = kwargs['model_predict_kwargs']
+    else:
+        model_predict_kwargs = {}
+    
     optimization_trajectory = data.molecular_trajectory()
     globals()['initial_molecule'] = initial_molecule
     globals()['optimization_trajectory'] = optimization_trajectory
@@ -64,7 +69,7 @@ def optimize_geometry(initial_molecule, model, convergence_criterion_for_forces,
             
     # atoms.set_calculator(MLatomCalculator(model=model, save_optimization_trajectory=True))
     # atoms.set_calculator() is deprecated
-    atoms.calc = MLatomCalculator(model=model, save_optimization_trajectory=True)
+    atoms.calc = MLatomCalculator(model=model, save_optimization_trajectory=True, model_predict_kwargs=model_predict_kwargs)
     
     from ase import optimize
     opt = optimize.__dict__[optimization_algorithm](atoms)
@@ -86,16 +91,26 @@ def transition_state(initial_molecule, model,
                      **kwargs):
     if optimization_algorithm == None:
         optimization_algorithm = 'dimer'
+
+    if 'model_predict_kwargs' in kwargs:
+        # model_predict_kwargs = kwargs['model_predict_kwargs']
+        model_predict_kwargs = kwargs.pop('model_predict_kwargs')
+    else:
+        model_predict_kwargs = {}
+
     if optimization_algorithm.casefold() == 'dimer'.casefold():
         return dimer_method(initial_molecule, model, 
+                            model_predict_kwargs,
                             convergence_criterion_for_forces,
                             maximum_number_of_steps, **kwargs)
     elif optimization_algorithm.casefold() == 'NEB'.casefold():
         return nudged_elastic_band(initial_molecule, kwargs.pop('final_molecule'), model, 
-                            convergence_criterion_for_forces,
-                            maximum_number_of_steps,  **kwargs)
+                                   model_predict_kwargs,
+                                   convergence_criterion_for_forces,
+                                   maximum_number_of_steps,  **kwargs)
 
 def dimer_method(initial_molecule, model, 
+                 model_predict_kwargs,
                  convergence_criterion_for_forces,
                  maximum_number_of_steps,  **kwargs):
     optimization_trajectory = data.molecular_trajectory()
@@ -107,7 +122,7 @@ def dimer_method(initial_molecule, model,
         initial_molecule.write_file_with_xyz_coordinates(filename=xyzfilename)
         atoms = io.read(xyzfilename, index=':', format='xyz')[0]
 
-    atoms.calc = MLatomCalculator(model=model, save_optimization_trajectory=True)
+    atoms.calc = MLatomCalculator(model=model,  model_predict_kwargs= model_predict_kwargs, save_optimization_trajectory=True)
 
     from ase.dimer import DimerControl, MinModeAtoms, MinModeTranslate
 
@@ -121,6 +136,7 @@ def dimer_method(initial_molecule, model,
     return optimization_trajectory
 
 def nudged_elastic_band(initial_molecule, final_molecule, model, 
+                        model_predict_kwargs,
                         convergence_criterion_for_forces,
                         maximum_number_of_steps,
                         number_of_middle_images=3, **kwargs):
@@ -144,7 +160,7 @@ def nudged_elastic_band(initial_molecule, final_molecule, model,
     neb = NEB(images, **kwargs)
     neb.interpolate()
     for image in images[1:number_of_middle_images+1]:
-        image.calc = MLatomCalculator(model=model, save_optimization_trajectory=True)
+        image.calc = MLatomCalculator(model=model,  model_predict_kwargs= model_predict_kwargs, save_optimization_trajectory=True)
     optimizer = MDMin(neb, trajectory='A2B.traj')
     optimizer.run(fmax=convergence_criterion_for_forces,
                   steps=maximum_number_of_steps)
@@ -153,9 +169,10 @@ def nudged_elastic_band(initial_molecule, final_molecule, model,
 
 class MLatomCalculator(Calculator):
     implemented_properties = ['energy', 'forces']
-    def __init__(self, model, save_optimization_trajectory = False):
+    def __init__(self, model,  model_predict_kwargs, save_optimization_trajectory = False):
         super(MLatomCalculator, self).__init__()
         self.model = model
+        self.model_predict_kwargs =  model_predict_kwargs
         self.save_optimization_trajectory = save_optimization_trajectory
 
     def calculate(self, atoms=None, properties=['energy'], system_changes=all_changes):
@@ -172,7 +189,7 @@ class MLatomCalculator(Calculator):
             coordinates = mol_from_file.xyz_coordinates
             current_molecule.xyz_coordinates = coordinates
             
-            self.model.predict(molecule=current_molecule, calculate_energy=True, calculate_energy_gradients=True)
+            self.model._predict_geomopt(molecule=current_molecule, calculate_energy=True, calculate_energy_gradients=True, **self.model_predict_kwargs)
             if not 'energy' in current_molecule.__dict__:
                 raise ValueError('model did not return any energy')
             

@@ -31,6 +31,41 @@ class model():
         # for command-line arguments parsing
         pass
 
+    def _predict_geomopt(self,
+        return_string=False,
+        dump_trajectory_interval=None,
+        filename=None,
+        format='json',
+        print_properties=None,
+        molecule: data.molecule = None,
+        calculate_energy: bool = True, 
+        calculate_energy_gradients: bool = True,
+        **kwargs):
+        self.predict(molecule=molecule, 
+                     calculate_energy=calculate_energy,
+                     calculate_energy_gradients=calculate_energy_gradients, 
+                     **kwargs)
+        if dump_trajectory_interval != None:
+            opttraj = data.molecular_trajectory()
+            opttraj.load(filename=filename, format=format)
+            nsteps = len(opttraj.steps)
+            if print_properties == 'all' or type(print_properties) == list:
+                printstrs = []
+                printstrs += [' %s ' % ('-'*78)]
+                printstrs += [f' Iteration {nsteps+1}']
+                printstrs += [' %s \n' % ('-'*78)]
+                printstrs += [molecule.info(properties=print_properties, return_string=True)]
+                printstrs = '\n'.join(printstrs) + '\n'
+                if not return_string:
+                    print(printstrs)
+            opttraj.steps.append(data.molecular_trajectory_step(step=nsteps, molecule=molecule))
+            opttraj.dump(filename=filename, format=format)
+            moldb = data.molecular_database()
+            moldb.molecules = [each.molecule for each in opttraj.steps]
+            xyzfilename = os.path.splitext(os.path.basename(filename))[0]
+            moldb.write_file_with_xyz_coordinates(f'{xyzfilename}.xyz')
+        if return_string and (dump_trajectory_interval != None) and (print_properties == 'all' or type(print_properties) == list): return printstrs
+
     def predict(
         self, 
         molecular_database: data.molecular_database = None, 

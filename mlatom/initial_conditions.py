@@ -6,7 +6,7 @@ from . import constants
 
   !---------------------------------------------------------------------------! 
   ! initial_conditions: Module for generating initial conditions              ! 
-  ! Implementations by: Yi-Fan Hou & Pavlo O. Dral                            ! 
+  ! Implementations by: Yi-Fan Hou, Lina Zhang, Fuchun Ge, Pavlo O. Dral      ! 
   !---------------------------------------------------------------------------! 
 '''
 import numpy as np 
@@ -14,7 +14,13 @@ from . import data
 from . import stopper
 from . import constants
 
-def excitation_energy_window_filter(molecular_database=None, model=None, model_predict_kwargs={}, target_excitation_energy=1, window_half_width=0.1, f_max=None, random_seed=None):
+def excitation_energy_window_filter(molecular_database=None,
+                                    model=None,
+                                    model_predict_kwargs={},
+                                    target_excitation_energy=1,
+                                    window_half_width=0.1,
+                                    f_max=None,
+                                    random_seed=None):
     molDB = molecular_database
     if not random_seed is None:
         np.random.seed(random_seed)
@@ -66,16 +72,18 @@ def generate_initial_conditions(molecule=None, generation_method=None, number_of
     Generate initial conditions
 
     Arguments:
-        molecule (:class:`data.molecule`): Molecule with necessary information
-        generation_method (str): Initial condition generation method 
-        number_of_initial_conditions (int): Number of initial conditions to generate, 1 by default
-        file_with_initial_xyz_coordinates (str): File with initial xyz coordinates, only valid for ``generation_method='user-defined'``
-        file_with_initial_xyz_velocities (str): File with initial xyz velocities, only valid for ``generation_method='user-defined'``
-        eliminate_angular_momentum (bool): Remove angular momentum from velocities, valid for ``generation_method='random'`` and ``generation_method='wigner'``
-        degrees_of_freedom (int): Degrees of freedom of the molecule, by default remove translational and rotational degrees of freedom. It can be a negative value, which means that some value is subtracted from 3*Natoms
-        initial_temperature (float): Initial temperature in Kelvin, control random initial velocities
-        initial_kinetic_energy (float): Initial kinetic energy in Hartree, control random initial velocities
-        random_seed (int): Random seed for numpy random number generator
+        molecule (:class:`data.molecule`): molecule with necessary information
+        generation_method (str): initial condition generation method, see below the table
+        number_of_initial_conditions (int): number of initial conditions to generate, 1 by default
+        file_with_initial_xyz_coordinates (str): file with initial xyz coordinates, only valid for ``generation_method='user-defined'``
+        file_with_initial_xyz_velocities (str): file with initial xyz velocities, only valid for ``generation_method='user-defined'``
+        eliminate_angular_momentum (bool): remove angular momentum from velocities, valid for ``generation_method='random'`` and ``generation_method='wigner'``
+        degrees_of_freedom (int): degrees of freedom of the molecule, by default remove translational and rotational degrees of freedom. It can be a negative value, which means that some value is subtracted from 3*Natoms
+        initial_temperature (float): initial temperature in Kelvin, control random initial velocities
+        initial_kinetic_energy (float): initial kinetic energy in Hartree, control random initial velocities
+        random_seed (int): random seed for numpy random number generator (do not use unless you want to obtain the same results every time)
+        filter_by_energy_window (bool): filter by excitation energy window
+        window_filter_kwargs (dict): keyword arguments for filtering the energy window, see below the table
 
     .. table::
         :align: center
@@ -83,12 +91,25 @@ def generate_initial_conditions(molecule=None, generation_method=None, number_of
         =============================  =============================================
         generation_method              description
         =============================  =============================================
-        ``'user-defined'`` (default)   Use user-defined initial conditions
-        ``'random'``                   Generate random velocities
-        ``'maxwell-boltzmann'``        Randomly generate initial velocities from Maxwell-Boltzmann distribution
-        ``'wigner'``                   Use Wigner sampling as implemented in `Newton-X <https://doi.org/10.1021/acs.jctc.2c00804>`__
+        ``'user-defined'`` (default)   use user-defined initial conditions
+        ``'random'``                   generate random velocities
+        ``'maxwell-boltzmann'``        randomly generate initial velocities from Maxwell-Boltzmann distribution
+        ``'wigner'``                   use Wigner sampling as implemented in `Newton-X <https://doi.org/10.1021/acs.jctc.2c00804>`__
         =============================  =============================================
 
+        
+    .. table::
+        :align: center
+        
+        ================================  ================================================================================================================
+        window_filter_kwargs              description
+        ================================  ================================================================================================================
+        model                             model or method that can calculate excitation energies and oscillator strengths
+        model_predict_kwargs              keyword arguments for above model, typically ``nstates`` specifying how many states to calculate
+        target_excitation_energy (float)  in eV
+        window_half_width (float)         in eV
+        random_seed (int)                 random seed for numpy random number generator (do not use unless you want to obtain the same results every time)
+        ================================  ================================================================================================================
         
     Returns:
         A molecular database (:class:`ml.data.molecular_database`) with ``number_of_initial_conditions`` initial conditions
@@ -113,6 +134,22 @@ def generate_initial_conditions(molecule=None, generation_method=None, number_of
                                                       generation_method = 'wigner',
                                                       number_of_initial_conditions = 1)
 
+        # Sample with filtering by excitation energy window. Requires the model for calculating excitation energies and oscillator strengths.
+        model = ml.models.methods(method='AIQM1') 
+        model_predict_kwargs={'nstates':9} # requests calculation of 9 electronic states
+        window_filter_kwargs={'model':model,
+                              'model_predict_kwargs':model_predict_kwargs, 
+                              'target_excitation_energy':5.7, # eV
+                              'window_half_width':0.1, # eV}
+        init_cond_db = ml.generate_initial_conditions(molecule=mol,
+                                                    generation_method='wigner',
+                                                    number_of_initial_conditions=5,
+                                                    initial_temperature=0,
+                                                    random_seed=0,
+                                                    use_hessian=False,
+                                                    filter_by_energy_window=True,
+                                                    window_filter_kwargs=window_filter_kwargs)
+        
     .. note::
 
         Wigner sampling needs Hessian matrix. You can use ``ml.models.methods.predict(molecule=mol,calculate_hessian=True)`` to get Hessian matrix.
