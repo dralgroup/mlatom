@@ -132,6 +132,8 @@ def printHeader(args):
     if args.geomopt:
         if 'optprog=ase' in ' '.join(args.args2pass).lower():
             refItems['Atomic simulation environment (ASE)']  = refs['ASE']
+        elif 'optprog=geometric' in ' '.join(args.args2pass).lower():
+            refItems['geomeTRIC program']  = refs['geometric']
         elif 'optprog=gaussian' in ' '.join(args.args2pass).lower():
             refItems['Gaussian program']  = refs['Gaussian']
         elif args.freq and 'optprog=pyscf' in ' '.join(args.args2pass).lower():
@@ -174,6 +176,8 @@ def printHeader(args):
     if args.ts:
         if 'optprog=ase' in ' '.join(args.args2pass).lower():
             refItems['Atomic simulation environment (ASE)']  = refs['ASE']
+        if 'optprog=geometric' in ' '.join(args.args2pass).lower():
+            refItems['geomeTRIC program']  = refs['geometric']
         elif 'optprog=gaussian' in ' '.join(args.args2pass).lower():
             refItems['Gaussian program']  = refs['Gaussian']
         elif "GAUSS_EXEDIR" in os.environ:

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 '''
+.. code-block::
+
   !---------------------------------------------------------------------------! 
-  ! MD: Module for molecular dynamics                                         ! 
+  ! namd: Module for nonadiabatic molecular dynamics                          ! 
   ! Implementations by: Lina Zhang & Pavlo O. Dral                            ! 
   !---------------------------------------------------------------------------! 
 '''
@@ -64,42 +66,13 @@ class surface_hopping_md():
         =======================================  ==============================
 
     For theoretical details, see and cite original paper (to be submitted).
+    
+    * Lina Zhang, Sebastian Pios, Mikołaj Martyka, Fuchun Ge, Yi-Fan Hou, Yuxinxin Chen, Joanna Jankowska, Lipeng Chen, Mario Barbatti, `Pavlo O. Dral <http://dr-dral.com>`__. MLatom software ecosystem for surface hopping dynamics in Python with quantum mechanical and machine learning methods. **2024**, *to be submitted*. Preprint on *arXiv*: https://arxiv.org/abs/2404.06189.
 
     Examples:
 
     .. code-block:: python
-
-        import mlatom as ml
-   
-        # Load the initial geometry of a molecule
-        mol = ml.data.molecule()
-        mol.charge=1
-        mol.read_from_xyz_file('cnh4+.xyz')
-
-        # Define models
-        aiqm1 = ml.models.methods(method='AIQM1',
-                        qm_program_kwargs={'save_files_in_current_directory': True,
-                                            'read_keywords_from_file': f'mndokw'})
-        method_optfreq = ml.models.methods(method='B3LYP/Def2SVP', program='pyscf')
-
-        # Optimize geometry
-        geomopt = ml.simulations.optimize_geometry(model=method_optfreq,
-                                                initial_molecule=mol)
-        eqmol = geomopt.optimized_molecule
-        eqmol.write_file_with_xyz_coordinates('eq.xyz')
-        
-        # Get frequencies
-        ml.simulations.freq(model=method_optfreq,
-                            molecule=eqmol)
-        eqmol.dump(filename='eqmol.json', format='json')
-
-        # Get initial conditions
-        init_cond_db = ml.generate_initial_conditions(molecule=eqmol,
-                                            generation_method='wigner',
-                                            number_of_initial_conditions=16,
-                                            initial_temperature=0)
-        init_cond_db.dump('test.json','json')
-
+    
         # Propagate multiple LZBL surface-hopping trajectories in parallel
         # .. setup dynamics calculations
         namd_kwargs = {
@@ -127,7 +100,8 @@ class surface_hopping_md():
         # Analyze the result of trajectories and make the population plot
         ml.namd.analyze_trajs(trajectories=trajs, maximum_propagation_time=5)
         ml.namd.plot_population(trajectories=trajs, time_step=0.25, 
-                            max_propagation_time=5, nstates=3, filename=f'pop.png')
+                            max_propagation_time=5, nstates=3, filename=f'pop.png',
+                            pop_filename='pop.txt')
         
 
     .. note::
@@ -309,23 +283,34 @@ class surface_hopping_md():
                 if stop:
                     del self.molecular_trajectory.steps[-1]
 
-            istep += 1
-
+            # Dump trajectory at some interval
             if self.dump_trajectory_interval != None:
-                if (istep - 1) == 0:
-                    if self.format == 'h5md':
-                        temp_traj = data.molecular_trajectory()
-                        temp_traj.steps.append(self.molecular_trajectory.steps[0])
-                    elif self.format == 'json':
-                        temp_traj.steps.append(self.molecular_trajectory.steps[0])
+                
                 if istep % self.dump_trajectory_interval == 0:
                     if self.format == 'h5md':
-                        if (istep - 1) != 0:
-                            temp_traj = data.molecular_trajectory()
-                        temp_traj.steps.append(self.molecular_trajectory.steps[istep])
+                        temp_traj = data.molecular_trajectory()
+                        temp_traj.steps.append(self.molecular_trajectory.steps[-1])
                     elif self.format == 'json':
-                        temp_traj.steps.append(self.molecular_trajectory.steps[istep])
+                        temp_traj = self.molecular_trajectory
                     temp_traj.dump(filename=self.filename, format=self.format)
+
+            istep += 1
+
+            # if self.dump_trajectory_interval != None:
+            #     if (istep - 1) == 0:
+            #         if self.format == 'h5md':
+            #             temp_traj = data.molecular_trajectory()
+            #             temp_traj.steps.append(self.molecular_trajectory.steps[0])
+            #         elif self.format == 'json':
+            #             temp_traj.steps.append(self.molecular_trajectory.steps[0])
+            #     if istep % self.dump_trajectory_interval == 0:
+            #         if self.format == 'h5md':
+            #             if (istep - 1) != 0:
+            #                 temp_traj = data.molecular_trajectory()
+            #             temp_traj.steps.append(self.molecular_trajectory.steps[istep])
+            #         elif self.format == 'json':
+            #             temp_traj.steps.append(self.molecular_trajectory.steps[istep])
+            #         temp_traj.dump(filename=self.filename, format=self.format)
 
             if istep * self.time_step + 1e-6 > self.maximum_propagation_time:
                 stop = True

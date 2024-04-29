@@ -43,6 +43,9 @@ class ColouredFormatter(logging.Formatter):
                     + record.msg
                     + self.RESET_SEQ
                 )
+        elif record.levelname in self.Colours:
+            record.levelname = ("%-10s" % f"[{record.levelname}]")
+            
         return logging.Formatter.format(self, record)
     
     def formatter_message(self, message):
@@ -61,6 +64,7 @@ def getColouredLogger(
     stderr: bool = False,
     fileout: str = None,
     level: int = None,
+    use_colour: bool = True,
 ):
     logger = logging.getLogger(name)
     if level:
@@ -73,12 +77,12 @@ def getColouredLogger(
     ]
     has_stderr = '<stderr>' in [handler.stream.name for handler in logger.handlers]
     if fileout and fileout not in files_out:
-        formatter = ColouredFormatter(fmt)
+        formatter = ColouredFormatter(fmt, use_colour=use_colour)
         handler = logging.FileHandler(fileout, "a")
         handler.setFormatter(formatter)
         logger.addHandler(handler)
     if stderr and not has_stderr:
-        formatter = ColouredFormatter(fmt)
+        formatter = ColouredFormatter(fmt, use_colour=use_colour)
         handler = logging.StreamHandler()
         handler.setFormatter(formatter)
         logger.addHandler(handler)

@@ -80,8 +80,9 @@ class aiqm1(models.torchani_model):
         
         for atom in molecule.atoms:
             if not atom.atomic_number in [1, 6, 7, 8]:
-                print(' * Warning * Molecule contains elements other than CHNO, no calculations performed')
-                return
+                errmsg = ' * Warning * Molecule contains elements other than CHNO, no calculations performed'
+                # print(errmsg)
+                raise ValueError(errmsg)
         
         if nstates >1:
             mol_copy = molecule.copy()

@@ -3,7 +3,7 @@
 .. code-block::
 
   !---------------------------------------------------------------------------! 
-  ! MD: Module for molecular dynamics                                         ! 
+  ! md: Module for molecular dynamics                                         ! 
   ! Implementations by: Yi-Fan Hou & Pavlo O. Dral                            ! 
   !---------------------------------------------------------------------------! 
 '''

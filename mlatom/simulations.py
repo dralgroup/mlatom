@@ -6,9 +6,11 @@
   ! simulations: Module for simulations                                       ! 
   ! Implementations by: Pavlo O. Dral                                         ! 
   !---------------------------------------------------------------------------! 
+  
+Geomopt, freq, DMC
++++++++++++++++++++++++
 '''
-pythonpackage = True
-from . import constants, data, models, stopper
+from . import constants, data, models
 from .md import md as md
 from .initial_conditions import generate_initial_conditions
 from .md2vibr import vibrational_spectrum
@@ -59,13 +61,17 @@ class optimize_geometry():
     Arguments:
         model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): any model or method which provides energies and forces.
         initial_molecule (:class:`mlatom.data.molecule`): the molecule object to optimize.
-        ts (bool, optional): whether to do transition state search. Currently only be done with program=Gaussian or ASE.
-        program (str, optional): the engine used in geometry optimization. Currently supports Gaussian, ASE, and scipy.
+        ts (bool, optional): whether to do transition state search. Currently only be done with program=Gaussian, ASE and geometric.
+        program (str, optional): the engine used in geometry optimization. Currently supports Gaussian, ASE, scipy and PySCF.
         optimization_algorithm (str, optional): the optimization algorithm used in ASE. Default value: LBFGS (ts=False), dimer (ts=False).
-        maximum_number_of_steps (int, optional): the maximum number of steps for ASE and SciPy. Default value: 200.
+        maximum_number_of_steps (int, optional): the maximum number of steps for ASE, SciPy and geometric. Default value: 200.
         convergence_criterion_for_forces (float, optional): forces convergence criterion in ASE. Default value: 0.02 eV/Angstroms.
         working_directory (str, optional): working directory. Default value: '.', i.e., current directory.
-        constraints (dict, optional): constraints for geometry optimization. Currently only available with program=ASE and follows the same conventions as in ASE: ``constraints={'bonds':[[target,[index0,index1]], ...],'angles':[[target,[index0,index1,index2]], ...],'dihedrals':[[target,[index0,index1,index2,index3]], ...]}`` (check `FixInternals class in ASE <https://wiki.fysik.dtu.dk/ase/ase/constraints.html>`__ for more information).
+        constraints (dict, optional): constraints for geometry optimization. Currently only available with program=ASE and program=geometric. For program=ASE, constraints follows the same conventions as in ASE: ``constraints={'bonds':[[target,[index0,index1]], ...],'angles':[[target,[index0,index1,index2]], ...],'dihedrals':[[target,[index0,index1,index2,index3]], ...]}`` (check `FixInternals class in ASE <https://wiki.fysik.dtu.dk/ase/ase/constraints.html>`__ for more information). For program=geometric, the name of constraint file should be provided and please refer to `constrained optimization <https://geometric.readthedocs.io/en/latest/constraints.html#constraint-types>`__ for the format of the constraint file. 
+        print_properties (None or str, optional): properties to print. Default: None. Possible 'all'.
+        dump_trajectory_interval (int, optional): dump trajectory at every time step (1). Set to ``None`` to disable dumping (default).
+        filename (str, optional): the file that saves the dumped trajectory.
+        format (str, optional): format in which the dumped trajectory is saved.
 
     Examples:
 
@@ -88,21 +94,25 @@ class optimize_geometry():
 
     """
 
-    def __init__(self, model=None,  model_predict_kwargs={}, initial_molecule=None, molecule=None, ts=False, program=None, optimization_algorithm=None, maximum_number_of_steps=None, convergence_criterion_for_forces=None,working_directory=None, **kwargs):
+    def __init__(self, model=None,  model_predict_kwargs={}, initial_molecule=None, molecule=None, ts=False, program=None, optimization_algorithm=None, maximum_number_of_steps=None, convergence_criterion_for_forces=None,working_directory=None, 
+    print_properties=None,
+    dump_trajectory_interval=None, # Only None and 1 are supported at the moment
+    filename=None, format='json',   
+    **kwargs): # Delete the kwargs!
         self.kwargs = kwargs
         if model != None:
             self.model = model
-        
+        self.print_properties = print_properties
         self.model_predict_kwargs = model_predict_kwargs
 
         if not initial_molecule is None and not molecule is None:
-            stopper.stopMLatom('molecule and initial_molecule cannot be used at the same time')
+            raise ValueError('molecule and initial_molecule cannot be used at the same time')
         overwrite = False
         if not initial_molecule is None:
-            self.initial_molecule = initial_molecule.copy(atomic_labels=['xyz_coordinates','number'],molecular_labels=[])
+            self.initial_molecule = initial_molecule.copy(atomic_labels=['xyz_coordinates'],molecular_labels=['number'])
         if not molecule is None:
             overwrite = True
-            self.initial_molecule = molecule.copy(atomic_labels=['xyz_coordinates','number'],molecular_labels=[])
+            self.initial_molecule = molecule.copy(atomic_labels=['xyz_coordinates'],molecular_labels=['number'])
         
         self.ts = ts
         if program != None:
@@ -115,9 +125,7 @@ class optimize_geometry():
                     self.program = 'ASE'
                 except:
                     try: import scipy.optimize
-                    except:
-                        if pythonpackage: raise ValueError('please set $GAUSS_EXEDIR or install ase or install scipy')
-                        else: stopper.stopMLatom('please set $GAUSS_EXEDIR or install ase or install scipy')
+                    except: raise ValueError('please set $GAUSS_EXEDIR or install ase or install scipy')
         
         self.optimization_algorithm = optimization_algorithm
         
@@ -134,13 +142,38 @@ class optimize_geometry():
         else:
             self.working_directory = '.'
         
-        if self.ts and self.program.casefold() not in ['Gaussian'.casefold(), 'ASE'.casefold()]:
-            msg = 'Transition state geometry optmization can currently only be done with optimization_program=Gaussian or ASE'
-            if pythonpackage: raise ValueError(msg)
-            else: stopper.stopMLatom(msg)
+        self.dump_trajectory_interval = dump_trajectory_interval
+        if self.program.casefold() == 'Gaussian'.casefold(): self.dump_trajectory_interval = 1 # Gaussian optimizer needs traj file to get the optimization trajectory
+        if self.program.casefold() == 'geometric'.casefold(): self.dump_trajectory_interval = 1
+        self.filename = filename
+        self.format = format
+        if self.print_properties != None and self.dump_trajectory_interval == None:
+            self.dump_trajectory_interval = 1
+        if self.dump_trajectory_interval != None:
+            self.format = format
+            if format == 'h5md': ext = '.h5'
+            elif format == 'json': ext = '.json'
+            if self.filename == None:
+                import uuid
+                self.filename = str(uuid.uuid4()) + ext 
+            # Dump trajectory every step
+            self.optimization_trajectory = data.molecular_trajectory()
+            self.optimization_trajectory.dump(filename=os.path.join(self.working_directory,self.filename), format=self.format) 
+        
+        if self.ts and self.program.casefold() not in ['Gaussian'.casefold(), 'ASE'.casefold(), 'geometric'.casefold()]:
+            msg = 'Transition state geometry optmization can currently only be done with optimization_program=Gaussian, ASE or geometric'
+            raise ValueError(msg)
+        
+        # Pack the required geomopt-related kwargs into the model kwargs
+        self.model_predict_kwargs['return_string'] = False
+        self.model_predict_kwargs['dump_trajectory_interval'] = self.dump_trajectory_interval
+        self.model_predict_kwargs['filename'] = self.filename
+        self.model_predict_kwargs['format'] = self.format
+        self.model_predict_kwargs['print_properties'] = self.print_properties
         
         if self.program.casefold() == 'Gaussian'.casefold(): self.opt_geom_gaussian()
         elif self.program.casefold() == 'ASE'.casefold(): self.opt_geom_ase()
+        elif self.program.casefold() == 'geometric'.casefold(): self.opt_geom_geometric()
         else: self.opt_geom()
 
         if overwrite:
@@ -153,16 +186,20 @@ class optimize_geometry():
     def opt_geom_gaussian(self):
         self.successful = False
         from .interfaces import gaussian_interface
-        if 'number' in self.initial_molecule.__dict__.keys(): suffix = f'_{self.initial_molecule.number}'
+        if 'number' in self.initial_molecule.__dict__.keys(): suffix = f'{self.initial_molecule.number}'
         else: suffix = ''
+        #print('debug', suffix, self.initial_molecule.number)
         filename = os.path.join(self.working_directory,f'gaussian{suffix}')
         self.model.dump(filename=os.path.join(self.working_directory,'model.json'), format='json')
-        self.optimization_trajectory = data.molecular_trajectory()
-        self.optimization_trajectory.dump(filename=os.path.join(self.working_directory,'gaussian_opttraj.json'), format='json')
         
         # Run Gaussian
         external_task='opt'
         if self.ts: external_task = 'ts'
+        if self.print_properties is not None:
+            print(f' Optimization with Gaussian started.\n Check Gaussian output file "gaussian{suffix}.log" for the progress of optimization.\n')
+            filename_json = self.model_predict_kwargs['filename']
+            if os.path.exists(f'{filename_json}_tmp_out.out'): os.remove(f'{filename_json}_tmp_out.out')
+            self.model_predict_kwargs['return_string'] = True
         gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.initial_molecule, external_task=external_task, cwd=self.working_directory, model_predict_kwargs=self.model_predict_kwargs)
         # Get results
         outputfile = f'{filename}.log'
@@ -172,17 +209,23 @@ class optimize_geometry():
                 if 'Stationary point found' in line:
                     self.successful = True
                     break
-        self.optimization_trajectory.load(filename=os.path.join(self.working_directory,'gaussian_opttraj.json'), format='json')
+        self.optimization_trajectory.load(filename=os.path.join(self.working_directory,self.filename), format='json')
         if self.successful: 
             self.optimized_molecule = self.optimization_trajectory.steps[-1].molecule
         else:
             self.optimized_molecule = self.initial_molecule.copy() 
             for atom in self.optimized_molecule.atoms:
-                atom.xyz_coordinates = np.array([None,None,None])
-        if os.path.exists(os.path.join(self.working_directory,'gaussian_opttraj.json')): os.remove(os.path.join(self.working_directory,'gaussian_opttraj.json'))
+                atom.xyz_coordinates = np.array([None,None,None])                
+        if self.print_properties is not None:
+            if os.path.exists(f'{filename_json}_tmp_out.out'):
+                printstrs = open(f'{filename_json}_tmp_out.out', 'r').readlines()
+                for line in printstrs:
+                    print(line.rstrip())
+                os.remove(f'{filename_json}_tmp_out.out')
         
     def opt_geom_ase(self):
-        from .interfaces import ase_interface
+        from .interfaces import ase_interface   
+
         if self.ts:
             self.optimization_trajectory = ase_interface.transition_state(initial_molecule=self.initial_molecule,
                                             model=self.model,
@@ -200,26 +243,27 @@ class optimize_geometry():
                                             maximum_number_of_steps=self.maximum_number_of_steps,
                                             optimization_algorithm=self.optimization_algorithm,
                                             **self.kwargs)
+        #self.optimization_trajectory.dump(filename=os.path.join(self.working_directory,self.filename), format=self.format)
+        moldb = data.molecular_database()
+        moldb.molecules = [each.molecule for each in self.optimization_trajectory.steps]
+       # moldb.write_file_with_xyz_coordinates(self.filename.split('.')[0] + '.xyz')
         self.optimized_molecule = self.optimization_trajectory.steps[-1].molecule
         
     def opt_geom(self):
         try: import scipy.optimize
-        except:
-            if pythonpackage: raise ValueError('scipy is not installed')
-            else: stopper.stopMLatom('scipy is not installed')
+        except: raise ValueError('scipy is not installed')
+            
         istep = -1
         self.optimization_trajectory = data.molecular_trajectory()
-        #self.optimization_trajectory.steps.append(data.molecular_trajectory_step(step=istep, molecule=self.initial_molecule))
         
         def molecular_energy(coordinates):
             nonlocal istep
             istep += 1
             current_molecule = self.initial_molecule.copy()
             current_molecule.xyz_coordinates = coordinates.reshape(len(current_molecule.atoms),3)
-            self.model.predict(molecule=current_molecule, calculate_energy=True, calculate_energy_gradients=True, **self.model_predict_kwargs)
+            self.model._predict_geomopt(molecule=current_molecule, calculate_energy=True, calculate_energy_gradients=True, **self.model_predict_kwargs)
             if not 'energy' in current_molecule.__dict__:
-                if pythonpackage: raise ValueError('model did not return any energy')
-                else: stopper.stopMLatom('model did not return any energy')
+                raise ValueError('model did not return any energy')
             molecular_energy = current_molecule.energy
             gradient = current_molecule.get_energy_gradients()
             gradient = gradient.flatten()
@@ -231,6 +275,87 @@ class optimize_geometry():
         optimized_coordinates = res.x
         molecular_energy(optimized_coordinates)
         self.optimized_molecule = self.optimization_trajectory.steps[-1].molecule
+
+    def opt_geom_geometric(self):
+
+        # default optimization algorithm is BFGS
+
+        import geometric
+        import geometric.molecule
+
+        if 'constraints' in self.kwargs:
+            constraints = self.kwargs['constraints']
+        else:
+            constraints = None 
+
+        convergence_criterion = {}
+
+        if 'convergence_energy' in self.kwargs:
+            convergence_criterion['convergence_energy'] = self.kwargs['convergence_energy']        # default 1e-6 Eh
+        if 'convergence_gradient_rms' in self.kwargs:
+            convergence_criterion['convergence_grms'] = self.kwargs['convergence_gradient_rms']    # default 3e-4 Eh/Bohr
+        if 'convergence_gradient_max' in self.kwargs:
+            convergence_criterion['convergence_gmax'] = self.kwargs['convergence_gradient_max']    # default 4.5e-4 Eh/Bohr
+        if 'convergence_step_rms' in self.kwargs:
+            convergence_criterion['convergence_drms'] = self.kwargs['convergence_step_rms']        # default 1.2e-3 Angstrom
+        if 'convergence_step_max' in self.kwargs:
+            convergence_criterion['convergence_dmax'] = self.kwargs['convergence_step_max']        # default 1.8e-3 Angstrom
+
+        maximum_number_of_steps = self.maximum_number_of_steps
+        model_predict_kwargs = self.model_predict_kwargs
+        class MLatomEngine(geometric.engine.Engine):
+            def __init__(self, MLatomMol, model):
+                
+                molecule = geometric.molecule.Molecule()
+                self.mol = MLatomMol 
+                self.model = model
+                molecule.elem = MLatomMol.element_symbols.tolist()
+                molecule.xyzs = [MLatomMol.xyz_coordinates]
+                super(MLatomEngine, self).__init__(molecule)
+                self.cycle = 0
+                self.e_last = 0
+                self.maxsteps = maximum_number_of_steps
+
+            def calc_new(self, coords, dirname):
+                mol = self.mol
+                mol.xyz_coordinates = coords.reshape(-1,3)*constants.Bohr2Angstrom
+                self.model._predict_geomopt(molecule=mol, calculate_energy=True, calculate_energy_gradients=True, **model_predict_kwargs)
+                energy = mol.energy
+                gradients = mol.get_energy_gradients()/constants.Angstrom2Bohr
+                self.cycle += 1
+                return {"energy": energy, "gradient": gradients.ravel()}
+        
+        import tempfile, contextlib
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            tmpdirname = os.path.abspath(tmpdirname)
+
+        import logging
+        loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
+        for logger in loggers:
+            if logger.name in ['geometric.nifty', 'geometric']:
+                logger.setLevel(logging.CRITICAL)
+                logger.propagate = False
+        mlatom_engine = MLatomEngine(self.initial_molecule, self.model)
+        try:
+            geometric.optimize.run_optimizer(customengine=mlatom_engine, input=tmpdirname, constraints=constraints, transition=self.ts, maxiter=self.maximum_number_of_steps, **convergence_criterion)
+            self.successful = True
+            self.converge = True
+        except Exception as ex:
+            if type(ex) == geometric.errors.GeomOptNotConvergedError:
+                print('Warning: Geometry optimization with geometric failed to converge. The last geometry will be used as the optimized geometry.')
+                self.converge = False
+                self.successful = True
+            else:
+                print('Warning: Geometry optimization with geometric failed. The initial geometry will be used as the optimized geometry.')
+                self.converge = False
+                self.successful = False
+
+        if self.successful:
+            self.optimization_trajectory.load(filename=os.path.join(self.working_directory,self.filename), format='json')
+            self.optimized_molecule = self.optimization_trajectory.steps[-1].molecule
+        else:
+            self.optimized_molecule = self.initial_molecule
+            self.model.predict(molecule=self.optimized_molecule, calculate_energy=True)
 
 class irc():
     def __init__(self, **kwargs):
@@ -533,8 +658,7 @@ class thermochemistry():
                     import ase
                     self.program = 'ASE'
                 except:
-                    if pythonpackage: raise ValueError('please set $GAUSS_EXEDIR or install ase')
-                    else: stopper.stopMLatom('please set $GAUSS_EXEDIR or install ase')
+                    raise ValueError('please set $GAUSS_EXEDIR or install ase')
         freq(model=model, molecule=self.molecule, program=program, normal_mode_normalization=normal_mode_normalization)
         if self.program.casefold() == 'ASE'.casefold(): self.thermochem_ase()
         # Calculate heats of formation

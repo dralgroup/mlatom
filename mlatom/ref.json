@@ -45,5 +45,6 @@
     "RasmussenGP":           "C. E. Rasmussen, C. K. I. Williams,\nGaussian Processes for Machine Learning.\nThe MIT Press: Boston, 2006",
     "KREGgrads":             "Y.-F. Hou, F. Ge, P. O. Dral.\nJ. Chem. Theory Comput. 2023, 19, 2369",
     "MLTPA":                 "Y. Su, Y. Dai, Y. Zeng, C. Wei, Y. Chen, F. Ge, P. Zheng,\nD. Zhou, P. O. Dral, C. Wang. Adv. Sci. 2023, 2204902",
-    "MLQDprog": "A. Ullah, P. O. Dral.\nMLQD: A package for machine learning-based quantum dissipative dynamics.\nChemRxiv. 2023. DOI: 10.26434/chemrxiv-2023-0xkv1\nSee MLatom.com for reference updates"
+    "MLQDprog": "A. Ullah, P. O. Dral.\nMLQD: A package for machine learning-based quantum dissipative dynamics.\nChemRxiv. 2023. DOI: 10.26434/chemrxiv-2023-0xkv1\nSee MLatom.com for reference updates",
+    "geometric":             "L.-P. Wang, C. C. Song,\nJ. Chem. Phys. 2016, 144, 214108"
 }

@@ -10,7 +10,6 @@
 
 import os, sys, subprocess, math
 import numpy as np
-pythonpackage = True
 from mlatom import constants
 from mlatom import data
 from mlatom import models
@@ -34,12 +33,12 @@ class gaussian_methods(models.model):
         The format of method should be the same as that in Gaussian, e.g., ``'B3LYP/6-31G*'``
         
     '''
-    def __init__(self,method='B3LYP/6-31G*',nthreads=None,save_files_in_current_directory=False, working_directory=None, **kwargs):
+    def __init__(self,method='B3LYP/6-31G*',additional_input='',nthreads=None,save_files_in_current_directory=False, working_directory=None, **kwargs):
         if not "GAUSS_EXEDIR" in os.environ:
-            if pythonpackage: raise ValueError('enviromental variable GAUSS_EXEDIR is not set')
-            else: stopper.stopMLatom('enviromental variable GAUSS_EXEDIR is not set')
+            raise ValueError('enviromental variable GAUSS_EXEDIR is not set')
         self.method = method 
         self.find_energy_to_read_in_Gaussian()
+        self.additional_input = additional_input
         if nthreads is None:
             from multiprocessing import cpu_count
             self.nthreads = cpu_count()
@@ -97,9 +96,9 @@ class gaussian_methods(models.model):
                 imolecule = molDB.molecules[imol]
                 # Run Gaussian job
                 if self.gaussian_keywords != '':
-                    run_gaussian_job(filename='molecule'+str(imol)+'.com',molecule=imolecule,gaussian_keywords=self.gaussian_keywords,nthreads=self.nthreads,method=method,cwd=tmpdirname,writechk=self.writechk)
+                    run_gaussian_job(filename='molecule'+str(imol)+'.com',molecule=imolecule,gaussian_keywords=self.gaussian_keywords,nthreads=self.nthreads,method=method,cwd=tmpdirname,writechk=self.writechk,additional_input=self.additional_input)
                 else:
-                    run_gaussian_job(filename='molecule'+str(imol)+'.com',molecule=imolecule,nthreads=self.nthreads,method=method,cwd=tmpdirname,writechk=self.writechk)
+                    run_gaussian_job(filename='molecule'+str(imol)+'.com',molecule=imolecule,nthreads=self.nthreads,method=method,cwd=tmpdirname,writechk=self.writechk,additional_input=self.additional_input)
 
                 # Read Gaussian output file
                 self.parse_gaussian_output(os.path.join(tmpdirname,'molecule'+str(imol)+'.log'),imolecule)
@@ -261,7 +260,7 @@ def check_gaussian():
             version = 'g09'
         Gaussianbin = os.path.join(Gaussianroot,version)
     else:
-        stopper.stopMLatom('Cannot find Gaussian software in the environment, set $GAUSS_EXEDIR environmental variable')
+        raise ValueError('Cannot find Gaussian software in the environment, set $GAUSS_EXEDIR environmental variable')
     version = version.replace('g', '')
     return Gaussianbin, version
 
@@ -291,6 +290,7 @@ def write_gaussian_input_file(**kwargs):
                               atom.xyz_coordinates[0], atom.xyz_coordinates[1], atom.xyz_coordinates[2]))
         f.writelines('\n') 
         f.writelines(additional_input)
+        f.writelines('\n\n')
 
 def gaussian_external(EIn_file, EOu_file, model_predict_kwargs):
     # write new coordinate into 'xyz_temp.dat'
@@ -308,18 +308,20 @@ def gaussian_external(EIn_file, EOu_file, model_predict_kwargs):
     model = models.load('model.json')
     calc_hessian = False
     if derivs == 2: calc_hessian = True
-    model.predict(molecule=molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=calc_hessian, **model_predict_kwargs)
+    if 'filename' in model_predict_kwargs:
+        if model_predict_kwargs['print_properties'] is not None:
+            printstrs = model._predict_geomopt(molecule=molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=calc_hessian, **model_predict_kwargs)
+            filename=model_predict_kwargs['filename']
+            with open(f'{filename}_tmp_out.out', 'a') as ff:
+                ff.writelines(printstrs)
+        else:
+            model._predict_geomopt(molecule=molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=calc_hessian, **model_predict_kwargs)
+    else:
+        model.predict(molecule=molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=calc_hessian, **model_predict_kwargs)
     if not 'energy' in molecule.__dict__:
-        if pythonpackage: raise ValueError('model did not return any energy')
-        else: stopper.stopMLatom('model did not return any energy')
+        raise ValueError('model did not return any energy')
     write_gaussian_EOu(EOu_file, derivs, molecule)
     
-    if os.path.exists('gaussian_opttraj.json'):
-        opttraj = data.molecular_trajectory()
-        opttraj.load(filename='gaussian_opttraj.json', format='json')
-        nsteps = len(opttraj.steps)
-        opttraj.steps.append(data.molecular_trajectory_step(step=nsteps, molecule=molecule))
-        opttraj.dump(filename='gaussian_opttraj.json', format='json')
     if os.path.exists('gaussian_freq_mol.json'):
         molecule.dump(filename='gaussian_freq_mol.json', format='json')
 
