@@ -6,6 +6,8 @@ from .initial_conditions import generate_initial_conditions
 from .md import md
 from . import constants
 from . import data
+from . import simulations
+from .interfaces import gaussian_interface
 
 class Args(ArgsBase):
     def __init__(self):
@@ -18,10 +20,12 @@ class Args(ArgsBase):
             'initXYZ':'',                  # File containing initial geometry
             'initVXYZ':'',                 # File containing initial velocity
             'initConditions':'',           # How to generate initial condition
+            'normalModefile':'',           # Gaussian ouput file containing normal modes
             'trajH5MDout':'traj.h5',       # Output file: H5MD format
             'trajTextOut':'traj',          # Output file
             'MLenergyUnits':'',            # Energy unit in ML model
             'MLdistanceUnits':'',          # Distance unit in ML model
+            'randomSeed':'',               # Random seed for initial condition sampling
             'ensemble':'nve',
             'thermostat':'',               # Thermostat
             'gamma':0.2,                   # Option for Anderson thermostat
@@ -70,31 +74,32 @@ class MD_CMD():
         else: 
             stopMLatom('Unknown MLdistanceUnits: %s'%(args.MLenergyUnits))
 
+        if args.randomSeed == '':
+            random_seed = None 
+        else:
+            random_seed = int(args.randomSeed)
+
         print("  Propagating molecular dynamics...")
 
         # Deal with initial conditions 
         # Check file and get initial molecule
-        if args.initXYZ == '':
-            stopMLatom('Please provide initial XYZ file')
-        if not os.path.exists(args.initXYZ):
-            stopMLatom('User-defined initial XYZ file %s does not exist'%(args.initXYZ))
-        mol = data.molecule()
-        mol.read_from_xyz_file(args.initXYZ)
+        if args.initConditions == '' or args.initConditions.lower() == 'user-defined' or args.initConditions.lower() == 'random':
+            if args.initXYZ == '':
+                stopMLatom('Please provide initial XYZ file')
+            if not os.path.exists(args.initXYZ):
+                stopMLatom('User-defined initial XYZ file %s does not exist'%(args.initXYZ))
+            mol = data.molecule()
+            mol.read_from_xyz_file(args.initXYZ)
 
         # Deal with degrees of freedom
-        if mol.is_it_linear():
-            linear = 1 
-            print('    Linear molecule detected')
-        else:
-            linear = 0
-        Natoms = len(mol.atoms)
-        if args.initConditions == '' or args.initConditions.lower() == 'user-defined':
-            # if args.DOF > 0:
-            #     args.DOF = args.DOF - 3*Natoms
-            DOF = 3*Natoms-6+linear
-        elif args.initConditions == 'random':
+        if args.initConditions.lower() == 'random':
+            if mol.is_it_linear():
+                linear = 1 
+                print('    Linear molecule detected')
+            else:
+                linear = 0
+            Natoms = len(mol.atoms)
             DOF = 3*Natoms-6+linear 
-
         # print('    Degrees of freedom: %d'%(DOF))
 
         # Generate initial conditions
@@ -112,13 +117,54 @@ class MD_CMD():
                                                           file_with_initial_xyz_coordinates = args.initXYZ,
                                                           file_with_initial_xyz_velocities  = args.initVXYZ)
         elif args.initConditions.lower() == 'random':
-            print('    Use random sampling to generate initial conditon')
+            if args.initTemperature == 0:
+                initTemperature = 300
+            print('    Use random sampling to generate initial condition')
             print(f'      Initial XYZ coordinates file: {args.initXYZ}')
-            print(f'      Initial instantaneous temperature: {args.initTemperature}')
+            print(f'      Initial instantaneous temperature: {initTemperature}')
             init_cond_db = generate_initial_conditions(molecule=mol,
                                                        generation_method='random',
                                                        degrees_of_freedom = DOF,
-                                                       initial_temperature = args.initTemperature)
+                                                       initial_temperature = initTemperature,
+                                                       random_seed = random_seed)
+        elif args.initConditions.lower() == 'wigner':
+            print('    Use Wigner sampling to generate initial condition')
+            if args.normalModefile != '' and os.path.exists(args.normalModefile):
+                try:
+                    if args.normalModefile[-4:] == 'json':
+                        mol = data.molecule() 
+                        mol.load(args.normalModefile,format='json')
+                    else:
+                        mol = data.molecule.from_xyz_file(args.normalModefile)
+                except:
+                    stopMLatom(f'Failed to open normal model file {args.normalModefile}')
+            elif args.normalModefile == '':
+                stopMLatom('Please provide file with normal modes')
+            elif not os.path.exists(args.normalModefile):
+                stopMLatom(f'Normal model file {args.normalMode} does not exist')
+            init_cond_db = generate_initial_conditions(molecule=mol,
+                                                       generation_method='wigner',
+                                                       initial_temperature = args.initTemperature,
+                                                       random_seed = random_seed)
+        elif args.initConditions.lower() == 'harmonic-quantum-boltzmann':
+            print('    Use harmonic quantum Boltzmann distribution to generate initial condition')
+            if args.normalModefile != '' and os.path.exists(args.normalModefile):
+                try:
+                    if args.normalModefile[-4:] == 'json':
+                        mol = data.molecule() 
+                        mol.load(args.normalModefile,format='json')
+                    else:
+                        mol = data.molecule.from_xyz_file(args.normalModefile)
+                except:
+                    stopMLatom(f'Failed to open normal model file {args.normalModefile}')
+            elif args.normalModefile == '':
+                stopMLatom('Please provide file with normal modes')
+            elif not os.path.exists(args.normalModefile):
+                stopMLatom(f'Normal model file {args.normalMode} does not exist')
+            init_cond_db = generate_initial_conditions(molecule=mol,
+                                                       generation_method='harmonic-quantum-boltzmann',
+                                                       initial_temperature = args.initTemperature,
+                                                       random_seed = random_seed)
 
         init_mol = init_cond_db.molecules[0]
         print_initial_condition(init_mol)
