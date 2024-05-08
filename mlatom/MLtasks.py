@@ -447,6 +447,7 @@ def freq(args):
         geomopt = simulations.thermochemistry(model=model,
                                         molecule=mol,
                                         **kwargs)
+        mol.dump(f'freq{mol.number}.json',format='json')
         print(' %s ' % ('='*78))
         print(' %s Vibration analysis for molecule %6d' % (' '*20, imol+1))
         print(' %s ' % ('='*78))

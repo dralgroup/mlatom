@@ -212,7 +212,9 @@ def generate_initial_conditions(molecule=None, generation_method=None, number_of
                     new_molecule.atoms[iatom].xyz_coordinates = coordinates_all[irepeat][iatom]
                     new_molecule.atoms[iatom].xyz_velocities = velocities_all[irepeat][iatom]
                 init_cond_db.molecules.append(new_molecule)
-        
+        elif generation_method.casefold() == 'harmonic-quantum-boltzmann'.casefold():
+            init_cond_db = harmonic_quantum_Boltzmann_sampling.sample(npoints=number_of_initial_conditions,molecule=molecule,temperature=initial_temperature,use_hessian=use_hessian)
+
         if filter_by_energy_window:
             if iteration == 1:
                 result = excitation_energy_window_filter(init_cond_db,**window_filter_kwargs)
@@ -246,6 +248,10 @@ def generate_initial_conditions(molecule=None, generation_method=None, number_of
     
     if len(init_cond_db) > target_number_of_initial_conditions:
        init_cond_db = init_cond_db[:target_number_of_initial_conditions]
+
+    # Change the random seed so that the user-defined one only affects initial conditions sampling
+    if not random_seed is None:
+        np.random.seed()
 
     return init_cond_db
 
@@ -573,6 +579,168 @@ class wigner_sampling():
                     q[iatom][icoord] += cn[i][iatom][icoord]*cint[i]*fac 
                     v[iatom][icoord] += cn[i][iatom][icoord]*dcint[i]*fac 
         return q,v # Unit: a.u.
+
+class harmonic_quantum_Boltzmann_sampling():
+    #
+    # The harmonic quantum Boltzmann sampling in this class follows what is shown in the following paper (it is called thermal sampling in VENUS manual):
+    # J. Phys. Chem. A 1998, 102, 3648-3658
+    #
+    # The quanta ni of each normal mode is first sampled from the harmonic quantum Boltzman distribution function:
+    #
+    #   p(ni) = exp(-ni * h * vi / kB / T) * (1 - (exp(-h * vi / kB / T))) 
+    #
+    # where vi is the frequency of normal mode i, h is the Planck constant, kB is the Boltzmann constant and T is the temperature
+    # 
+    # The energy of normal mode i is calculated as Ei = (ni + 0.5) * h * vi
+    #
+    # The mass weighted normal mode coordinates Qi and momenta Pi are
+    #
+    #   Qi = Ai * cos(2 * pi * Ri)
+    #   Pi = -Ai * wi * sin(2 * pi * Ri)
+    #
+    # where wi = 2 * pi * vi, Ai = sqrt(2 * Ei) / wi and Ri is a uniform random number on [0,1]
+    #
+    # The mass weighted momentum Prc of reaction coordinate is chosed from a thermal distribution 
+    # 
+    #   Prc = ± sqrt(-2 * kB * T * ln(1 - R))
+    #
+    # where R is a uniform random number on [0,1]
+    #
+
+    def __init__(self):
+        pass 
+
+    @classmethod 
+    def sample(cls,npoints,molecule,temperature,use_hessian):
+        if not use_hessian:
+            if not ('frequencies' in molecule.__dict__ and 'normal_modes' in molecule[0].__dict__):
+                print('Frequencies and normal modes not found, try to calculate them from Hessian matrix')
+                if not 'hessian' in molecule.__dict__.keys():
+                    stopper.stopMLatom('Hessian matrix not found -- cannot do wigner sampling')
+                simulations.freq.freq_modified_from_TorchANI(molecule=molecule,normal_mode_normalization='mass deweighted normalized')
+        else:
+            if not 'hessian' in molecule.__dict__.keys():
+                stopper.stopMLatom('Hessian matrix not found -- cannot do wigner sampling')
+            simulations.freq.freq_modified_from_TorchANI(molecule=molecule,normal_mode_normalization='mass deweighted normalized')
+        freq = molecule.frequencies 
+        nm_masses = molecule.reduced_masses
+        Natoms = len(molecule)
+        
+        nnegative = 0 
+        while freq[nnegative] < 0:
+            nnegative += 1 
+        # freq = freq[nnegative:]
+        nm = np.zeros((len(freq),Natoms,3))
+
+        for imode in range(len(freq)):
+            for iatom in range(Natoms):
+                nm[imode][iatom] = molecule[iatom].normal_modes[imode]
+            nm[imode] /= np.sqrt(np.sum(nm[imode]**2))
+
+        q_list = np.array([molecule.xyz_coordinates]*npoints)
+        v_list = np.zeros((npoints,Natoms,3))
+
+        for imode in range(nnegative,len(freq)):
+            qq,vv = cls.get_vq(temperature,freq[imode],nm_masses[imode],npoints)
+            for isample in range(npoints):
+                # print(isample)
+                q_list[isample] += nm[imode]*qq[isample]
+                # print(nm[imode]*vv[isample])
+                v_list[isample] += nm[imode]*vv[isample]
+
+        # Deal with reaction coordinate
+        for ii in range(nnegative):
+            for isample in range(npoints):
+                scale = np.random.choice([-1,1])*np.sqrt(-2*constants.kB_in_Hartree*temperature*np.log(1-np.random.random())) / np.sqrt(nm_masses[ii] * constants.ram2au)/ constants.au2fs * constants.Bohr2Angstrom
+                v_list[isample] += scale * nm[ii]
+
+        init_cond_db = data.molecular_database() 
+        for isample in range(npoints):
+            new_molecule = molecule.copy(atomic_labels=[],molecular_labels=[])
+            for iatom in range(Natoms):
+                new_molecule.atoms[iatom].xyz_coordinates = q_list[isample][iatom]
+                new_molecule.atoms[iatom].xyz_velocities = v_list[isample][iatom]
+            init_cond_db.molecules.append(new_molecule)
+
+        return init_cond_db
+    
+    @classmethod 
+    def sample_quanta(cls,temperature,freq,nsample):
+        hvkT = constants.planck_constant*freq*constants.speed_of_light*100/constants.kB/temperature
+        
+        nn_len = 100
+        nn = np.array([ii for ii in range(nn_len)])
+        pp = np.array([np.exp(-ii*hvkT)*(1-np.exp(-hvkT)) for ii in nn])
+        while 1.0-np.sum(pp) > 1e-10:
+            nn_len += 50
+            nn = np.array([ii for ii in range(nn_len)])
+            pp = np.array([np.exp(-ii*hvkT)*(1-np.exp(-hvkT)) for ii in nn])
+        rand = np.random.choice(nn,size=nsample,p=pp)
+        return rand
+    
+    @classmethod 
+    def get_energy(cls,rand,freq):
+        return (rand+0.5)*constants.planck_constant*freq*constants.speed_of_light*100/1000*constants.Avogadro_constant*constants.kJpermol2Hartree # Hartree
+    
+    @classmethod 
+    def get_vq(cls,temperature,freq,mass,nsample):
+        energy = cls.get_energy(cls.sample_quanta(temperature,freq,nsample),freq)
+        rand = np.random.random(len(energy))
+        omega = freq * constants.speed_of_light*100*2*np.pi / 1.0E15 / constants.fs2au # au
+        AA = np.sqrt(2*energy)/omega # au
+        qq = AA * np.cos(2*np.pi*rand) / np.sqrt(mass*constants.ram2au) * constants.Bohr2Angstrom # Angstrom
+        vv = -omega * AA * np.sin(2*np.pi*rand) / np.sqrt(mass*constants.ram2au) * constants.Bohr2Angstrom / constants.au2fs # Angstrom/fs 
+        return qq,vv
+
+# def wignersample(npoints,molecule):
+#     qlist = [] 
+#     vlist = []
+#     geomEq = np.array([each.xyz_coordinates for each in molecule.atoms])
+#     mass = molecule.get_nuclear_masses() 
+#     mass = mass.reshape(1,len(mass))
+#     # Calculate normal modes from Hessian matrix 
+#     #nm,freq,ele,linear_int = readGaussianNM(nmfile)
+#     if not 'hessian' in molecule.__dict__.keys():
+#         stopper.stopMLatom('Hessian matrix not found -- cannot do wigner sampling')
+
+#     linear = molecule.is_it_linear()
+#     Natoms = len(molecule.atoms)
+#     if linear:
+#         ntriv = 5 
+#         linear_int = 1
+#     else:
+#         ntriv = 6
+#         linear_int = 0
+
+#     # freq,nm,_,_ = vibrational_analysis(mass,molecule.hessian,mode_type='MDU')
+#     simulations.freq.freq_modified_from_TorchANI(molecule=molecule,normal_mode_normalization='mass deweighted unnormalized')
+#     freq = molecule.frequencies 
+#     nm = np.zeros(3*Natoms,Natoms,3)
+#     for itriv in range(ntriv):
+#         nm[itriv] = 1.0 / np.sqrt(3*Natoms)
+#     for imode in range(ntriv,3*Natoms):
+#         for iatom in range(Natoms):
+#             nm[ntriv+imode][iatom] = molecule[iatom].normal_modes[imode]
+
+#     numcoo = len(freq)
+#     #print(len(nm),len(freq),len(ele),linear)
+#     atom_mass = [each.nuclear_mass for each in molecule.atoms]
+#     cart_nms, w_nmode = nm2cart(nm,atom_mass)
+
+#     geomEq_au = np.array(geomEq) / constants.Bohr2Angstrom
+
+#     anq, amp, freq_au, atmau = rdmol(atom_mass,linear_int,freq) 
+
+#     for ipoint in range(npoints):
+#         q,v = inqp(geomEq_au,w_nmode[ntriv:],freq_au,anq,amp,numcoo,atmau)
+#         qlist.append(q)
+#         vlist.append(v)
+    
+#     # Transform from a.u. to Angstrom & fs
+#     qlist = np.array(qlist) * constants.Bohr2Angstrom
+#     vlist = np.array(vlist) * constants.Bohr2Angstrom / constants.au2fs
+
+#     return qlist, vlist, linear_int
     
 # generate random velocities without angular momentum for linear molecule
 def generate_random_velocities_for_linear_molecule(molecule):
