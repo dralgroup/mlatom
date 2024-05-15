@@ -90,9 +90,12 @@ class MD_CMD():
                 stopMLatom('User-defined initial XYZ file %s does not exist'%(args.initXYZ))
             mol = data.molecule()
             mol.read_from_xyz_file(args.initXYZ)
+        else:
+            mol = data.molecule()
+            mol.load(args.normalModefile)
 
         # Deal with degrees of freedom
-        if args.initConditions.lower() == 'random':
+        if args.initConditions == '' or args.initConditions.lower() == 'user-defined' or args.initConditions.lower() == 'random':
             if mol.is_it_linear():
                 linear = 1 
                 print('    Linear molecule detected')
@@ -100,6 +103,15 @@ class MD_CMD():
                 linear = 0
             Natoms = len(mol.atoms)
             DOF = 3*Natoms-6+linear 
+        else:
+            if mol.is_it_linear():
+                linear = 1 
+                print('    Linear molecule detected')
+            else:
+                linear = 0
+            Natoms = len(mol.atoms)
+            DOF = 3*Natoms-6+linear 
+        
         # print('    Degrees of freedom: %d'%(DOF))
 
         # Generate initial conditions
@@ -117,8 +129,7 @@ class MD_CMD():
                                                           file_with_initial_xyz_coordinates = args.initXYZ,
                                                           file_with_initial_xyz_velocities  = args.initVXYZ)
         elif args.initConditions.lower() == 'random':
-            if args.initTemperature == 0:
-                initTemperature = 300
+            initTemperature = args.initTemperature
             print('    Use random sampling to generate initial condition')
             print(f'      Initial XYZ coordinates file: {args.initXYZ}')
             print(f'      Initial instantaneous temperature: {initTemperature}')

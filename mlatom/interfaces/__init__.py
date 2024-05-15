@@ -10,6 +10,10 @@ def ani(**kwargs):
     from .torchani_interface import ani_methods as interface
     return interface(**kwargs)
 
+def aimnet2(**kwargs):
+    from .torchani_interface import aimnet2_methods as interface 
+    return interface(**kwargs)
+
 def mndo(**kwargs):
     from .mndo_interface import mndo_methods as interface
     return interface(**kwargs)

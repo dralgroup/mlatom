@@ -477,7 +477,7 @@ class freq():
 
     def freq_pyscf(self):
         self.successful = False
-        self.model.interface.predict(molecule=self.molecule, calculate_energy=True, calculate_hessian=True, **self.model_predict_kwargs)
+        self.model.predict(molecule=self.molecule, calculate_energy=True, calculate_hessian=True, **self.model_predict_kwargs)
         from .interfaces import pyscf_interface
         self.successful = pyscf_interface.thermo_calculation(molecule=self.molecule)
     

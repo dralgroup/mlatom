@@ -72,6 +72,10 @@ class pyscf_methods(OMP_pyscf):
         pyscf_mol.unit = 'Ang'
         pyscf_mol.build()
 
+        # DM21
+        if 'DM21' in self.method.upper():
+            self.predict_for_molecule_DM21(molecule=molecule, pyscf_mol=pyscf_mol, calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, **kwargs)
+            return
 
         # HF
         if 'HF' == self.method.upper():
@@ -193,8 +197,50 @@ class pyscf_methods(OMP_pyscf):
                     h[ii*3:(ii+1)*3, jj*3:(jj+1)*3] = hess[ii][jj]
             molecule.hessian = h / constants.Bohr2Angstrom**2
 
-       
-    
+    def predict_for_molecule_DM21(self, molecule=None, pyscf_mol=None, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, **kwargs):
+        # reference: https://github.com/google-deepmind/deepmind-research/tree/f5de0ede8430809180254ee957abf36ed62579ef/density_functional_approximation_dm21
+        # METHODS AVAILABE:
+        # DM21 - trained on molecules dataset, and fractional charge, and fractional spin constraints.
+        # DM21m - trained on molecules dataset.
+        # DM21mc - trained on molecules dataset, and fractional charge constraints.
+        # DM21mu - trained on molecules dataset, and electron gas constraints.
+
+        from pyscf import dft
+        try:
+            import density_functional_approximation_dm21 as dm21
+        except:
+            errmsg = 'Please install required packages for DM21. For more details, please refer to https://github.com/google-deepmind/deepmind-research/tree/master/density_functional_approximation_dm21.'
+            raise ModuleNotFoundError(errmsg)
+        
+        if pyscf_mol.spin == 0:
+            pyscf_method = dft.RKS(pyscf_mol)
+        else:
+            pyscf_method = dft.UKS(pyscf_mol)
+
+        pyscf_method.xc = 'B3LYP'
+        pyscf_method.run()
+        dm0 = pyscf_method.make_rdm1()
+        pyscf_method._numint = dm21.NeuralNumInt(dm21.Functional.__dict__[self.method])
+        # relax convergence tolerances to increase success to convergence
+        pyscf_method.conv_tol = 1E-6
+        pyscf_method.conv_tol_grad = 1E-3
+        try:
+            pyscf_method.kernel(dm0=dm0)
+        except:
+            errmsg = 'DM21 cannot converge properly'
+            stopper.stopMLatom(errmsg)
+                
+        if calculate_energy:
+            molecule.energy = pyscf_method.e_tot
+
+        if calculate_energy_gradients:           
+            errmsg = 'DM21 by pyscf does not support gradients calculation'
+            raise ValueError(errmsg)
+
+        if calculate_hessian:
+            errmsg = 'DM21 by pyscf does not support hessian calculation'
+            raise ValueError(errmsg)
+
     @doc_inherit
     def predict(self, molecule=None, molecular_database=None, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, **kwargs):
         '''

@@ -46,5 +46,9 @@
     "KREGgrads":             "Y.-F. Hou, F. Ge, P. O. Dral.\nJ. Chem. Theory Comput. 2023, 19, 2369",
     "MLTPA":                 "Y. Su, Y. Dai, Y. Zeng, C. Wei, Y. Chen, F. Ge, P. Zheng,\nD. Zhou, P. O. Dral, C. Wang. Adv. Sci. 2023, 2204902",
     "MLQDprog": "A. Ullah, P. O. Dral.\nMLQD: A package for machine learning-based quantum dissipative dynamics.\nChemRxiv. 2023. DOI: 10.26434/chemrxiv-2023-0xkv1\nSee MLatom.com for reference updates",
-    "geometric":             "L.-P. Wang, C. C. Song,\nJ. Chem. Phys. 2016, 144, 214108"
+    "geometric":             "L.-P. Wang, C. C. Song,\nJ. Chem. Phys. 2016, 144, 214108",
+    "DM21": "J. Kirkpatrick, ; B. McMorrow, D. H. P. Turban, A. L. Gaunt, J. S. Spencer, \nA. G. D. G. Matthews, A. Obika, L. Thiry, M. Fortunato, D. Pfau, et al.,\nScience 2021, 374, 1385",
+    "AIMNet2": "D. Anstine, R. Zubatyuk , O. Isayev \nAIMNet2: A Neural Network Potential to Meet your Neutral, \nCharged, Organic, and Elemental-Organic Needs. \nChemRxiv. 2024; DOI:10.26434/chemrxiv-2023-296ch-v2",
+    "ANI-1xnr": "S. Zhang, M.Z. Makoś, R.B. Jadrich, E. Kraka, K. Barros, \nB. T. Nebgen,S. Tretiak, O. Isayev, N. Lubbers, R. A. Messerly,\nJ. S. Smith, Nat. Chem. 2024, 16, 727"
 }
+

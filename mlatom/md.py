@@ -141,6 +141,12 @@ class md():
         
         self.stop_function = stop_function
         self.stop_function_kwargs = stop_function_kwargs
+
+        self.linearity = self.molecule_with_initial_conditions.is_it_linear()
+        if self.linearity:
+            self.degrees_of_freedom = 3 * self.Natoms - 5
+        else:
+            self.degrees_of_freedom = 3 * self.Natoms - 6
         self.propagate()
         
     def propagate(self):
@@ -200,6 +206,7 @@ class md():
             velocity = np.copy(molecule.get_xyz_vectorial_properties('xyz_velocities'))
             
             molecule.total_energy = molecule.energy + molecule.kinetic_energy
+            molecule.temperature = molecule.kinetic_energy / (constants.kB_in_Hartree*self.degrees_of_freedom/2)
             trajectory_step.step = istep 
             trajectory_step.time = istep * self.time_step
             trajectory_step.molecule = molecule 

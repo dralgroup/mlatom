@@ -179,6 +179,9 @@ class Doc():
       ANI-2x                   perform ANI-2x      calculations
       ANI-1x-D4                perform ANI-1x-D4   calculations
       ANI-2x-D4                perform ANI-2x-D4   calculations
+      ANI-1xnr                 perform ANI-1xnr    calculations
+      AIMNet2@B973c            perform AIMNet2@B97-3c calculations
+      AIMNet2@wB97M-D3         perform AIMNet2@wB97M-D3 calculations
       ODM2
       ODM2*
       GFN2-xTB
