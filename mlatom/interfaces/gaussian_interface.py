@@ -186,13 +186,18 @@ def run_gaussian_job(**kwargs):
         memory = f"%mem={kwargs['memory']}\n"
     gaussian_keywords = f'{memory}%nproc={nthreads}\n' + gaussian_keywords 
     
+    if 'cwd' in kwargs:
+        cwd = kwargs['cwd']
+    else:
+        cwd='.'
+        
     if 'model_predict_kwargs' in kwargs:
         model_predict_kwargs_str = str(kwargs['model_predict_kwargs'])
     else:
         model_predict_kwargs_str = "{}"
     
     model_predict_kwargs_str_file = 'model_predict_kwargs'
-    with open(model_predict_kwargs_str_file, 'w') as f:
+    with open(os.path.join(cwd, model_predict_kwargs_str_file), 'w') as f:
         f.write(model_predict_kwargs_str)
     
     if 'external_task' in kwargs:
@@ -226,11 +231,6 @@ def run_gaussian_job(**kwargs):
             if 'freq' in kwargs['method']:
                 kwargs['method'] = 'p ' + kwargs['method']
             gaussian_keywords += '# '+kwargs['method']+'\n'
-
-    if 'cwd' in kwargs:
-        cwd = kwargs['cwd']
-    else:
-        cwd='.'
 
     if 'writechk' in kwargs:
         writechk = kwargs['writechk']

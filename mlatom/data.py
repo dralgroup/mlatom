@@ -1486,6 +1486,7 @@ class molecular_trajectory():
             moldb.write_file_with_properties(filename+'.ekin',property_to_write='kinetic_energy')
             moldb.write_file_with_properties(filename+'.epot',property_to_write='energy')
             moldb.write_file_with_properties(filename+'.etot',property_to_write='total_energy')
+            moldb.write_file_with_properties(filename+'.temp',property_to_write='temperature')
             if 'dipole_moment' in moldb.molecules[0].__dict__.keys():
                 with open(filename+'.dp','w') as dpf:
                     for imolecule in moldb.molecules:

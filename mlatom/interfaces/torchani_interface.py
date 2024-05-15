@@ -15,8 +15,11 @@ import numpy as np
 import tqdm
 from collections import OrderedDict
 import torch
+from torch import nn, Tensor
 import torchani
 from torchani.data import TransformableIterable, IterableAdapter
+from typing import Dict, List
+
 
 from .. import data
 from .. import models
@@ -649,7 +652,9 @@ class ani_methods(models.torchani_model):
 
     def model_setup(self, method):
         self.method = method
-        if 'ANI-1x'.casefold() in method.casefold():
+        if 'ANI-1xnr'.casefold() in method.casefold():
+            self.model = load_ani1xnr_model()
+        elif 'ANI-1x'.casefold() in method.casefold():
             self.model = torchani.models.ANI1x(periodic_table_index=True).to(self.device).double()
         elif 'ANI-1ccx'.casefold() in method.casefold():
             self.model = torchani.models.ANI1ccx(periodic_table_index=True).to(self.device).double()
@@ -725,6 +730,132 @@ class ani_methods(models.torchani_model):
         else:
             modelname = self.method.lower().replace('-','')
         molecule.__dict__[f'{modelname}'].standard_deviation(properties=properties+atomic_properties)
+
+def load_ani1xnr_model():
+    # ANI-1xnr https://github.com/atomistic-ml/ani-1xnr/
+    # Universal reactive ML potential ANI-1xnr: https://doi.org/10.1038/s41557-023-01427-3
+    species = ['H', 'C', 'N', 'O']
+    def parse_ani1xnr_resources():
+        import requests
+        import zipfile
+        import io
+        local_dir = os.path.expanduser('~/.local/ANI1xnr/')
+        url = "https://github.com/atomistic-ml/ani-1xnr/archive/refs/heads/main.zip"
+        if not os.path.exists(local_dir+'ani-1xnr-main'):
+            os.makedirs(local_dir, exist_ok=True)
+            print(f'Downloading ANI-1xnr model parameters ...')
+            resource_res = requests.get(url)
+            resource_zip = zipfile.ZipFile(io.BytesIO(resource_res.content))
+            resource_zip.extractall(local_dir)
+        return local_dir
+    model_prefix = parse_ani1xnr_resources() + 'ani-1xnr-main/model/ani-1xnr/'
+    # const_file, sae_file, ensemble_prefix, ensemble_size = parse_ani1xnr_resources()
+    const_file = model_prefix + 'rHCNO-5.2R_32-3.5A_a8-4.params'
+    sae_file = model_prefix + 'sae_linfit.dat'
+    consts = torchani.neurochem.Constants(const_file)
+    aev_computer = torchani.AEVComputer(**consts)
+    energy_shifter = torchani.neurochem.load_sae(sae_file)
+    species_converter = torchani.nn.SpeciesConverter(species)
+
+    neural_networks = []
+    for ii in range(8):
+        neural_network = torchani.neurochem.load_model(consts.species, model_prefix + f'train{ii}/networks')
+        neural_networks.append(torchani.nn.Sequential(species_converter, aev_computer, neural_network, energy_shifter))
+
+    model_ensemble = torchani.nn.Ensemble(modules=neural_networks)
+    model_ensemble.species = species
+
+    return model_ensemble
+
+class aimnet2_methods(models.torchani_model):
+    '''
+    Universal ML methods with AIMNet2: https://doi.org/10.26434/chemrxiv-2023-296ch
+
+    Arguments:
+        method (str): A string that specifies the method. Available choices: ``'AIMNet2@b973c'`` and ``'AIMNet2@wb97m-d3'``.
+        device (str, optional): Indicate which device the calculation will be run on, i.e. 'cpu' for CPU, 'cuda' for Nvidia GPUs. When not speficied, it will try to use CUDA if there exists valid ``CUDA_VISIBLE_DEVICES`` in the environ of system.
+
+    '''
+    
+    available_methods = models.methods.methods_map['aimnet2']
+    element_symbols_available = ['H', 'B', 'C', 'N', 'O', 'F', 'Si', 'P', 'S', 'Cl', 'As', 'Se', 'Br', 'I']
+
+    def __init__(self, method: str = 'AIMNet2@b973c', device: str = 'cuda' if torch.cuda.is_available() else 'cpu', **kwargs):
+        self.device = torch.device(device)
+        self.model_path = self.parse_aimnet2_resources(method)
+        self.model = torch.jit.load(self.model_path)
+        
+    @doc_inherit
+    def predict(
+            self, 
+            molecular_database: data.molecular_database = None, 
+            molecule: data.molecule = None,
+            calculate_energy: bool = False,
+            calculate_energy_gradients: bool = False, 
+            calculate_hessian: bool = False,
+            batch_size: int = 2**16,
+        ) -> None:
+
+        molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
+
+        for element_symbol in np.unique(np.concatenate(molDB.element_symbols)):
+            if element_symbol not in self.element_symbols_available:
+                print(f' * Warning * Molecule contains elements \'{element_symbol}\', which is not supported by method \'{self.method}\' that only supports {self.element_symbols_available}, no calculations performed')
+                return
+
+        for mol in molDB:
+            self.predict_for_molecule(
+                molecule=mol, 
+                calculate_energy=calculate_energy, 
+                calculate_energy_gradients=calculate_energy_gradients, 
+                calculate_hessian=calculate_hessian)
+
+    def predict_for_molecule(
+        self,
+        molecule, 
+        calculate_energy: bool = False, 
+        calculate_energy_gradients: bool = False, 
+        calculate_hessian: bool = False):
+
+        coord = torch.as_tensor(molecule.xyz_coordinates).to(torch.float).to(self.device).unsqueeze(0)
+        numbers = torch.as_tensor(molecule.atomic_numbers).to(torch.long).to(self.device).unsqueeze(0)
+        charge = torch.tensor([molecule.charge], dtype=torch.float, device=self.device)
+        nninput = dict(coord=coord, numbers=numbers, charge=charge)
+        prev = torch.is_grad_enabled()
+        torch._C._set_grad_enabled(calculate_energy_gradients)
+        if calculate_energy_gradients:
+            nninput['coord'].requires_grad_(True)
+        nnoutput = self.model(nninput)
+        if calculate_energy:
+            molecule.energy = nnoutput['energy'].item()
+        if calculate_energy_gradients:
+            if 'forces' in nnoutput:
+                f = nnoutput['forces'][0]
+            else:
+                f = - torch.autograd.grad(nnoutput['energy'], nninput['coord'])[0][0]
+            forces = f.detach().cpu().numpy()
+            molecule.add_xyz_vectorial_property(forces, 'energy_gradients')
+
+        if calculate_hessian:
+            print('Hessian not available yet')
+            molecule.hessian = np.zeros((len(molecule),)*2)
+        
+        torch._C._set_grad_enabled(prev)
+
+    @staticmethod
+    def parse_aimnet2_resources(method):
+        import requests
+        local_dir = os.path.expanduser('~/.local/AIMNet2/')
+        repo_name = "AIMNet2"
+        tag_name = method.lower().replace('@', '_')
+        url = "https://github.com/isayevlab/{}/raw/main/models/{}_ens.jpt".format(repo_name, tag_name)
+        if not os.path.exists(local_dir+f'{tag_name}_ens.jpt'):
+            os.makedirs(local_dir, exist_ok=True)
+            print(f'Downloading {method} model parameters ...')
+            resource_res = requests.get(url)
+            with open(local_dir+f'{tag_name}_ens.jpt', 'wb') as f:
+                f.write(resource_res.content)
+        return local_dir + f'{tag_name}_ens.jpt'
 
 def printHelp():
     helpText = __doc__.replace('.. code-block::\n\n', '') + '''

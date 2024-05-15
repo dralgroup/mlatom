@@ -202,7 +202,7 @@ def generate_initial_conditions(molecule=None, generation_method=None, number_of
             mass = mass_.reshape(Natoms,1)
             total_mass = np.sum(mass_)
             for irepeat in range(number_of_initial_conditions):
-                if eliminate_angular_momentum:
+                if eliminate_angular_momentum and not molecule.is_it_linear():
                     velocities_all[irepeat] = getridofang(coordinates_all[irepeat],velocities_all[irepeat],mass_)
                     v_cm = sum(velocities_all[irepeat]*mass)/total_mass
                     velocities_all[irepeat] -= v_cm

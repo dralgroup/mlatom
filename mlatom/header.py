@@ -128,6 +128,18 @@ def printHeader(args):
         if args.ani2xd4:
             refItems['D4']  = refs['D4']
             refItems['D4 program']  = refs['D4prog']
+
+    if args.method:
+        if 'DM21' in args.method.upper():
+            refItems['DM21'] = refs['DM21']
+    
+    if args.ani1xnr:
+        refItems['ANI-1xnr'] = refs['ANI-1xnr']
+    if args.aimnet2atb973c:
+        refItems['AIMNet2@B973c'] = refs['AIMNet2']
+    if args.aimnet2atwb97md3:
+        refItems['AIMNet2@wb97M-D3'] = refs['AIMNet2']
+
     
     if args.geomopt:
         if 'optprog=ase' in ' '.join(args.args2pass).lower():
