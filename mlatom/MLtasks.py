@@ -535,6 +535,16 @@ def MLTPA(args):
     from .MLTPA import MLTPA as mltpa
     mltpa(args.args2pass).predict()
 
+def al(args):
+    from .al import active_learning
+    molDB = loading_data(args.XYZfile, charges=args.charges, multiplicities=args.multiplicities)
+    args.nthreads = 1
+    model = loading_model(args)
+    active_learning(
+        molecule=molDB[0],
+        reference_method=model,
+    )
+
 # Reusable functions below. Name with -ing form
 def loading_data(XYZfile, Yfile=None, YgradXYZfile=None, charges=None, multiplicities=None):
     assert XYZfile, 'please provide data file(s) needed.'

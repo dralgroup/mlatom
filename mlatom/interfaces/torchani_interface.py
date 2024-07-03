@@ -266,6 +266,7 @@ class ani(models.ml_model, models.torchani_model):
         reset_parameters: bool = False,
         reset_network: bool = False,
         reset_optimizer: bool = False,
+        reset_energy_shifter: bool = False,
         save_every_epoch: bool = False,
         energy_weighting_function: Callable = None,
         energy_weighting_function_kwargs: dict = {},
@@ -288,6 +289,9 @@ class ani(models.ml_model, models.torchani_model):
             self.hyperparameters.update(hyperparameters)
 
         energy_weighting_function_kwargs = {k: (v.value if isinstance(v, models.hyperparameter) else v) for k, v in energy_weighting_function_kwargs.items()}
+        
+        if reset_energy_shifter:
+            self.energy_shifter = torchani.utils.EnergyShifter(None)
         
         self.data_setup(molecular_database, validation_molecular_database, spliting_ratio, property_to_learn, xyz_derivative_property_to_learn)
 
@@ -343,7 +347,7 @@ class ani(models.ml_model, models.torchani_model):
         if self.verbose: print("training starting from epoch", self.AdamW_scheduler.last_epoch + 1)
         for _ in range(self.AdamW_scheduler.last_epoch + 1, self.hyperparameters.max_epochs + 1):
             rmse = validate()
-            if self.verbose: print('validation RMSE:', rmse, 'at epoch', self.AdamW_scheduler.last_epoch + 1)
+            if self.verbose: print('validation loss:', rmse, 'at epoch', self.AdamW_scheduler.last_epoch + 1)
             sys.stdout.flush()
             learning_rate = self.AdamW.param_groups[0]['lr']
             if self.verbose: print('learning_rate:',learning_rate)
@@ -544,8 +548,57 @@ class ani(models.ml_model, models.torchani_model):
         Arguments:
             layers_to_fix (List): Should be: 
             
-                - A list of integers. Layers indicate by the integers will be fixed
+                - A list of integers. Layers indicated by the integers will be fixed.
                 - A list of lists of integers. Each sub-list defines the layers to be fixed for each species, in the order of `self.species_order`. 
+        Examples:
+
+            .. code-block:: python
+            
+                import mlatom as ml
+                >>> ani = ml.models.ani(model_file='ANI.pt')
+                model loade from ANI.pt
+                >>> ani.model # show model summary
+                Sequential(
+                (0): AEVComputer()
+                (1): ANIModel(
+                    (C): Sequential(
+                    (0): Linear(in_features=240, out_features=160, bias=True)
+                    (1): CELU(alpha=0.1)
+                    (2): Linear(in_features=160, out_features=128, bias=True)
+                    (3): CELU(alpha=0.1)
+                    (4): Linear(in_features=128, out_features=96, bias=True)
+                    (5): CELU(alpha=0.1)
+                    (6): Linear(in_features=96, out_features=1, bias=True)
+                    )
+                    (H): Sequential(
+                    (0): Linear(in_features=240, out_features=160, bias=True)
+                    (1): CELU(alpha=0.1)
+                    (2): Linear(in_features=160, out_features=128, bias=True)
+                    (3): CELU(alpha=0.1)
+                    (4): Linear(in_features=128, out_features=96, bias=True)
+                    (5): CELU(alpha=0.1)
+                    (6): Linear(in_features=96, out_features=1, bias=True)
+                    )
+                    (O): Sequential(
+                    (0): Linear(in_features=240, out_features=160, bias=True)
+                    (1): CELU(alpha=0.1)
+                    (2): Linear(in_features=160, out_features=128, bias=True)
+                    (3): CELU(alpha=0.1)
+                    (4): Linear(in_features=128, out_features=96, bias=True)
+                    (5): CELU(alpha=0.1)
+                    (6): Linear(in_features=96, out_features=1, bias=True)
+                    )
+                  )
+                )
+                >>> parameters = dict(a.model.named_parameters())
+                >>> {key: parameters[key].requires_grad for key in parameters} # show the trainability of parameters
+                {'1.C.0.weight': True, '1.C.0.bias': True, '1.C.2.weight': True, '1.C.2.bias': True, '1.C.4.weight': True, '1.C.4.bias': True, '1.C.6.weight': True, '1.C.6.bias': True, '1.H.0.weight': True, '1.H.0.bias': True, '1.H.2.weight': True, '1.H.2.bias': True, '1.H.4.weight': True, '1.H.4.bias': True, '1.H.6.weight': True, '1.H.6.bias': True, '1.O.0.weight': True, '1.O.0.bias': True, '1.O.2.weight': True, '1.O.2.bias': True, '1.O.4.weight': True, '1.O.4.bias': True, '1.O.6.weight': True, '1.O.6.bias': True}
+                >>> ani.fix_layers([[0, 2], [0], [4]]) # fix layer 0 and 2 for C, layer 0 for H, and layer 4 for O
+                >>> {key: parameters[key].requires_grad for key in parameters}
+                {'1.C.0.weight': False, '1.C.0.bias': False, '1.C.2.weight': False, '1.C.2.bias': False, '1.C.4.weight': True, '1.C.4.bias': True, '1.C.6.weight': True, '1.C.6.bias': True, '1.H.0.weight': False, '1.H.0.bias': False, '1.H.2.weight': True, '1.H.2.bias': True, '1.H.4.weight': True, '1.H.4.bias': True, '1.H.6.weight': True, '1.H.6.bias': True, '1.O.0.weight': True, '1.O.0.bias': True, '1.O.2.weight': True, '1.O.2.bias': True, '1.O.4.weight': False, '1.O.4.bias': False, '1.O.6.weight': True, '1.O.6.bias': True}
+                >>> ani.fix_layers([[0, 2, 4]]) # fix layer 0, 2, and 4 for all networks
+                {'1.C.0.weight': False, '1.C.0.bias': False, '1.C.2.weight': False, '1.C.2.bias': False, '1.C.4.weight': False, '1.C.4.bias': False, '1.C.6.weight': True, '1.C.6.bias': True, '1.H.0.weight': False, '1.H.0.bias': False, '1.H.2.weight': False, '1.H.2.bias': False, '1.H.4.weight': False, '1.H.4.bias': False, '1.H.6.weight': True, '1.H.6.bias': True, '1.O.0.weight': False, '1.O.0.bias': False, '1.O.2.weight': False, '1.O.2.bias': False, '1.O.4.weight': False, '1.O.4.bias': False, '1.O.6.weight': True, '1.O.6.bias': True}
+                
         '''
         if layers_to_fix:
             if len(layers_to_fix) == 1:

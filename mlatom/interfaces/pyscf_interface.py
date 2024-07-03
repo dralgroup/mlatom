@@ -116,7 +116,7 @@ class pyscf_methods(OMP_pyscf):
                     parse_xc(f)
                 except:
                     errmsg = 'Method not supported in pyscf interface'
-                    stopper.stopMLatom(errmsg)
+                    raise ValueError(errmsg)
                 pyscf_method_dft = dft.KS(pyscf_mol)
                 pyscf_method_dft.xc = f.upper()
                 pyscf_method = tddft.TDDFT(pyscf_method_dft.run())
@@ -127,7 +127,7 @@ class pyscf_methods(OMP_pyscf):
                 parse_xc(self.method.upper())
             except:
                 errmsg = 'Method not supported in pyscf interface'
-                stopper.stopMLatom(errmsg)
+                raise ValueError(errmsg)
             from pyscf import dft
             pyscf_method = dft.KS(pyscf_mol)
             pyscf_method.xc = self.method.upper()
@@ -149,7 +149,7 @@ class pyscf_methods(OMP_pyscf):
             # FCI not supported 
             if 'FCI' == self.method.upper():
                 errmsg = 'Gradients in pyscf do not support FCI '
-                stopper.stopMLatom(errmsg)  
+                raise ValueError(errmsg)  
             
             # NOTE: PySCF use Bohr as unit by default for gradients calculation
             molecule_gradients = pyscf_method.nuc_grad_method().kernel()
@@ -160,7 +160,7 @@ class pyscf_methods(OMP_pyscf):
                 # gradients of uccsdt are not supported
                 if isinstance(pyscf_method, cc.uccsd.UCCSD):
                     errmsg = 'Gradients for UCCSD(T) not supported in pyscf'
-                    stopper.stopMLatom(errmsg)
+                    raise ValueError(errmsg)
                 molecule_gradients = ccsd_t_grad.Gradients(pyscf_method).kernel()
             for ii in range(len(molecule.atoms)):
                 molecule.atoms[ii].energy_gradients = molecule_gradients[ii]            
@@ -186,7 +186,7 @@ class pyscf_methods(OMP_pyscf):
             
             else:
                 errmsg = 'Hessian in pyscf only support HF and DFT'
-                stopper.stopMLatom(errmsg)
+                raise ValueError(errmsg)
 
             # NOTE: PySCF use Bohr as unit by default for hessian calculation
             hess = pyscf_method.Hessian().kernel()
@@ -228,7 +228,7 @@ class pyscf_methods(OMP_pyscf):
             pyscf_method.kernel(dm0=dm0)
         except:
             errmsg = 'DM21 cannot converge properly'
-            stopper.stopMLatom(errmsg)
+            raise ValueError(errmsg)
                 
         if calculate_energy:
             molecule.energy = pyscf_method.e_tot
