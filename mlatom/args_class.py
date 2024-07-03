@@ -235,7 +235,7 @@ class ArgsBase():
     def parse_input_file(self, file: str):
         with open(file) as f:
             content = self._args_extractor(f.read())
-        self.parse_input_content(content)
+        return content
     
     def parse_input_content(self, content: Union[List[str], str]):
         if type(content) is str:
@@ -244,7 +244,7 @@ class ArgsBase():
         for c in content:
             _content.extend(self._args_extractor(c) if '\n' not in c else [c])
         for c in _content:
-            splitted = c.split('=')
+            splitted = c.split('=', 1)
             if len(splitted) == 1:
                 key = splitted[0]
                 if key.lower() in ['help', '-help', '-h', '--help']:
@@ -432,6 +432,8 @@ class mlatom_args(ArgsBase):
                 'MLQD',
                 # MLTPA
                 'MLTPA',
+                # Acive learning
+                'al',
         ] # case should be exactly the same with corresponding method in MLtasks
         # Pre-defined methods
         # self._method_list = [
@@ -621,14 +623,14 @@ class mlatom_args(ArgsBase):
         return [arg for arg in self.args_string_list(['', None]) if arg not in self.defualt_args2pass]
 
     def parse(self, argsraw):
-        self.argsraw = argsraw
         if len(argsraw) == 0:
             Doc.printDoc({})
             stopper.stopMLatom('At least one option should be provided')
         elif len(argsraw) == 1 and os.path.exists(argsraw[0]):
-            self.parse_input_file(argsraw[0])
-        else:
-            self.parse_input_content(argsraw)
+            argsraw = self.parse_input_file(argsraw[0])
+            
+        self.argsraw = argsraw
+        self.parse_input_content(argsraw)
         
         self._post_operations()
             
@@ -647,7 +649,7 @@ class mlatom_args(ArgsBase):
         import hashlib
         for arg in self.args2pass:
             if '\n' in arg:
-                key, value = arg.split('=')
+                key, value = arg.split('=', 1)
                 tmpfile = f"{key}_{hashlib.md5(value.encode('utf-8')).hexdigest()[:6]}"
                 if 'xyz' in key.lower():
                     tmpfile += '.xyz'
@@ -664,7 +666,7 @@ class mlatom_args(ArgsBase):
         self.hyperparameter_optimization['maximum_evaluations'] = int(self.hyperopt.max_evals)  
         for arg in self.args2pass:
             if bool(re.search('hyperopt\..+?\(.+?\)',arg)):
-                key, value = arg.split('=')
+                key, value = arg.split('=', 1)
                 self.hyperparameter_optimization['hyperparameters'].append(key.split('.')[-1])
                 self._hyperopt_str_dict[key.split('.')[-1]] = value
         if self._hyperopt_str_dict:

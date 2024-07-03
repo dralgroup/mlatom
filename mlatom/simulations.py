@@ -12,6 +12,7 @@ Geomopt, freq, DMC
 '''
 from . import constants, data, models
 from .md import md as md
+from .md_parallel import md_parallel as md_parallel
 from .initial_conditions import generate_initial_conditions
 from .md2vibr import vibrational_spectrum
 import os, math
