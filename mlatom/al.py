@@ -242,7 +242,7 @@ class al():
         if 'min_new_points' in kwargs:
             self.min_new_points = kwargs['min_new_points']
         else:
-            self.min_new_points = 0.05  # Active learning is considered converged if number/partition of sampled points is less than this value
+            self.min_new_points = 5  # Active learning is considered converged if number/partition of sampled points is less than this value
 
         # ..max_iterations:
         if 'max_iterations' in kwargs:
