@@ -157,6 +157,11 @@ class al():
         else:
             self.ml_model_type = 'ani'
             self.ml_model = ml_model
+        # ..ml_model_kwargs
+        if 'ml_model_kwargs' in kwargs:
+            self.ml_model_kwargs = kwargs['ml_model_kwargs']
+        else:
+            self.ml_model_kwargs = {}
 
         # ..ml_model_trainer: ML model trainer 
         if 'ml_model_trainer' in kwargs:
@@ -434,12 +439,13 @@ class al():
             self.label_points_moldb(method=self.reference_method,model_predict_kwargs=self.model_predict_kwargs,moldb=init_cond_db,nthreads=self.label_nthreads)
             fail_count = 0
             for init_mol in init_cond_db:
-                if 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__:
+                if not 'failed' in init_mol.__dict__ or not init_mol.failed:
+                # if 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__:
                     self.init_cond_db += init_mol
                 else:
                     fail_count += 1 
-                if fail_count != 0:
-                    print(f"{fail_count} molecules are abandoned due to failed calculation")
+            if fail_count != 0:
+                print(f"{fail_count} molecules are abandoned due to failed calculation")
 
             Ntrain_list.append(len(self.init_cond_db))
             if option.casefold() == 'cross-validation'.casefold():
@@ -548,12 +554,13 @@ class al():
         fail_count = 0
         init_cond_db.dump('debug.json',format='json')
         for init_mol in init_cond_db:
-            if 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__:
+            if not 'failed' in init_mol.__dict__ or not init_mol.failed:
+            # if 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__:
                 self.init_cond_db += init_mol
             else:
                 fail_count += 1 
-            if fail_count != 0:
-                print(f"{fail_count} molecules are abandoned due to failed calculation")
+        if fail_count != 0:
+            print(f"{fail_count} molecules are abandoned due to failed calculation")
 
     # Label points
     def label_points(self):
@@ -572,7 +579,8 @@ class al():
         if nmols > 0:
             self.label_points_moldb(method=self.reference_method,model_predict_kwargs=self.model_predict_kwargs,moldb=self.molecular_pool_to_label,nthreads=self.label_nthreads)
             for mol in self.molecular_pool_to_label:
-                if 'energy' in mol.__dict__ and 'energy_gradients' in mol.atoms[0].__dict__:
+                if not 'failed' in mol.__dict__ or not mol.failed:
+                # if 'energy' in mol.__dict__ and 'energy_gradients' in mol.atoms[0].__dict__:
                     self.labeled_database.molecules.append(mol)
                     labeled_database_iteration.molecules.append(mol)
             self.labeled_database.dump(filename='labeled_db.json', format='json')
@@ -593,6 +601,7 @@ class al():
             self.model = self.ml_model(
                 al_info=self.al_info,
                 device=self.device,
+                **self.ml_model_kwargs,
             )
         else:
             self.model = self.ml_model(
@@ -615,7 +624,7 @@ class al():
         self.molecular_pool_to_label = data.molecular_database() 
 
         self.molecular_pool_to_label = self.sampler.sample(al_info=self.al_info,ml_model=self.model,
-                                                           iteration=self.iteration,
+                                                        #    iteration=self.iteration,
                                                            **self.sampler_kwargs)
         # Remove energies and energy gradients
         # for imol in range(len(self.molecular_pool_to_label.molecules)):
