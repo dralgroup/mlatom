@@ -1,4 +1,4 @@
-import tensorflow as tf
+
 import numpy as np
 import scipy 
 import os
@@ -6,6 +6,14 @@ import sys
 import rmsd
 from multiprocessing import Manager, Pool, Process
 
+if 'TFPATH' in os.environ:
+    import importlib
+    sys.path.insert(0, os.environ['TFPATH'])
+    import tensorflow as tf
+    sys.path.pop(0)
+else:
+    import tensorflow as tf
+    
 refTrio=np.array([[0.,0.,1.],[0.,1.,0.],[1.,0.,0.]],dtype=np.float32)
 refTrioV=np.zeros((3,3),dtype=np.float32)
     

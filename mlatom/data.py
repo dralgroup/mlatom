@@ -10,7 +10,7 @@
 '''
 
 from __future__ import annotations
-from typing import Any, Union, Dict, List
+from typing import Any, Union, Dict, List, Optional, Iterable
 import uuid, copy, os, json
 import numpy as np
 from . import constants
@@ -117,16 +117,70 @@ class molecule:
         multiplicity: The multiplicity of the molecule.
            
     '''
-    def __init__(self, charge: int = 0, multiplicity: int = 1, atoms: List[atom] = None): 
+    def __init__(self, charge: int = 0, multiplicity: int = 1, atoms: List[atom] = None, pbc: Optional[Union[np.ndarray, bool]] = None, cell: Optional[np.ndarray] = None): 
         self.id = str(uuid.uuid4())
         self.charge = charge
         self.multiplicity = multiplicity
+        self.pbc = pbc
+        self.cell = cell
         if atoms is None:
             self.atoms = []
         else:
             self.atoms = atoms
         
         self.electronic_states = []
+    
+    @property
+    def pbc(self):
+        '''
+        The periodic boundary conditions of the molecule. Setting it with ``mol.pbc = True`` is equal to ``mol.pbc = [True, True, True]``.
+        '''
+        return self._pbc
+    
+    @pbc.setter
+    def pbc(self, pbc):
+        if pbc is not None:
+            if isinstance(pbc, bool):
+                pbc = [pbc] * 3
+            pbc = np.array(pbc, bool)
+            assert pbc.shape == (3,), 'please provide a valid pbc'
+        self._pbc = pbc
+    
+    @property
+    def cell(self):
+        '''
+        The matrix of 3 vectors that defines the unicell. The setter of it simply wraps `ase.geometry.cell.cellpar_to_cell() <https://wiki.fysik.dtu.dk/ase/ase/geometry.html#ase.geometry.cellpar_to_cell>`_.
+        '''
+        return self._cell
+    
+    @cell.setter
+    def cell(self, cell):
+        # reinvent the wheel with premade spokes from ASE
+        if cell is not None:
+            from ase.geometry.cell import cellpar_to_cell 
+            cell = cellpar_to_cell(cell)
+        self._cell = cell
+        
+    @property 
+    def cell_coordinates(self) -> np.ndarray:
+        '''
+        The relative coordinates in the cell.
+        '''
+        assert self.cell is not None, 'make sure this molecule has a valid cell'
+        inverse_cell = np.linalg.inv(self.cell)
+        return self.xyz_coordinates @ inverse_cell
+        
+    @cell_coordinates.setter
+    def cell_coordinates(self, value):
+        assert self.cell is not None, 'make sure this molecule has a valid cell'
+        self.xyz_coordinates = value @ self.cell
+            
+    def map_to_unicell(self):
+        '''
+        Map all atoms outside the unicell into it.
+        '''
+        self.cell_coordinates -= np.floor(self.cell_coordinates) * self.pbc
+        
 
     def read_from_xyz_file(self, filename: str, format: Union[str, None] = None) -> molecule:
         '''
@@ -508,6 +562,108 @@ class molecule:
             new_molecule = copy.deepcopy(self)
         new_molecule.id = str(uuid.uuid4())
         return new_molecule
+    
+    def proliferate(
+            self, 
+            shifts: Optional[Iterable] = None, 
+            XYZshifts: Optional[Iterable] = None, 
+            Xshifts: Optional[Iterable] = [0], 
+            Yshifts: Optional[Iterable] = [0], 
+            Zshifts: Optional[Iterable] = [0],
+            PBC_constrained: bool = True,
+        ) -> molecule: 
+        '''
+        Proliferate the unicell by specified shifts along cell vectors (called X/Y/Z here). 
+        
+        Returns a new :class:`molecule` object.
+        
+        Arguments:
+            shifts (Iterable, optional): The list of shifts to perform. Each shift should be a 3D vector that indicates the coefficient applies to the corresponding cell vector.
+            XYZshifts (Iterable, optional): Generate all possible shifts with given shift coefficients in all three directions when a list is specified. When a list of 3 lists is specified, it's equal to setting X/Y/Zshifts
+            Xshifts (Iterable, optional): Specify all possible shift coefficients in the direction of the first cell vector.
+            Yshifts (Iterable, optional): Specify all possible shift coefficients in the direction of the second cell vector.
+            Zshifts (Iterable, optional): Specify all possible shift coefficients in the direction of the third cell vector.
+            PBC_constrained (bool): Controls whether the shifts in some directions are disabled where corresponding PBC is false. Only applies to XYZshifts.
+            
+        .. note::
+            
+           Priorities for different types of shifts:
+                ``shifts`` > ``XYZshifts`` > ``X/Y/Zshifts`` 
+        
+        Examples:
+
+            Single H atom in the centre of a cubic cell (2x2x2):
+
+            .. code-block:: python
+                
+                mol = ml.molecule.from_numpy(np.ones((1, 3)), np.array([1])) 
+                mol.pbc = True 
+                mol.cell = 2 
+            
+            Proliferate to get two periods in all three directions,
+            with shifts:
+
+            .. code-block:: python
+                
+                new_mol = mol.proliferate(
+                    shifts = [
+                        [0, 0, 0],
+                        [1, 0, 0],
+                        [0, 1, 0],
+                        [0, 0, 1],
+                        [1, 1, 0],
+                        [1, 0, 1],
+                        [0, 1, 1],
+                        [1, 1, 1],
+                    ]
+                )
+            
+            with XYZshifts:
+
+            .. code-block:: python
+                
+                new_mol = mol.proliferate(XYZshifts=range(2))
+                # or
+                new_mol = mol.proliferate(XYZshifts=[range(2)]*3)
+                
+                
+            with X/Y/Zshifts:
+
+            .. code-block:: python
+                
+                new_mol = mol.proliferate(Xshifts=range(2), Yshifts=(0, 1), Zshifts=[0, 1]))
+            
+            All scripts above will make ``new_mol.xyz_coordinates`` be:
+            
+            .. code-block:: python
+            
+                array([[1., 1., 1.],
+                       [3., 1., 1.],
+                       [1., 3., 1.],
+                       [3., 3., 1.],
+                       [1., 1., 3.],
+                       [3., 1., 3.],
+                       [1., 3., 3.],
+                       [3., 3., 3.]])
+                
+        '''
+        if shifts is None:
+            if XYZshifts is not None:
+                XYZshifts = np.array(XYZshifts)
+                if XYZshifts.ndim == 1:
+                    XYZshifts = np.repeat(XYZshifts[np.newaxis], 3, 0)
+                assert XYZshifts.ndim ==2, 'provide valid XYZshifts'
+                Xshifts, Yshifts, Zshifts = XYZshifts
+                if PBC_constrained:
+                    Xshifts = Xshifts if self.pbc[0] else [0]
+                    Yshifts = Yshifts if self.pbc[1] else [0]
+                    Zshifts = Zshifts if self.pbc[2] else [0]
+            shifts = [np.array([i, j, k]) for k in Zshifts for j in Yshifts  for i in Xshifts]
+            
+        xyzs = []
+        for shift in shifts:
+            xyzs.append(self.xyz_coordinates + shift @ self.cell)
+        return self.from_numpy(np.concatenate(xyzs, 0), np.repeat(self.atomic_numbers, len(shifts)))
     
     def dump(self, filename=None, format='json'):
         '''
@@ -1188,6 +1344,16 @@ class molecular_database:
     def filter_by_property(self, property_name):
         return molecular_database(self[~np.isnan(self.get_properties(property_name))])
     
+    def proliferate(self, *args, **kwargs) -> molecular_database:
+        '''
+        Proliferate the unicell by specified shifts along cell vectors.
+        
+        Returns a new :class:`molecular_databse` object.
+        
+        Check :meth:`molecule.proliferate` for details on options.
+        '''
+        return molecular_database([mol.proliferate(*args, **kwargs) for mol in self])
+    
     def dump(self, filename=None, format=None):
         '''
         Dump the molecular database to a file.
@@ -1280,6 +1446,19 @@ class molecular_database:
     def xyz_coordinates(self, value):
         for i, mol in enumerate(self):
             mol.xyz_coordinates = value[i]
+            
+    def _is_uniform_cell(self):
+        cells = self.get_properties('cell')
+        pbcs = self.get_properties('pbc')
+        try:
+            if set(cells) == {None} and set(pbcs) == {None}:
+                return True
+        except:
+            try:
+                if np.max(np.std(cells, 0)) == 0 and np.max(np.std(pbcs, 0)):
+                    return True
+            except:
+                return False
 
 def class_instance_to_dict(inst):
     dd = copy.deepcopy(inst.__dict__)
@@ -1578,6 +1757,12 @@ class molecular_trajectory():
         for istep in self.steps:
             xyz_string += istep.molecule.get_xyz_string()
         return xyz_string
+    
+    def to_database(self) -> molecular_database:
+        '''
+        Return a molecular database that formed by the molecules in the trajectory.
+        '''
+        return molecular_database([step.molecule for step in self.steps])
 
 class molecular_trajectory_step(object):
     def __init__(self, step=None, molecule=None):
