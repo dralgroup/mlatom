@@ -110,10 +110,10 @@ class optimize_geometry():
             raise ValueError('molecule and initial_molecule cannot be used at the same time')
         overwrite = False
         if not initial_molecule is None:
-            self.initial_molecule = initial_molecule.copy(atomic_labels=['xyz_coordinates'],molecular_labels=['number'])
+            self.initial_molecule = initial_molecule.copy()
         if not molecule is None:
             overwrite = True
-            self.initial_molecule = molecule.copy(atomic_labels=['xyz_coordinates'],molecular_labels=['number'])
+            self.initial_molecule = molecule.copy()
         
         self.ts = ts
         if program != None:

@@ -187,7 +187,7 @@ def generate_initial_conditions(molecule=None, generation_method=None, number_of
             init_cond_db.add_xyz_vectorial_properties_from_file(file_with_initial_xyz_velocities, xyz_vectorial_property='xyz_velocities')
         elif generation_method.casefold() == 'random'.casefold():
             for irepeat in range(number_of_initial_conditions):
-                new_molecule = molecule.copy(atomic_labels = ['xyz_coordinates'], molecular_labels = [])
+                new_molecule = molecule.copy()
                 velocities = generate_random_velocities(new_molecule,eliminate_angular_momentum,degrees_of_freedom,temp=initial_temperature,ekin=initial_kinetic_energy)
                 for iatom in range(Natoms):
                     new_molecule.atoms[iatom].xyz_velocities = velocities[iatom]

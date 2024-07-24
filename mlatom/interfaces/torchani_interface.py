@@ -434,12 +434,20 @@ class ani(models.ml_model, models.torchani_model):
         molDB, property_to_predict, xyz_derivative_property_to_predict, hessian_to_predict = \
             super().predict(molecular_database=molecular_database, molecule=molecule, calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, property_to_predict = property_to_predict, xyz_derivative_property_to_predict = xyz_derivative_property_to_predict, hessian_to_predict = hessian_to_predict)
         
+        if not molDB._is_uniform_cell():
+            batch_size = 1
+        
         for batch in molDB.batches(batch_size):
             for properties in molDB2ANIdata(batch).species_to_indices(self.species_order).collate(batch_size):
                 species = properties['species'].to(self.device)
-                xyz_coordinates = properties['coordinates'].float().to(self.device).requires_grad_(bool(xyz_derivative_property_to_predict or hessian_to_predict))
+                xyz_coordinates = properties['coordinates'].float().to(self.device)
                 break
-            ANI_NN_energies = self.energy_shifter(self.model((species, xyz_coordinates))).energies
+            pbc = torch.tensor(batch[0].pbc).to(self.device) if batch[0].pbc is not None else None
+            cell = torch.tensor(batch[0].cell).float().to(self.device) if batch[0].cell is not None else None
+            if pbc is not None and cell is not None:
+                xyz_coordinates = torchani.utils.map2central(cell, xyz_coordinates, pbc)
+            xyz_coordinates = xyz_coordinates.requires_grad_(bool(xyz_derivative_property_to_predict or hessian_to_predict))
+            ANI_NN_energies = self.energy_shifter(self.model((species, xyz_coordinates), pbc=pbc, cell=cell)).energies
             if property_to_predict: 
                 batch.add_scalar_properties(ANI_NN_energies.detach().cpu().numpy(), property_to_predict)
             if xyz_derivative_property_to_predict or hessian_to_predict:
@@ -665,14 +673,23 @@ class ani_child(models.torchani_model):
         ) -> None:
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
 
+        if not molDB._is_uniform_cell():
+            batch_size = 1
+
         for batch in molDB.batches(batch_size):
             for properties in molDB2ANIdata(batch).species_to_indices('periodic_table').collate(batch_size):
                 species = properties['species'].to(self.device)
                 if torchani.utils.PERIODIC_TABLE[0] == 'H':
                     species += 1
-                xyz_coordinates = properties['coordinates'].to(self.device).float().to(self.device).requires_grad_(calculate_energy_gradients or calculate_hessian)
+                xyz_coordinates = properties['coordinates'].float().to(self.device)
                 break
-            ANI_NN_energies = self.model((species, xyz_coordinates)).energies
+            pbc = torch.tensor(batch[0].pbc).to(self.device) if batch[0].pbc is not None else None
+            cell = torch.tensor(batch[0].cell).float().to(self.device) if batch[0].cell is not None else None
+            if pbc is not None and cell is not None:
+                xyz_coordinates = torchani.utils.map2central(cell, xyz_coordinates, pbc)
+            xyz_coordinates = xyz_coordinates.requires_grad_(calculate_energy_gradients or calculate_hessian)
+            
+            ANI_NN_energies = self.model((species, xyz_coordinates), pbc=pbc, cell=cell).energies
             if calculate_energy: 
                 batch.add_scalar_properties(ANI_NN_energies.detach().cpu().numpy(), 'energy')
             if calculate_energy_gradients or calculate_hessian:
