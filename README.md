@@ -1,5 +1,6 @@
 # Updates
 
+- [MLatom 3.10.0](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-10-0) (21.08.2024) - active learning for surface hopping MD, multi-state ANI for excited states, gapMD for efficient exploration of the conical intersection regions, quality of life improvements such as viewing molecules, databases, and trajectories in Jupyter, easier load of molecules.
 - MLatom 3.9.0 (23.07.2024) - [periodic boundary conditions](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-9-0)
 - MLatom 3.8.0 (17.07.2024) - [directly learning dynamics](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-8-0)
 - MLatom 3.7.0-3.7.1 (03-04.07.2024) - [active learning & batch parallelization of MD](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-7-0-3-7-1)
