@@ -4,7 +4,8 @@
 
   !---------------------------------------------------------------------------! 
   ! models: Module with models                                                ! 
-  ! Implementations by: Pavlo O. Dral                                         ! 
+  ! Implementations by: Pavlo O. Dral, Fuchun Ge, Yi-Fan Hou, Yuxinxin Chen,  !
+  !                     Peikun Zheng                                          ! 
   !---------------------------------------------------------------------------! 
 '''
 from __future__ import annotations
@@ -17,6 +18,9 @@ from . import data, stats, stopper, interfaces
 from .decorators import doc_inherit
 
 class model():
+    '''
+    Parent (super) class for models to enable useful features such as logging during geometry optimizations.
+    '''
     nthreads = 0
     def set_num_threads(self, nthreads=0):
         # implement for each subclass
@@ -24,7 +28,9 @@ class model():
             self.nthreads = nthreads
 
     def config_multiprocessing(self):
-        # for scripts that need to be executed before running model in parallel
+        '''
+        for scripts that need to be executed before running model in parallel
+        '''
         pass
 
     def parse_args(self, args):
@@ -260,6 +266,9 @@ class methods(model):
 
 # Parent model class
 class ml_model(model):
+    '''
+    Useful as a superclass for the ML models that need to be trained.
+    '''
     def train(
         self,
         molecular_database: data.molecular_database,
@@ -304,6 +313,9 @@ class ml_model(model):
         return molecular_database, property_to_predict, xyz_derivative_property_to_predict, hessian_to_predict
     
     def generate_model_dict(self):
+        '''
+        Generates model dictionary for dumping in json format.
+        '''
         model_dict = {
             'type': 'ml_model',
             'ml_model_type': str(type(self)).split("'")[1],
@@ -316,9 +328,15 @@ class ml_model(model):
         return model_dict
 
     def reset(self):
+        '''
+        Resets model (deletes the ML model file from the hard disk).
+        '''
         if os.path.exists(self.model_file): os.remove(self.model_file)
 
     def dump(self, filename=None, format='json'):
+        '''
+        Dumps model class object information in a json file (do not confused with saving the model itself, i.e., its parameters!).
+        '''
         if not self.model_file:
             self.save()
 
@@ -359,7 +377,22 @@ class ml_model(model):
                                  subtraining_molecular_database=None, validation_molecular_database=None,
                                  validation_loss_function=None, validation_loss_function_kwargs={},
                                  debug=False):
+        '''
+        Returns the validation loss for the given hyperparameters.
         
+        By default, the validation loss is RMSE evaluated as a geometric mean of scalar and vectorial properties, e.g., energies and gradients.
+        
+        Arguments:
+        
+            training_kwargs (dict, optional): the kwargs to be passed to ``yourmodel.train()`` function.
+            prediction_kwargs (dict, optional): the kwargs to be passed to ``yourmodel.predict()`` function.
+            cv_splits_molecular_databases (list, optional): the list with cross-validation splits, each element is :class:`molecular_database <mlatom.data.molecular_database>`.
+            calculate_CV_split_errors (bool, optional): requests to return the errors for each cross-validation split as a list in addtion to the aggregate cross-validation error.
+            subtraining_molecular_database (:class:`molecular_database <mlatom.data.molecular_database>`, optional): molecular database for sub-training to be passed to ``yourmodel.train()`` function.
+            validation_molecular_database (:class:`molecular_database <mlatom.data.molecular_database>`, optional): molecular database for validation to be passed to ``yourmodel.predict()`` function.
+            validation_loss_function (function, optional): user-defined validation function.
+            validation_loss_function_kwargs (dict, optional): kwargs for above ``validation_loss_function``.
+        '''
         property_to_learn = self.get_property_to_learn(training_kwargs)
         xyz_derivative_property_to_learn = self.get_xyz_derivative_property_to_learn(training_kwargs)
         if property_to_learn == None and xyz_derivative_property_to_learn == None:
@@ -462,7 +495,29 @@ class ml_model(model):
                                  maximum_evaluations=10000,
                                  validation_loss_function=None, validation_loss_function_kwargs={},
                                  debug=False):
+        '''
+        Optimizes hyperparameters by minimizing the validation loss.
         
+        By default, the validation loss is RMSE evaluated as a geometric mean of scalar and vectorial properties, e.g., energies and gradients.
+        
+        Arguments:
+        
+            hyperparameters (list, required): the list with strings - names of hyperparameters. Hyperparameters themselves must be in ``youmodel.hyperparameters`` defined with class instance :class:`hyperparameters <mlatom.models.hyperparameters>` consisting of :class:`hyperparameter <mlatom.models.hyperparameter>` defining the optimization space.
+            training_kwargs (dict, optional): the kwargs to be passed to ``yourmodel.train()`` function.
+            prediction_kwargs (dict, optional): the kwargs to be passed to ``yourmodel.predict()`` function.
+            cv_splits_molecular_databases (list, optional): the list with cross-validation splits, each element is :class:`molecular_database <mlatom.data.molecular_database>`.
+            calculate_CV_split_errors (bool, optional): requests to return the errors for each cross-validation split as a list in addtion to the aggregate cross-validation error.
+            subtraining_molecular_database (:class:`molecular_database <mlatom.data.molecular_database>`, optional): molecular database for sub-training to be passed to ``yourmodel.train()`` function.
+            validation_molecular_database (:class:`molecular_database <mlatom.data.molecular_database>`, optional): molecular database for validation to be passed to ``yourmodel.predict()`` function.
+            validation_loss_function (function, optional): user-defined validation function.
+            validation_loss_function_kwargs (dict, optional): kwargs for above ``validation_loss_function``.
+            optimization_algorithm (str, required): optimization algorithm. No default, must be specified among: 'grid' ('brute'), 'TPE', 'Nelder-Mead', 'BFGS', 'L-BFGS-B', 'Powell', 'CG', 'Newton-CG', 'TNC', 'COBYLA', 'SLSQP', 'trust-constr', 'dogleg', 'trust-krylov', 'trust-exact'.
+            optimization_algorithm_kwargs (dict, optional): kwargs to be passed to optimization algorithm, e.g., ``{'grid_size': 5}`` (default 9 for the grid search).
+            maximum_evaluations (int, optional): maximum number of optimization evaluations (default: 10000) supported by all optimizers except for grid search.
+            
+        Saves the final hyperparameters in ``yourmodel.hyperparameters`` adn validation loss in ``yourmodel.validation_loss``.
+        '''
+    
         def validation_loss(current_hyperparameters):
             for ii in range(len(current_hyperparameters)):
                 self.hyperparameters[hyperparameters[ii]].value = current_hyperparameters[ii]
@@ -613,6 +668,9 @@ class ml_model(model):
         return xyz_derivative_property_to_predict
 
 def optimize_grid(func, grid):
+    '''
+    Optimizes on the given grid by finding parameters (provided by grid) leading to the minimum value of the given function.
+    '''
     last = True
     for ii in grid[:-1]:
         if len(ii) != 1:
@@ -924,7 +982,7 @@ class hyperparameters(UserDict):
    
 class kreg(krr, OMP_model, MKL_model):
     '''
-    Create a KREG model object
+    Create a KREG model object.
 
     Arguments:
         model_file (str, optional): The name of the file where the model should be dumped to or loaded from.
@@ -1046,6 +1104,15 @@ class kreg(krr, OMP_model, MKL_model):
               matrix_decomposition=None,
               prior=None,
               hyperparameters: Union[Dict[str,Any], hyperparameters] = {},):
+        '''
+        Train the KREG model with molecular database provided.
+
+        Arguments:
+            molecular_database (:class:`mlatom.data.molecular_database`): The database of molecules for training.
+            property_to_learn (str, optional): The label of property to be learned in model training.
+            xyz_derivative_property_to_learn (str, optional): The label of XYZ derivative property to be learned.
+            prior (str or float or int, optional): default zero prior. It can also be 'mean' and any user-defined number.
+        '''
         self.hyperparameters.update(hyperparameters)
         if self.ml_program.casefold() == 'MLatomF'.casefold():
             mlatomfargs = ['createMLmodel'] + ['%s=%s' % (param, self.hyperparameters[param].value) for param in self.hyperparameters.keys()]
@@ -1130,6 +1197,12 @@ def ani(**kwargs):
     '''
     from .interfaces.torchani_interface import ani
     return ani(**kwargs)
+def msani(**kwargs):
+    '''
+    Returns an MS-ANI model object (see :class:`mlatom.interfaces.torchani_interface.msani`).
+    '''
+    from .interfaces.torchani_interface import msani
+    return msani(**kwargs)
 
 def dpmd(**kwargs):
     '''

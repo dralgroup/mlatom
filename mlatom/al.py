@@ -135,13 +135,16 @@ class al():
 
         # .Nthreads 
         # ..label_nthreads: Number of processes used for labeling
+
         if 'label_nthreads' in kwargs:
             self.label_nthreads = kwargs['label_nthreads']
+        elif 'nthreads' in kwargs:
+            self.label_nthreads = kwargs['nthreads']
         else:
             self.label_nthreads = joblib.cpu_count()
         
-        if 'model_predict_kwargs' in kwargs:
-            self.model_predict_kwargs = kwargs['model_predict_kwargs']
+        if 'refmethod_kwargs' in kwargs:
+            self.model_predict_kwargs = kwargs['refmethod_kwargs']
         else:
             self.model_predict_kwargs = {}
 
@@ -150,8 +153,12 @@ class al():
         if 'ml_model' in kwargs:
             self.ml_model = kwargs['ml_model']
             if isinstance(self.ml_model,str):
-                self.ml_model_type = self.ml_model 
-                self.ml_model = ml_model
+                if self.ml_model.casefold() == 'msani':                   
+                    self.ml_model_type = 'msani' 
+                    self.ml_model = ml_model_msani
+                else:
+                    self.ml_model_type = self.ml_model 
+                    self.ml_model = ml_model
             else:
                 self.ml_model_type = None
         else:
@@ -220,6 +227,13 @@ class al():
         # ..sampler_kwargs: Kwargs for sampler used in active learning iterations
         if 'sampler_kwargs' in kwargs:
             self.sampler_kwargs = kwargs['sampler_kwargs']
+            if kwargs['sampler'] == 'lzsh':
+                if 'number_of_points_to_sample' not in kwargs['sampler_kwargs']:
+                    self.sampler_kwargs['number_of_points_to_sample'] = kwargs['new_points']
+            if 'nthreads' in kwargs:
+                self.sampler_kwargs['nthreads'] = kwargs['nthreads']
+            elif 'nthreads' not in self.sampler_kwargs.keys():
+                self.sampler_kwargs['nthreads'] = joblib.cpu_count()
             if 'initcond_sampler' in self.sampler_kwargs.keys():
                 self.sampler_kwargs['initcond_sampler'] = Sampler(sampler_function=self.sampler_kwargs['initcond_sampler'])
         else:
@@ -424,9 +438,9 @@ class al():
         print("Start initial points sampling...")
 
         if self.init_RMSE_threshold is None:
-            print(" Initial points samplimg: initial points RMSE threshold not found, fit learning curve instead")
+            print(" Initial points sampling: initial points RMSE threshold not found, fit learning curve instead")
         else:
-            print(" Initial points samplimg: initial points RMSE threshold found, stop sampling if RMSE is smaller than threshold")
+            print(" Initial points sampling: initial points RMSE threshold found, stop sampling if RMSE is smaller than threshold")
             print(f" Initial points sampling: RMSE threshold = {self.init_RMSE_threshold}")
 
         if self.init_train_energies_only:
@@ -608,6 +622,7 @@ class al():
                 al_info=self.al_info,
                 device=self.device,
                 ml_model_type=self.ml_model_type,
+                **self.ml_model_kwargs
             )
         # Make a copy of the labeled database in case that it is polluted
         labeled_db_copy = self.labeled_database.copy()
@@ -622,7 +637,7 @@ class al():
 
         # Grab points to label from trajectories 
         self.molecular_pool_to_label = data.molecular_database() 
-
+        
         self.molecular_pool_to_label = self.sampler.sample(al_info=self.al_info,ml_model=self.model,
                                                         #    iteration=self.iteration,
                                                            **self.sampler_kwargs)
@@ -669,16 +684,28 @@ class al():
             calculate_hessian (bool): calculate Hessian
             nthreads (int): number of threads
         '''
+        if 'nstates' in model_predict_kwargs:
+            calculate_energy_gradients = [True] * model_predict_kwargs['nstates']
         def label(imol):
             mol2label = moldb[imol]
             if not ('energy' in mol2label.__dict__ and 'energy_gradients' in mol2label[0].__dict__):
                 method.predict(molecule=mol2label,calculate_energy=calculate_energy,calculate_energy_gradients=calculate_energy_gradients,calculate_hessian=calculate_hessian,**model_predict_kwargs)
             return mol2label
-        
+        def sptask(molecule=None, model=None, refmethod_kwargs={}):
+            model.predict(molecule=molecule, **refmethod_kwargs)
+            return molecule
         nmols = len(moldb)
         if nthreads > 1:
-            pool = Pool(processes=nthreads)
-            mols = pool.map(label,list(range(nmols)))
+            newmols = simulations.run_in_parallel(molecular_database=moldb,
+                task=sptask,
+                task_kwargs={'model': method, 'refmethod_kwargs': {'calculate_energy': calculate_energy, 'calculate_energy_gradients':calculate_energy_gradients, 'calculate_hessian':calculate_hessian, **model_predict_kwargs}},
+                nthreads=nthreads,
+                create_temp_directories=True)
+            for imol in range(len(moldb)):
+                moldb.molecules[imol] = newmols[imol]
+            
+            #pool = Pool(processes=nthreads)
+            #mols = pool.map(label,list(range(nmols)))
             # mols = Parallel(n_jobs=nthreads)(delayed(label)(i) for i in range(nmols))
         else:
             moldb2label = data.molecular_database()
