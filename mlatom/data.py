@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any, Union, Dict, List, Optional, Iterable
 import uuid, copy, os, json
 import numpy as np
+import functools
 from . import constants
 from . import conversions
 from .stopper import stopMLatom
@@ -90,6 +91,26 @@ class atom:
         return new_atom
 
 
+def load_return_molecule(filename=None, format='json'):
+    if format.casefold() == 'json'.casefold():
+        jsonfile = open(filename, 'r')
+        moldict = json.load(jsonfile)
+        newmol = dict_to_molecule_class_instance(moldict)
+    return newmol
+
+def load_molecule(molobj, filename=None, format='json'):
+    newmol = load_return_molecule(filename=filename, format=format)
+    molobj.__dict__.update(newmol.__dict__)
+
+class load_molecule_cls():
+    def __get__(self, obj, objtype=None):
+        if obj is not None:
+            @functools.wraps(load_molecule)
+            def _wrapperobj(*args, **kwargs):
+                return load_molecule(obj, *args, **kwargs)
+            return _wrapperobj
+        else:
+            return load_return_molecule
 
 class molecule:
     '''
@@ -115,8 +136,21 @@ class molecule:
         id: The unique ID for this molecule.
         charge: The electric charge of the molecule.
         multiplicity: The multiplicity of the molecule.
-           
+        load:
+            Load a molecule object from a dumped file.
+            
+            Updates a molecule object if initialized:
+            
+                ``mol = molecule(); mol.load(filename='mymol.json')``
+            Returns a molecule object if called as class method:
+            
+                ``mol = molecule.load(filename='mymol.json')``
+                
+            Arguments:
+                filename (str): filename or path
+                format (str, optional): currently, only 'json' format is supported.
     '''
+    load = load_molecule_cls()
     def __init__(self, charge: int = 0, multiplicity: int = 1, atoms: List[atom] = None, pbc: Optional[Union[np.ndarray, bool]] = None, cell: Optional[np.ndarray] = None): 
         self.id = str(uuid.uuid4())
         self.charge = charge
@@ -351,6 +385,8 @@ class molecule:
         self.add_xyz_vectorial_property(
             vector=derivative, xyz_vectorial_property=xyz_derivative_property)
     
+    add_xyz_derivative_properties = add_xyz_derivative_property
+    
     def add_hessian_property(self, hessian, hessian_propety='hessian'):
         self.add_scalar_property(hessian[:len(self)*3,:len(self)*3], property_name=hessian_propety)
     
@@ -365,6 +401,8 @@ class molecule:
         '''
         for j in range(len(self)):
             self.atoms[j].__dict__[xyz_vectorial_property] = vector[j]
+
+    add_xyz_vectorial_properties = add_xyz_vectorial_property
 
     def write_file_with_xyz_coordinates(self, filename: str, format: Union[str, None] = None) -> None:
         '''
@@ -497,6 +535,8 @@ class molecule:
         for atom in self.atoms: 
             vectorial_properties.append(atom.__dict__[property_name] if property_name in atom.__dict__ else np.full(3, np.nan))
         return array(np.copy(vectorial_properties)).astype(float)
+    
+    get_xyz_vectorial_property = get_xyz_vectorial_properties
 
     def get_nuclear_masses(self):
         return array([atom.nuclear_mass for atom in self.atoms])
@@ -673,17 +713,10 @@ class molecule:
             jsonfile = open(filename, 'w')
             json.dump(class_instance_to_dict(self), jsonfile, indent=4)
             jsonfile.close()
-        
-    def load(self, filename=None, format='json'):
-        '''
-        Load a molecule object from a dumped file.
-        '''
-        if format.casefold() == 'json'.casefold():
-            jsonfile = open(filename, 'r')
-            moldict = json.load(jsonfile)
-            newmol = dict_to_molecule_class_instance(moldict)
-            self.__dict__.update(newmol.__dict__)
-            
+
+        if format.casefold() == 'gaussian'.casefold():
+            write_gaussian_log(self, filename)
+    
     def get_internuclear_distance_matrix(self):
         natoms = len(self.atoms)
         distmat = np.zeros((natoms, natoms))
@@ -820,6 +853,39 @@ class molecule:
         The excitation energies of the molecule from ground state.
         '''
         return self.state_energies[1:] - self.electronic_states[0].energy if len(self.electronic_states) > 1 else []
+
+    def get_xyzvib_string(self, normal_mode=0):
+        '''
+        Get the xyz string with geometries and displacements along the vibrational normal modes
+        '''
+        natoms = self.get_number_of_atoms()
+        xyzvib = f'{natoms}\n\n'
+        for iatom in range(natoms):
+            coords = self.atoms[iatom].xyz_coordinates
+            disp = self.atoms[iatom].normal_modes[normal_mode]
+            xyzvib += self.atoms[iatom].element_symbol
+            xyzvib += f" {coords[0]:25.13f} {coords[1]:25.13f} {coords[2]:25.13f}"
+            xyzvib += f" {disp[0]:25.13f} {disp[1]:25.13f} {disp[2]:25.13f}\n"
+        return xyzvib
+
+    def view(self, normal_mode=None):
+        '''
+        Visualize the molecule and its vibrations if requested. Uses ``py3Dmol``.
+        Arguments:
+            normal_mode (integer, optional): the index of a normal mode to visualize. Default: None.
+        '''
+        import py3Dmol
+        py3Dmolargs = []
+        if not normal_mode is None:
+            xyzstr = self.get_xyzvib_string(normal_mode=normal_mode)
+            py3Dmolargs = [{'vibrate': {'frames':15,'amplitude':0.8}}]
+        else:
+            xyzstr = self.get_xyz_string()
+        viewer = py3Dmol.view(width=400, height=300)
+        viewer.addModel(xyzstr, "xyz", *py3Dmolargs)
+        viewer.setStyle({"stick": {}, "sphere": {"scale": 0.25}})
+        if not normal_mode is None: viewer.animate({'loop': 'backAndForth'})
+        viewer.show()
 
 class properties_tree_node():
     def __init__(self, name=None, parent=None, children=None, properties=None):
@@ -1459,6 +1525,19 @@ class molecular_database:
                     return True
             except:
                 return False
+            
+    def view(self):
+        '''
+        Visualize the molecular database. Uses ``py3Dmol``.
+        '''
+        import py3Dmol
+        xyzstr = self.get_xyz_string()
+        viewer = py3Dmol.view(width=400, height=300)
+        viewer.addModelsAsFrames(xyzstr, "xyz")
+        viewer.setStyle({"stick": {}, "sphere": {"scale": 0.25}})
+        viewer.zoomTo()
+        viewer.animate({'loop': 'forward'})
+        viewer.show()
 
 def class_instance_to_dict(inst):
     dd = copy.deepcopy(inst.__dict__)
@@ -1603,11 +1682,15 @@ class molecular_trajectory():
                     'species':None,
                     }
             data['state_energies'] = []
+            data['aux_state_energies'] = []
             data['state_gradients'] = []
             if 'nonadiabatic_coupling_vectors' in self.steps[0].molecule.atoms[0].__dict__: data['nonadiabatic_coupling_vectors'] = []
             data['random_number'] = []
             data['hopping_probabilities'] = []
+            data['need_to_be_labeled'] = []
             if 'current_state' in self.steps[0].__dict__: data['current_state'] = []
+            if 'uncertain' in self.steps[0].molecule.__dict__: data['uncertain'] = []
+
             #'state_gradients'
             dp_flag = True
             for istep in self.steps:
@@ -1618,10 +1701,16 @@ class molecular_trajectory():
             data['mass'] = self.steps[0].molecule.nuclear_masses
             data['species'] = self.steps[0].molecule.get_atomic_numbers()
             for istep in self.steps:
+                
                 data['time'].append(istep.time)
                 data['position'].append(istep.molecule.xyz_coordinates)
                 data['velocities'].append(istep.molecule.get_xyz_vectorial_properties('xyz_velocities'))
                 data['gradients'].append(istep.molecule.get_energy_gradients())
+                if 'uncertain' in data.keys():
+                    if istep.molecule.uncertain == True:
+                        data['uncertain'].append(1)
+                    else:
+                        data['uncertain'].append(0)
                 if len(istep.molecule.electronic_states) > 1:
                     data['state_energies'].append(istep.molecule.state_energies)
                     state_gradients = []
@@ -1631,6 +1720,12 @@ class molecular_trajectory():
                         else:
                             state_gradients.append(None)
                     data['state_gradients'].append(np.array(state_gradients))
+                    if 'aux_energy' in istep.molecule.electronic_states[0].__dict__.keys():
+                        aux_state_energies = []
+                        for i in range(0, len(istep.molecule.electronic_states)):
+                            aux_state_energies.append(istep.molecule.electronic_states[i].aux_energy)
+                        data['aux_state_energies'].append(np.array(aux_state_energies))
+                        
                 if 'nonadiabatic_coupling_vectors' in data.keys(): data['nonadiabatic_coupling_vectors'].append(istep.molecule.get_xyz_vectorial_properties('nonadiabatic_coupling_vectors'))
                 data['kinetic_energy'].append(istep.molecule.kinetic_energy)
                 data['potential_energy'].append(istep.molecule.energy)
@@ -1650,6 +1745,14 @@ class molecular_trajectory():
                         data['current_state'].append(istep.current_state)
                     except AttributeError:
                         data['current_state'].append(np.nan)
+                if 'need_to_be_labeled' in data.keys():
+                    try:
+                        if istep.molecule.need_to_be_labeled == True:
+                            data['need_to_be_labeled'].append(1)
+                        elif istep.molecule.need_to_be_labeled == False:
+                            data['need_to_be_labeled'].append(0)
+                    except AttributeError:
+                        data['need_to_be_labeled'].append(np.nan)
                 if dp_flag:
                     data['dipole_moment'].append(istep.molecule.dipole_moment)
             with h5md(filename) as trajH5:
@@ -1699,12 +1802,25 @@ class molecular_trajectory():
                 # gradients
                 for iatom in range(Natoms):
                     molecule_istep.atoms[iatom].energy_gradients = data['gradients'][istep][iatom]
-
+                if 'need_to_be_labeled' in data.keys():
+                    if not np.isnan(data['need_to_be_labeled'][istep]):
+                        if int(data['need_to_be_labeled'][istep]) == 1:
+                            molecule_istep.need_to_be_labeled = True
+                        else:
+                            molecule_istep.need_to_be_labeled = False  
+                if 'uncertain' in data.keys():
+                    if not np.isnan(data['uncertain'][istep]):
+                        if int(data['uncertain'][istep]) == 1:
+                            molecule_istep.uncertain = True
+                        else:
+                            molecule_istep.uncertain = False   
                 if 'state_energies' in data.keys():
                     molecule_istep.electronic_states=[]
                     molecule_istep.electronic_states.extend([molecule_istep.copy() for _ in range(len(data['state_energies'][istep]))])
                     for i in range(0, len(data['state_energies'][istep])):
                         molecule_istep.electronic_states[i].energy = data['state_energies'][istep][i]
+                        if 'aux_state_energies' in data.keys():
+                            molecule_istep.electronic_states[i].aux_energy = data['aux_state_energies'][istep][i]
                 if 'state_gradients' in data.keys():
                     if not molecule_istep.electronic_states:
                         molecule_istep.electronic_states=[]
@@ -1712,6 +1828,8 @@ class molecular_trajectory():
                     for i in range(0, len(data['state_gradients'][istep])):
                         if data['state_gradients'][istep][i] is not None:
                             molecule_istep.electronic_states[i].add_xyz_derivative_property(np.array(data['state_gradients'][istep][i]).astype(float), 'energy', 'energy_gradients')
+                     
+                    
                 if 'nonadiabatic_coupling_vectors' in data.keys():
                     for iatom in range(Natoms):
                         molecule_istep.atoms[iatom].nonadiabatic_coupling_vectors = data['nonadiabatic_coupling_vectors'][istep][iatom]
@@ -1749,6 +1867,7 @@ class molecular_trajectory():
                     if not key in ['step', 'molecule']:
                         self.steps[-1].__dict__[key] = step[key]
     
+   
     def get_xyz_string(self) -> str:
         '''
         Return the XYZ string of the molecules in the trajectory.
@@ -1763,6 +1882,13 @@ class molecular_trajectory():
         Return a molecular database that formed by the molecules in the trajectory.
         '''
         return molecular_database([step.molecule for step in self.steps])
+    
+    def view(self):
+        '''
+        Visualize the molecular trajectory. Uses ``py3Dmol``.
+        '''
+        moldb = self.to_database()
+        moldb.view()
 
 class molecular_trajectory_step(object):
     def __init__(self, step=None, molecule=None):

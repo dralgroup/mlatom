@@ -20,9 +20,14 @@ import numpy as np
 import warnings
 warnings.filterwarnings("ignore")
 
-def run_in_parallel(molecular_database=None, task=None, task_kwargs={}, nthreads=None, create_and_keep_temp_directories=False):
+def run_in_parallel(molecular_database=None, task=None, task_kwargs={},
+                    nthreads=None,
+                    create_temp_directories=False,
+                    create_and_keep_temp_directories=False):
     import joblib
     from joblib import Parallel, delayed
+    if create_temp_directories or create_and_keep_temp_directories:
+        import tempfile
     nmols = len(molecular_database)
     if nthreads == None: nthreads = joblib.cpu_count()
     if nmols < nthreads:
@@ -35,26 +40,37 @@ def run_in_parallel(molecular_database=None, task=None, task_kwargs={}, nthreads
         nthreads_per_model = [1 for ii in range(nthreads)]
     def task_loc(imol):
         mol = molecular_database[imol]
-        if create_and_keep_temp_directories:
-            cwd = os.getcwd()
-            directory = f'job_{task.__name__}_{imol+1}'
-            if not os.path.exists(directory):
-                os.makedirs(directory)
-            os.chdir(directory)
-        savednthreads = 'savednthreads'
-        if 'model' in task_kwargs:
-            mm = task_kwargs['model']
-            if 'nthreads' in mm.__dict__:
-                if mm.nthreads is None or mm.nthreads == 0:
-                    savednthreads = mm.nthreads
-                    mm.nthreads = nthreads_per_model[imol]
-        result = task(molecule=mol, **task_kwargs)
-        if savednthreads != 'savednthreads': mm.nthreads = savednthreads
-        if create_and_keep_temp_directories: os.chdir(cwd)
+        
+        def task_loc2():
+            savednthreads = 'savednthreads'
+            if 'model' in task_kwargs:
+                mm = task_kwargs['model']
+                if 'nthreads' in mm.__dict__:
+                    if mm.nthreads is None or mm.nthreads == 0:
+                        savednthreads = mm.nthreads
+                        mm.nthreads = nthreads_per_model[imol]
+            result = task(molecule=mol, **task_kwargs)
+            if savednthreads != 'savednthreads': mm.nthreads = savednthreads
+            return result
+        
+        if create_temp_directories or create_and_keep_temp_directories:
+            with tempfile.TemporaryDirectory() as tmpdirname:
+                cwd = os.getcwd()
+                if create_and_keep_temp_directories:
+                    tmpdirname = f'job_{task.__name__}_{imol+1}'
+                    if not os.path.exists(tmpdirname):
+                        os.makedirs(tmpdirname)
+                    tmpdirname = os.path.abspath(tmpdirname)
+                os.chdir(tmpdirname)
+                result = task_loc2()
+                os.chdir(cwd)
+        else:
+            result = task_loc2()
+        
         return result
+    
     results = Parallel(n_jobs=nthreads)(delayed(task_loc)(i) for i in range(len(molecular_database)))
     return results
-
 class optimize_geometry():
     """
     Geometry optimization.

@@ -117,7 +117,7 @@ class gap(models.ml_model):
     model = None
     verbose = 1
 
-    def __init__(self, model_file=None, hyperparameters={}, verbose=1,):
+    def __init__(self, model_file=None, hyperparameters={}, verbose=0,):
         self.hyperparameters = self.hyperparameters.copy()
         self.hyperparameters.update(hyperparameters)
         self.verbose = verbose

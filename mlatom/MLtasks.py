@@ -961,10 +961,15 @@ def post_delta_learning(args):
 
 def printing_aiqm1_results(aiqm1=True, molecule=None):
     fmt = ' %-41s: %15.8f Hartree'
-    print(fmt % ('Standard deviation of NN contribution', molecule.aiqm1_nn.energy_standard_deviation), end='')
-    print(' %15.5f kcal/mol' % (molecule.aiqm1_nn.energy_standard_deviation * constants.Hartree2kcalpermol))
-    print(fmt % ('NN contribution', molecule.aiqm1_nn.energy))
-    print(fmt % ('Sum of atomic self energies', molecule.aiqm1_atomic_energy_shift.energy))
+    # find aiqm1 keyword
+    for kk,_ in molecule.__dict__.items():
+        if 'aiqm1' in kk and kk[-2:]=='nn':
+            aiqm1method = kk.replace('_nn','')
+            break
+    print(fmt % ('Standard deviation of NN contribution', molecule.__dict__[aiqm1method+'_nn'].energy_standard_deviation), end='')
+    print(' %15.5f kcal/mol' % (molecule.__dict__[aiqm1method+'_nn'].energy_standard_deviation * constants.Hartree2kcalpermol))
+    print(fmt % ('NN contribution', molecule.__dict__[aiqm1method+'_nn'].energy))
+    print(fmt % ('Sum of atomic self energies', molecule.__dict__[aiqm1method+'_atomic_energy_shift'].energy))
     print(fmt % ('ODM2* contribution', molecule.odm2star.energy), file=sys.stdout)
     if aiqm1: print(fmt % ('D4 contribution', molecule.d4_wb97x.energy))
     print(fmt % ('Total energy', molecule.energy))

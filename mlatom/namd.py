@@ -128,6 +128,7 @@ class surface_hopping_md():
                  nstates=None, initial_state=None,
                  random_seed=generate_random_seed, 
                  prevent_back_hop=False, 
+                 reduce_memory_usage = False,
                  rescale_velocity_direction='along velocities',
                  reduce_kinetic_energy=False):
         self.model = model
@@ -141,16 +142,21 @@ class surface_hopping_md():
             self.thermostat = thermostat
         self.time_step = time_step
         self.maximum_propagation_time = maximum_propagation_time
+        self.reduce_memory_usage = reduce_memory_usage
         
         self.dump_trajectory_interval = dump_trajectory_interval
+        self.format = format
+        self.filename = filename 
+
         if dump_trajectory_interval != None:
-            self.format = format
             if format == 'h5md': ext = '.h5'
             elif format == 'json': ext = '.json'
             if filename == None:
                 import uuid
                 filename = str(uuid.uuid4()) + ext
-            self.filename = filename 
+                self.filename = filename 
+
+
         
         self.stop_function = stop_function
         self.stop_function_kwargs = stop_function_kwargs
@@ -243,15 +249,14 @@ class surface_hopping_md():
                     self.molecular_trajectory.steps.append(dyn.molecular_trajectory.steps[-1])
                     self.molecular_trajectory.steps[-1].step = istep + 1
                     self.molecular_trajectory.steps[-1].time = (istep + 1) * self.time_step
-
             random_number = np.random.random()
-            self.molecular_trajectory.steps[istep+1].random_number = random_number
+            self.molecular_trajectory.steps[-1].random_number = random_number
             if istep == 0:
-                self.molecular_trajectory.steps[istep].current_state = self.current_state
+                self.molecular_trajectory.steps[0].current_state = self.current_state
             # fssh/lzsh/znsh: prob list
             if self.hopping_algorithm == 'LZBL':
                 hopping_probabilities = self.lzsh(istep=istep)
-            self.molecular_trajectory.steps[istep+1].hopping_probabilities = hopping_probabilities
+            self.molecular_trajectory.steps[-2].hopping_probabilities = hopping_probabilities
             max_prob = max(hopping_probabilities)
             if max_prob > random_number:
                 max_prob_stat = hopping_probabilities.index(max_prob)
@@ -260,39 +265,64 @@ class surface_hopping_md():
                 # fssh/lzsh/znsh: rescale_velocity; change en grad in molecular_trajectory; change ekin etot
                 # hopping_gap = (self.molecular_trajectory.steps[istep+1].molecule.state_energies[self.current_state]
                 #                 -self.molecular_trajectory.steps[istep+1].molecule.state_energies[self.initial_state])
-                hopping_gap = (self.molecular_trajectory.steps[istep+1].molecule.electronic_states[self.current_state].energy
-                               -self.molecular_trajectory.steps[istep+1].molecule.electronic_states[self.initial_state].energy)
+                hopping_gap = (self.molecular_trajectory.steps[-2].molecule.electronic_states[self.current_state].energy
+                               -self.molecular_trajectory.steps[-2].molecule.electronic_states[self.initial_state].energy)
                 if self.rescale_velocity_direction == 'along velocities':
-                    self.molecular_trajectory.steps[istep+1].molecule.rescale_velocities(kinetic_energy_change=-hopping_gap)
+                    self.molecular_trajectory.steps[-2].molecule.rescale_velocities(kinetic_energy_change=-hopping_gap)
                 self.change_properties_of_hopping_step(step=istep+1) 
                 if self.hopping_algorithm == 'LZBL':
                     del self.molecular_trajectory.steps[-1]
                     one_step_propagation = True
+                    self.molecular_trajectory.steps[-1].current_state = self.current_state
+                    if type(self.stop_function) != type(None):
+                        if self.stop_function_kwargs == None: self.stop_function_kwargs = {}
+                        if 'stop_check' not in locals():
+                            stop_check = False
+                        stop, stop_check = self.stop_function(stop_check=stop_check,
+                                                              mol=self.molecular_trajectory.steps[-1].molecule, 
+                                                              current_state=self.current_state, 
+                                                              **self.stop_function_kwargs)
+                    if stop:
+                        del self.molecular_trajectory.steps[-1]
+                        if self.reduce_memory_usage: 
+                            self.molecular_trajectory.dump(filename=self.filename, format=self.format)
             elif self.hopping_algorithm == 'LZBL':
                 one_step_propagation = False
-            self.molecular_trajectory.steps[istep+1].current_state = self.current_state
+                self.molecular_trajectory.steps[-2].current_state = self.current_state
 
-            if type(self.stop_function) != type(None):
-                if self.stop_function_kwargs == None: self.stop_function_kwargs = {}
-                if 'stop_check' not in locals():
-                    stop_check = False
-                stop, stop_check = self.stop_function(stop_check=stop_check,
-                                                      mol=self.molecular_trajectory.steps[istep+1].molecule, 
-                                                      current_state=self.current_state, 
-                                                      **self.stop_function_kwargs)
-                if stop:
-                    del self.molecular_trajectory.steps[-1]
+                if type(self.stop_function) != type(None):
+                    if self.stop_function_kwargs == None: self.stop_function_kwargs = {}
+                    if 'stop_check' not in locals():
+                        stop_check = False
+                    stop, stop_check = self.stop_function(stop_check=stop_check,
+                                                          mol=self.molecular_trajectory.steps[-2].molecule, 
+                                                          current_state=self.current_state, 
+                                                          **self.stop_function_kwargs)
+                    if stop:
+                        del self.molecular_trajectory.steps[-1]
+                        if self.reduce_memory_usage: 
+                            self.molecular_trajectory.dump(filename=self.filename, format=self.format)
 
             # Dump trajectory at some interval
             if self.dump_trajectory_interval != None:
                 
-                if istep % self.dump_trajectory_interval == 0:
+                if istep % self.dump_trajectory_interval == 0 and istep !=0:
                     if self.format == 'h5md':
-                        temp_traj = data.molecular_trajectory()
-                        temp_traj.steps.append(self.molecular_trajectory.steps[-1])
+                        temp_traj_dump = data.molecular_trajectory()
+                        temp_traj_dump.steps.append(self.molecular_trajectory.steps[-1])
+                        if self.reduce_memory_usage:
+                            temp_traj = data.molecular_trajectory()
+                            temp_traj.steps.append(self.molecular_trajectory.steps[-2])
+                            temp_traj.steps.append(self.molecular_trajectory.steps[-1])
+                            del self.molecular_trajectory.steps[-2:] 
+                            self.molecular_trajectory.dump(filename=self.filename, format=self.format)
+                            del self.molecular_trajectory
+                            self.molecular_trajectory = temp_traj
+                        else:
+                            temp_traj_dump.dump(filename=self.filename, format=self.format)
                     elif self.format == 'json':
-                        temp_traj = self.molecular_trajectory
-                    temp_traj.dump(filename=self.filename, format=self.format)
+                        temp_traj_dump = self.molecular_trajectory
+                        temp_traj_dump.dump(filename=self.filename, format=self.format)
 
             istep += 1
 
@@ -317,6 +347,8 @@ class surface_hopping_md():
 
         if float(f"{self.molecular_trajectory.steps[-1].time:.6f}") > self.maximum_propagation_time:
             del self.molecular_trajectory.steps[-1]
+            if self.reduce_memory_usage or self.filename: 
+                self.molecular_trajectory.dump(filename=self.filename, format=self.format)
                 
     def lzsh(self, istep=None):
         self.model_predict_kwargs['current_state'] = self.current_state
@@ -339,14 +371,14 @@ class surface_hopping_md():
             if stat == self.current_state:
                 prob = -1.0      
             else:
-                for iistep in [istep, istep+1, istep+2]:
+                for iistep in [-3, -2, -1]:
                     gap_per_stat.append(abs(self.molecular_trajectory.steps[iistep].molecule.electronic_states[self.current_state].energy
                                         -self.molecular_trajectory.steps[iistep].molecule.electronic_states[stat].energy))
                 if (gap_per_stat[0] > gap_per_stat[1]) and (gap_per_stat[2] > gap_per_stat[1]):
                     if not self.prevent_back_hop:
                         #if (stat > self.current_state) and (self.molecular_trajectory.steps[istep+1].molecule.kinetic_energy < gap_per_stat[1]):
                         if ((stat > self.current_state) and 
-                        ((self.molecular_trajectory.steps[istep+1].molecule.kinetic_energy/(self.reduce_kinetic_energy_factor)) 
+                        ((self.molecular_trajectory.steps[-1].molecule.kinetic_energy/(self.reduce_kinetic_energy_factor)) 
                          < gap_per_stat[1])):
                             prob = -1.0
                         else:
@@ -367,16 +399,16 @@ class surface_hopping_md():
         return np.exp((-np.pi/2.0) * np.sqrt(abs(gap)**3 / abs(gap_sotd)))
 
     def change_properties_of_hopping_step(self, step):
-        new_epot = self.molecular_trajectory.steps[step].molecule.electronic_states[self.current_state].energy
-        self.molecular_trajectory.steps[step].molecule.energy = new_epot
+        new_epot = self.molecular_trajectory.steps[-2].molecule.electronic_states[self.current_state].energy
+        self.molecular_trajectory.steps[-2].molecule.energy = new_epot
         # for atom in self.molecular_trajectory.steps[step].molecule.atoms:
         #     atom.energy_gradients = atom.state_gradients[self.current_state]
-        new_grad = self.molecular_trajectory.steps[step].molecule.electronic_states[self.current_state].get_energy_gradients()
-        self.molecular_trajectory.steps[step].molecule.add_xyz_derivative_property(new_grad, 'energy', 'energy_gradients')
+        new_grad = self.molecular_trajectory.steps[-2].molecule.electronic_states[self.current_state].get_energy_gradients()
+        self.molecular_trajectory.steps[-2].molecule.add_xyz_derivative_property(new_grad, 'energy', 'energy_gradients')
         #self.molecular_trajectory.steps[step].molecule.calculate_kinetic_energy()
-        new_ekin = self.molecular_trajectory.steps[step].molecule.kinetic_energy
+        new_ekin = self.molecular_trajectory.steps[-2].molecule.kinetic_energy
         new_etot = new_epot + new_ekin
-        self.molecular_trajectory.steps[step].molecule.total_energy = new_etot
+        self.molecular_trajectory.steps[-2].molecule.total_energy = new_etot
     
 def analyze_trajs(trajectories=None, maximum_propagation_time=100.0):
     print('Start analyzing trajectories.') # debug
@@ -405,7 +437,34 @@ def analyze_trajs(trajectories=None, maximum_propagation_time=100.0):
         print("TRAJ%d ends %s at %.3f fs." % (i+1, ("normally" if traj_status_list[i]["status"] == 1 else "abnormally"), traj_status_list[i]["final time"]))
 
     print('Finish analyzing trajectories.') # debug
-    
+def analyze_trajs_from_disk(ntraj=1, max_propagation_time=100.0, dirname="job_surface_hopping_md_", traj_filename="traj.h5"):
+    print('Start analyzing trajectories.') # debug
+    traj_status_list = []
+    for i in range(1,ntraj+1):
+        print(i)
+        traj_status = {}
+        try:
+            traj= data.molecular_trajectory()
+            traj.load(dirname+str(i)+'/'+traj_filename, format="h5md")
+            if float(f"{traj.steps[-1].time:.6f}") == max_propagation_time:
+                traj_status['status'] = 1
+            else:
+                traj_status['status'] = 0
+        except:
+            traj_status['status'] = 0
+        if traj_status:
+            try:
+                final_time = float(f"{traj.steps[-1].time:.6f}")
+                traj_status.update({"final time": final_time})
+            except:
+                traj_status.update({"final time": 0.0})
+        traj_status_list.append(traj_status)
+    print('%d trajectories ends normally.' % sum(1 for traj_status in traj_status_list if traj_status["status"] == 1))
+    print('%d trajectories ends abnormally.' % sum(1 for traj_status in traj_status_list if traj_status["status"] == 0))
+    for i in range(ntraj):
+        print("TRAJ%d ends %s at %.3f fs." % (i+1, ("normally" if traj_status_list[i]["status"] == 1 else "abnormally"), traj_status_list[i]["final time"]))
+
+    print('Finish analyzing trajectories.') # debug
 def plot_population(trajectories=None, time_step=0.1, max_propagation_time=100.0, nstates=3, filename='population.png', ref_pop_filename='ref_pop.txt', pop_filename='pop.txt'):
     import matplotlib.pyplot as plt
     import matplotlib.colors as mcolors
@@ -481,3 +540,46 @@ def plot_population(trajectories=None, time_step=0.1, max_propagation_time=100.0
     plt.legend(loc='best', frameon=False, prop={'size': 10})
 
     plt.savefig(filename, bbox_inches='tight', dpi=300)
+def plot_population_from_disk(time_step=0.1, max_propagation_time=100.0, nstates=3, filename='population.png', ref_pop_filename='ref_pop.txt', pop_filename='pop.txt', dirname="job_surface_hopping_md_", ntraj=1, traj_filename="traj.h5"):
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
+    time_list = np.arange(0, max_propagation_time+time_step, time_step)
+    popArray = np.zeros((len(time_list),nstates))
+    for i in range(1,ntraj+1):
+        traj= data.molecular_trajectory()
+        traj.load(dirname+str(i)+'/'+traj_filename, format="h5md")
+        for idx, step in enumerate(traj.steps):
+            popArray[idx][int(step.current_state)]+=1.0
+    pop_norm = np.sum(popArray, axis=1)
+    for i in range(len(time_list)):
+        for j in range(nstates):
+            popArray[i,j] = popArray[i,j]/pop_norm[i]
+
+    if os.path.exists(ref_pop_filename):
+        ref_population_all_timestep = []
+        ref_population_plot = []
+
+        with open('%s' % ref_pop_filename) as f_refpop:
+            refpop_data = f_refpop.read().splitlines()
+        for line in refpop_data:
+            ref_population_all_timestep.append(
+                list(map(float, line.split())))
+        x_ref = ref_population_plot[0]
+        for i in range(1, nstates + 1 + 1):
+            ref_population_plot.append([ref_population_all_timestep[j][i-1] for j in range(len(ref_population_all_timestep))])    
+    plt.clf()
+    plt.xlabel('Time (fs)')
+    plt.ylabel('Population')
+    plt.xlim([0, max_propagation_time])
+    plt.ylim([0.0, 1.0])
+    
+ 
+    for i in range(nstates):
+        plt.plot(time_list, popArray[:,i], color=list(mcolors.TABLEAU_COLORS.keys())[i], label='S%d' % (i))
+        if os.path.exists(ref_pop_filename):
+            y_ref = ref_population_plot[i]
+            plt.plot(x_ref, y_ref, color=list(mcolors.TABLEAU_COLORS.keys())[i-1], label='%s-S%d' % (ref_pop_filename,i-1), linestyle='dashed')
+    
+    plt.legend(loc='best', frameon=False, prop={'size': 10})
+    plt.savefig(filename, bbox_inches='tight', dpi=300)
+    np.savetxt(pop_filename, popArray)

@@ -5,3 +5,4 @@ from .data import atom, molecule, molecular_database
 from .models import methods
 from . import al_utils
 from .al import al
+from .gap_md import gap_md, gap_model
