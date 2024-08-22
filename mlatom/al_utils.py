@@ -543,7 +543,7 @@ class Sampler():
         else:
             ntraj=50
         if 'ngapmd_trajs' in kwargs:
-            N_gapMD = kwargs['ngapmd_trajs']
+            N_gapMD = int(0.5*kwargs['ngapmd_trajs'])
         else:
             N_gapMD = int(ntraj*0.5)
         if N_gapMD > ntraj:
@@ -635,7 +635,6 @@ class Sampler():
         else:
             prob_threshold = 0.1
 
-        moldb = data.molecular_database()
         def run_gapMD(moldb4gap,imol4gap, lower_surface=0, current_surface=1):
             mol4gap = moldb4gap[imol4gap]
             init_Ekin = mol4gap.calculate_kinetic_energy()*random.random()
@@ -770,6 +769,7 @@ class Sampler():
  
 
         def loop_alnamd():
+            moldb = data.molecular_database()
             initial_molecular_database = generate_initial_conditions(molecule=eqmol,
                                                 generation_method='wigner',
                                                 number_of_initial_conditions=ntraj,
@@ -817,7 +817,7 @@ class Sampler():
                     diff = abs(max(prob_list[i])-max(prob_list_aux[i]))
                     if diff > prob_threshold:
                         UQ_db.molecules.append(traj.steps[i].molecule)
-                        print("probUQ diverged")
+                        #print("probUQ diverged")
                 
                 if len(UQ_db) >0:
                     prob_db.append(random.choice(UQ_db))
@@ -832,7 +832,7 @@ class Sampler():
                 print((i)*time_step)
             convergance_degree = (1 - len(stop_indices)/len(initial_molecular_database))*100
             print("The model is {} % converged".format(convergance_degree))
-            if len(stop_indices) < min_surfuq_points:
+            if len(stop_indices) <= min_surfuq_points:
                 print("The ML-NAMD trajectories are converged, AL-NAMD converged.")
                 return data.molecular_database()
 
@@ -871,7 +871,7 @@ class Sampler():
                     diff = abs(max(prob_list[i])-max(prob_list_aux[i]))
                     if diff > prob_threshold:
                         UQ_db.molecules.append(traj.steps[i].molecule)
-                        print('prob UQ diverged at gapMD trajectory %d at time %.2f fs' % (itraj, (i)*time_step))
+                        #print('prob UQ diverged at gapMD trajectory %d at time %.2f fs' % (itraj, (i)*time_step))
                 
                 if len(UQ_db) >0:
                     prob_db.append(random.choice(UQ_db))
@@ -908,7 +908,7 @@ class Sampler():
                     diff = abs(max(prob_list[i])-max(prob_list_aux[i]))
                     if diff > prob_threshold:
                         UQ_db.molecules.append(traj.steps[i].molecule)
-                        print('prob UQ diverged at gapMD trajectory %d at time %.2f fs' % (itraj, (i)*time_step))
+                        #print('prob UQ diverged at gapMD trajectory %d at time %.2f fs' % (itraj, (i)*time_step))
                 
                 if len(UQ_db) >0:
                     prob_db.append(random.choice(UQ_db))
@@ -928,7 +928,7 @@ class Sampler():
                     return moldb
             return sample_from_DB(moldb, max_points)
         else:
-            moldb = loop_alnamd
+            moldb = loop_alnamd()
             return moldb
 class excess_energy_generator():
 
