@@ -413,6 +413,22 @@ class molecule:
             filename (str): The .egrad1 filename that contains energy and gradient to be added.
             energy_property_name (str, optional): the name assign to the energy property.
             gradient_property_name (str, optional): the name assign to the gradient property.
+
+        .egrad1 file looks like:
+            ENERGY=        -232.108204353561
+            GRADIENT
+                         1           0.0042475274         0.0060127667        -0.0000039839
+                         2          -0.0031002205         0.0066626467        -0.0000030526
+                         3          -0.0073204325         0.0006716961         0.0000008478
+                         4          -0.0042366843        -0.0060243853        -0.0000048821
+                         5           0.0030982020        -0.0066557785         0.0000061277
+                         6           0.0072992592        -0.0006745077        -0.0000023993
+                         7          -0.0042945127        -0.0061028118        -0.0000007873
+                         8          -0.0074275957         0.0006603016         0.0000007442
+                         9          -0.0031308833         0.0067766069         0.0000040330
+                        10           0.0043069792         0.0060984600        -0.0000008635
+                        11           0.0031303714        -0.0067593045         0.0000035547
+                        12           0.0074279899        -0.0006656904         0.0000006613
         '''
         with open(filename, 'r') as f:
             string_lst = f.readlines()
