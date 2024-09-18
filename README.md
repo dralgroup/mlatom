@@ -7,7 +7,7 @@
 - MLatom 3.6.0 (15.05.2024) - [+ new universal ML models (ANI-1xnr, AIMnet2, DM21)](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-6-0)
 - MLatom 3.5.0 (08.05.2024) - [quasi-classical trajectory/molecular dynamics](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-5-0)
 - MLatom 3.4.0 (29.04.2024) - [usability improvements with focus on geometry optimizations](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-4-0)
-- MLatom 3.3.0 (03.04.2024) - [surface-hopping dynamics](https://mlatom.com/docs/releases.html#mlatom-3-3-0)
+- MLatom 3.3.0 (03.04.2024) - [surface-hopping dynamics](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-3-0)
 - MLatom 3.2.0 (19.03.2024) - [diffusion Monte Carlo and energy-weighted training](http://mlatom.com/docs/releases.html#mlatom-3-2-0)
 - MLatom 3.1.0 (12.29.2023) - [MACE interface](http://mlatom.com/releases/#Version_31)
 - MLatom 3.0.0 (12.09.2023)
