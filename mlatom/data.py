@@ -405,7 +405,7 @@ class molecule:
     add_xyz_vectorial_properties = add_xyz_vectorial_property
 
 
-    def add_property_from_egrad1_file(self, filename: str, energy_property_name: str = 'energy', gradient_property_name: str = 'energy_gradients') -> None:
+    def add_property_from_BDF_egrad1_file(self, filename: str, energy_property_name: str = 'energy', gradient_property_name: str = 'energy_gradients') -> None:
         '''
         Add energy and gradient from BDF output xxx.engrad1 file to the molecule.
 
@@ -1057,7 +1057,33 @@ class molecular_database:
         xyz_string = conversions.smi2xyz(smi_string)
         self.read_from_xyz_string(xyz_string)
         return self
-        
+
+    def read_from_BDF_egrad1_files(self, folder:str, energy_property_name:str = 'energy', gradient_property_name:str = 'energy_gradients') -> molecular_database:
+        '''
+        Generate molecules from BDF software, geometries will be read from ``xxx.xyz`` files, energy and gradient will be read from BDF output ``xxx.egrad1`` files.
+
+        Each ``.xyz`` file should only contain one molecule geometry info, and the ``.egrad1`` file with same name should contain its energy and gradient. (If there are more than one molecules' geometries in the ``.xyz`` file, according to the ``molecule().read_from_xyz_string`` method, only the first one will be used.)
+
+        To see an example of ``.egrad1`` file, see ``molecule().add_property_from_BDF_egrad1_file`` method.
+
+        All the files should be contained in one folder.
+
+        Arguments:
+            folder (str): the folder which contains all the ``.xyz`` and ``.egrad1`` files.
+            energy_property_name (str, optional): the name assign to the energy property.
+            gradient_property_name (str, optional): the name assign to the gradient property.
+        '''
+        files = [path for path in os.listdir(folder) if os.path.isfile(os.path.join(folder, path))]
+        egrad1_files = [file.removesuffix(".egrad1") for file in files if file.endswith(".egrad1")]
+        xyz_files = [file.removesuffix(".xyz") for file in files if file.endswith(".xyz")]
+        valid_files = list(set(egrad1_files) & set(xyz_files))
+
+        for file in valid_files:
+            mol = molecule.from_xyz_file(os.path.join(folder, file+".xyz"))
+            mol.add_property_from_BDF_egrad1_file(os.path.join(folder, file+".egrad1"), energy_property_name=energy_property_name, gradient_property_name=gradient_property_name)
+            self.molecules.append(mol)
+        return self
+
     @classmethod
     def from_xyz_file(cls, filename: str) -> molecular_database:
         '''
@@ -1092,7 +1118,13 @@ class molecular_database:
         Classmethod wrapper for :meth:`molecular_database.read_from_smiles_string`, returns a :class:`molecular_database` object.
         '''
         return cls().read_from_smiles_string(smi_string)
-    
+
+    @classmethod
+    def from_BDF_egrad1_files(cls, folder:str, energy_property_name:str ='energy', gradient_property_name:str = 'energy_gradients') -> molecular_database:
+        '''
+        Classmethod wrapper for :meth:`molecular_database.read_from_BDF_egrad1_files`, returns a :class:`molecular_database` object.
+        '''
+        return cls().read_from_BDF_egrad1_files(folder, energy_property_name=energy_property_name, gradient_property_name=gradient_property_name)
 
     def add_scalar_properties(self, scalars, property_name: str = 'y') -> None: # kind of redundant? mol.a = x does the samething
         '''
