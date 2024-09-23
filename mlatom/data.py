@@ -414,6 +414,9 @@ class molecule:
             energy_property_name (str, optional): the name assign to the energy property.
             gradient_property_name (str, optional): the name assign to the gradient property.
 
+        Note:
+            gradient in BDF output file(.egrad1 file) use Hartree/Bohr unit but in MLatom it use Hartree/Angstrom unit, unit conversion is performed here.
+
         .egrad1 file looks like:
             ENERGY=        -232.108204353561
             GRADIENT
@@ -433,7 +436,7 @@ class molecule:
         with open(filename, 'r') as f:
             string_lst = f.readlines()
             energy = float(string_lst[0].upper().replace(' ', '').removeprefix('ENERGY='))
-            vectors = [array(s.strip().split()[-3:]).astype(float) for s in string_lst[2:]]
+            vectors = [array(s.strip().split()[-3:]).astype(float) / constants.Bohr2Angstrom for s in string_lst[2:]]  # unit conversion
 
         self.__dict__[energy_property_name] = energy
         assert len(vectors) == len(self.atoms), 'the number of atom does not match'
