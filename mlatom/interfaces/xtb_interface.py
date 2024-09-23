@@ -13,7 +13,7 @@ import numpy as np
 from .. import constants, models
 from ..decorators import doc_inherit
 
-class xtb_methods(models.OMP_model):
+class xtb_methods(models.OMP_model, metaclass=models.meta_method):
     '''
     xTB interface
 
@@ -45,9 +45,8 @@ class xtb_methods(models.OMP_model):
         print(mol.energy)
 
     '''
-    available_methods = models.methods.methods_map['xtb']
     
-    def __init__(self, method='GFN2-xTB', read_keywords_from_file='', **kwargs):
+    def __init__(self, method='GFN2-xTB', read_keywords_from_file='', nthreads=None, **kwargs):
         self.method = method
         self.read_keywords_from_file = read_keywords_from_file
         try:
@@ -56,10 +55,11 @@ class xtb_methods(models.OMP_model):
             msg = 'Cannot find the xtb program, please set the environment variable: export xtb=...'
             raise ValueError(msg)
         
-        if 'nthreads' in kwargs:
-            self.nthreads = kwargs['nthreads']
+        if nthreads is None:
+            from multiprocessing import cpu_count
+            self.nthreads = cpu_count()
         else:
-            self.nthreads = 1
+            self.nthreads = nthreads
         if 'stacksize' in kwargs:
             os.environ["OMP_STACKSIZE"] = kwargs['stacksize']
         
@@ -181,6 +181,7 @@ class xtb_methods(models.OMP_model):
                                     hess.append(float(xx) / (constants.Bohr2Angstrom**2))
                             hess = np.array(hess).astype(float)
                             mol.hessian = hess.reshape(natoms*3,natoms*3)
+
 
 if __name__ == '__main__':
     pass

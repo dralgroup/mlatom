@@ -15,7 +15,7 @@ import tempfile, subprocess
 from .. import constants, models
 from ..decorators import doc_inherit
 
-class orca_methods(models.model):
+class orca_methods(models.model, metaclass=models.meta_method):
     '''
     ORCA interface
 
@@ -62,7 +62,7 @@ class orca_methods(models.model):
         if 'save_files_in_current_directory' in kwargs:
             self.save_files_in_current_directory = kwargs['save_files_in_current_directory']
         else:
-            self.save_files_in_current_directory = False 
+            self.save_files_in_current_directory = True 
 
         if 'working_directory' in kwargs:
             self.working_directory = kwargs['working_directory']
@@ -122,7 +122,7 @@ class orca_methods(models.model):
                 with open(f'{self.inpfile}_property.txt', 'r') as orcaout:
                     orcaout_lines = orcaout.readlines()
                     for ii in range(len(orcaout_lines)):
-                        if 'Total Energy' in orcaout_lines[ii]: # ? check SCf energy or total enenrgy
+                        if 'SCF Energy' in orcaout_lines[ii]: # ? check SCf energy or total enenrgy
                             molecule.energy = float(orcaout_lines[ii].split()[-1]) 
             else:
                 with open(f'{self.inpfile}.engrad', 'r') as orcaout:

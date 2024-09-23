@@ -2,54 +2,62 @@
 Interfaces to third-party software.
 '''
 
-def aiqm1(**kwargs):
+def aiqm1():
     from ..aiqm1 import aiqm1 as interface
-    return interface(**kwargs)
+    return interface
 
-def ani(**kwargs):
-    from .torchani_interface import ani_methods as interface
-    return interface(**kwargs)
+def dens():
+    from ..dens import dens as interface 
+    return interface
 
-def aimnet2(**kwargs):
+def torchani():
+    from .torchani_interface import torchani_methods as interface
+    return interface
+
+def aimnet2():
     from .torchani_interface import aimnet2_methods as interface 
-    return interface(**kwargs)
+    return interface
 
-def mndo(**kwargs):
+def mndo():
     from .mndo_interface import mndo_methods as interface
-    return interface(**kwargs)
+    return interface
 
-def sparrow(**kwargs):
+def sparrow():
     from .sparrow_interface import sparrow_methods as interface
-    return interface(**kwargs)
+    return interface
 
-def xtb(**kwargs):
+def xtb():
     from .xtb_interface import xtb_methods as interface
-    return interface(**kwargs)
+    return interface
 
-def dftd4(**kwargs):
+def dftd4():
     from .dftd4_interface import dftd4_methods as interface
-    return interface(**kwargs)
+    return interface
 
-def ccsdtstarcbs(**kwargs):
+def dftd3():
+    from .dftd3_interface import dftd3_methods as interface
+    return interface
+
+def ccsdtstarcbs():
     from ..composite_methods import ccsdtstarcbs_legacy as interface
-    return interface(**kwargs)
+    return interface
 
-def gaussian(**kwargs):
+def gaussian():
     from .gaussian_interface import gaussian_methods as interface
-    return interface(**kwargs)
+    return interface
 
-def columbus(**kwargs):
+def columbus():
     from .columbus_interface import columbus_methods as interface
-    return interface(**kwargs)
+    return interface
 
-def turbomole(**kwargs):
+def turbomole():
     from .turbomole_interface import turbomole_methods as interface
-    return interface(**kwargs)
+    return interface
 
-def pyscf(**kwargs):
+def pyscf():
     from .pyscf_interface import pyscf_methods as interface
-    return interface(**kwargs)
+    return interface
 
-def orca(**kwargs):
+def orca():
     from .orca_interface import orca_methods as interface
-    return interface(**kwargs)
+    return interface

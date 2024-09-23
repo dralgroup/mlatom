@@ -5,6 +5,7 @@
   !---------------------------------------------------------------------------! 
 '''
 import numpy as np
+from scipy.constants import physical_constants
 
 Bohr2Angstrom =  0.52917721092# Peter J. Mohr, Barry N. Taylor, David B. Newell,
                               # CODATA Recommended Values of the
@@ -21,7 +22,7 @@ Avogadro_constant = 6.02214076E23
 kB = 1.380649E-23 # Unit: J/K https://en.wikipedia.org/wiki/Boltzmann_constant
 planck_constant = 6.62607015E-34 # Unit: J·s
 kB_in_Hartree = kB * Joule2cal / 1000.0 * kcalpermol2Hartree * Avogadro_constant # Hartree / K
-ram2au = 1822.888515 # Relative atomics mass
+ram2au = 1822.888515 # Relative atomics mass (it should be atomic mass constant)
 au2ram = 1.0 / ram2au
 au2fs = 2.4188843265857E-2 #https://physics.nist.gov/cgi-bin/cuu/Value?aut%7Csearch_for=time
 fs2au = 1.0 / au2fs
@@ -36,6 +37,11 @@ eV2Hartree = 1.0 / Hartree2eV
 eV2kcalpermol = eV2kJpermol * Joule2cal
 kcalpermol2eV = 1.0 / eV2kcalpermol
 speed_of_light = 2.99792458E8 # Unit: m/s, https://en.wikipedia.org/wiki/Speed_of_light 
+amu2kg = physical_constants["atomic mass constant"][0]
+au2kg = amu2kg / ram2au
+fine_structure_constant = physical_constants["fine-structure constant"][0]
+Debye = 0.20819433442462576 # Unit: electron_charge / Angstrom
+au2Angstrom4byamu = 1.065693E-31 * 8.077608721857700E+019 * 16605390400000.0
 
 ev_nm_conversion_constant = planck_constant * Joule2eV * speed_of_light * 1E9
 def eV2nm(eV):

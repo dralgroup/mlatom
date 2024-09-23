@@ -15,7 +15,7 @@ from .. import models
 from .. import stopper
 from ..decorators import doc_inherit
 
-class dftd4_methods(models.model):
+class dftd4_methods(models.model, metaclass=models.meta_method):
     '''
     DFT-D4 interface
 

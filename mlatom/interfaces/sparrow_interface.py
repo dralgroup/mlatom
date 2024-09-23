@@ -14,7 +14,7 @@ import numpy as np
 from .. import constants, simulations, models
 from ..decorators import doc_inherit 
 
-class sparrow_methods(models.OMP_model):
+class sparrow_methods(models.OMP_model, metaclass=models.meta_method):
     '''
     Sparrow interface
 
@@ -42,7 +42,6 @@ class sparrow_methods(models.OMP_model):
         'MNDO': True, 'MNDO/d': True, 'AM1': True, 'RM1': True, 'PM3': True, 'PM6': True,
         'OM2': False, 'OM3': False, 'ODM2*': False, 'ODM3*': False, 
         'AIQM1': False}
-    available_methods = models.methods.methods_map['sparrow'] #need to sync with dict availability_of_gradients_for_methods somehow
     
     def __init__(self, method='ODM2*', read_keywords_from_file='', save_files_in_current_directory=False, working_directory=None, **kwargs):
         self.method = method

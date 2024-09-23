@@ -446,8 +446,10 @@ def freq(args):
             mol.symmetry_number = int(symmetrynumbers[imol])
         geomopt = simulations.thermochemistry(model=model,
                                         molecule=mol,
+                                        ir=args.ir,
                                         **kwargs)
         mol.dump(f'freq{mol.number}.json',format='json')
+        mol.dump(f'freq_gaussian{mol.number}.log',format='gaussian')
         print(' %s ' % ('='*78))
         print(' %s Vibration analysis for molecule %6d' % (' '*20, imol+1))
         print(' %s ' % ('='*78))
@@ -455,10 +457,26 @@ def freq(args):
         if 'symmetry_number' in mol.__dict__: print(' Rotational symmetry number: %s' % mol.symmetry_number)
         if 'shape' in mol.__dict__: print(f' This is a {mol.shape.casefold()} molecule')
         
-        print('   Mode     Frequencies     Reduced masses     Force Constants')
-        print('              (cm^-1)            (AMU)           (mDyne/A)')
-        for i in range(len(mol.frequencies)):
-            print('%6d %15.4f %15.4f %18.4f' % (i+1, mol.frequencies[i], mol.reduced_masses[i], mol.force_constants[i]))
+        if 'infrared_intensities' in mol.__dict__ and 'raman_intensities' in mol.__dict__:
+            print('   Mode     Frequencies     Reduced masses     Force Constants       IR intensities     Raman intensities')
+            print('              (cm^-1)            (AMU)           (mDyne/A)              (km/mol)            (A^4/AMU)')
+            for i in range(len(mol.frequencies)):
+                print('%6d %15.4f %15.4f %18.4f     %18.4f %18.4f' % (i+1, mol.frequencies[i], mol.reduced_masses[i], mol.force_constants[i], mol.infrared_intensities[i], mol.raman_intensities[i]))
+        elif 'infrared_intensities' in mol.__dict__:
+            print('   Mode     Frequencies     Reduced masses     Force Constants       IR intensities')
+            print('              (cm^-1)            (AMU)           (mDyne/A)              (km/mol)')
+            for i in range(len(mol.frequencies)):
+                print('%6d %15.4f %15.4f %18.4f     %18.4f' % (i+1, mol.frequencies[i], mol.reduced_masses[i], mol.force_constants[i], mol.infrared_intensities[i]))
+        elif 'raman_intensities' in mol.__dict__:
+            print('   Mode     Frequencies     Reduced masses     Force Constants     Raman intensities')
+            print('              (cm^-1)            (AMU)           (mDyne/A)            (A^4/AMU)')
+            for i in range(len(mol.frequencies)):
+                print('%6d %15.4f %15.4f %18.4f     %18.4f     %18.4f' % (i+1, mol.frequencies[i], mol.reduced_masses[i], mol.force_constants[i], mol.raman_intensities[i]))
+        else:
+            print('   Mode     Frequencies     Reduced masses     Force Constants')
+            print('              (cm^-1)            (AMU)           (mDyne/A)')
+            for i in range(len(mol.frequencies)):
+                print('%6d %15.4f %15.4f %18.4f' % (i+1, mol.frequencies[i], mol.reduced_masses[i], mol.force_constants[i]))
             
         print(' %s ' % ('='*78))
         print(' %s Thermochemistry for molecule %6d' % (' '*20, imol+1))
@@ -491,6 +509,9 @@ def freq(args):
                     print(' * Warning * Heat of formation have high uncertainty!')
         print('')
 
+def ir(args):
+    freq(args)
+
 def irc(args):
     from . import simulations
     molDB = loading_data(args.XYZfile, charges=args.charges, multiplicities=args.multiplicities)
@@ -501,7 +522,7 @@ def irc(args):
                                     ts_molecule=mol)
 
 def MD(args):
-    from . import md_cmd 
+    from . import md_cmd
     model = loading_model(args)
     md_cmd.MD_CMD.dynamics(args.args2pass, model)
 
@@ -573,11 +594,11 @@ def loading_method(args):
             kwargs['read_keywords_from_file'] = args.QMprogramKeywords
             if args.mndokeywords or 'sparrow' in args.qmprog.lower():
                 kwargs['save_files_in_current_directory'] = True
-    if args.qmprog:
+    if args.QMprog:
         if 'AIQM' in kwargs['method']:
             kwargs['qm_program'] = args.qmprog
         else:
-            kwargs['program'] = args.qmprog                    
+            kwargs['program'] = args.qmprog 
     method = models.methods(**kwargs)
     method.set_num_threads(args.nthreads)
     return method
@@ -836,8 +857,20 @@ def analyzing(molecular_database, ref_value='', est_value='', ref_grad='', est_g
      estimated value        ={'%26.13f' % neg_off_est}
      reference value        ={'%26.13f' % neg_off_ref}''')
     if est_grad:
-        ref = molecular_database.get_xyz_vectorial_properties(ref_grad).flatten()
-        est = molecular_database.get_xyz_vectorial_properties(est_grad).flatten()
+        ref_raw = molecular_database.get_xyz_vectorial_properties(ref_grad)
+        est_raw = molecular_database.get_xyz_vectorial_properties(est_grad)
+        if isinstance(ref_raw[0],list) or isinstance(ref_raw[0],np.ndarray):
+            ref = []
+            est = []
+            for each in ref_raw:
+                ref.append(each.flatten())
+            for each in est_raw:
+                est.append(each.flatten())
+            ref = np.concatenate(ref)
+            est = np.concatenate(est)
+        else:
+            ref = ref_raw
+            est = est_raw
         mae = stats.mae(est, ref)
         mse = stats.mse(est, ref)
         rmse = stats.rmse(est, ref)
