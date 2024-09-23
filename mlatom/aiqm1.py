@@ -15,7 +15,7 @@ import torch
 import torchani
 from torchani.utils import ChemicalSymbolsToInts
 
-class aiqm1(models.torchani_model):
+class aiqm1(models.torchani_model, metaclass=models.meta_method):
     """
     The Artificial intelligence-quantum mechanical method as in the `AIQM1 paper`_.
 
@@ -42,7 +42,6 @@ class aiqm1(models.torchani_model):
 
 
     """
-    available_methods = models.methods.methods_map['aiqm1']
     atomic_energies = {'AIQM1': {1:-0.50088038, 6:-37.79221710, 7:-54.53360298, 8:-75.00986203},
                        'AIQM1@DFT': {1:-0.50139362, 6:-37.84623117, 7:-54.59175573, 8:-75.07674376}}
     atomic_energies['AIQM1@DFT*'] = atomic_energies['AIQM1@DFT']
@@ -66,17 +65,19 @@ class aiqm1(models.torchani_model):
         self.aiqm1_model = models.model_tree_node(name=modelname, children=aiqm1_children, operator='sum')
     
     def predict(self, molecular_database=None, molecule=None,
-                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, nstates=1, current_state=0, **kwargs):
+                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, calculate_dipole_derivatives=False, nstates=1, current_state=0, **kwargs):
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
         if 'nthreads' in self.__dict__: self.aiqm1_model.nthreads = self.nthreads
         for mol in molDB.molecules:
             self.predict_for_molecule(molecule=mol,
-                                    calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, nstates=nstates, 
+                                    calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, 
+                                    calculate_dipole_derivatives = calculate_dipole_derivatives,
+                                    nstates=nstates, 
                                     current_state=current_state,
                                     **kwargs)
         
     def predict_for_molecule(self, molecule=None,
-                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, nstates=1, current_state=0, **kwargs):
+                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, calculate_dipole_derivatives=False, nstates=1, current_state=0, **kwargs):
         
         for atom in molecule.atoms:
             if not atom.atomic_number in [1, 6, 7, 8]:
@@ -106,7 +107,9 @@ class aiqm1(models.torchani_model):
                 if any(calculate_energy_gradients):
                     calculate_energy_gradients = [True] * nstates
             self.aiqm1_model.predict(molecule=molecule,
-                                    calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, nstates=nstates, 
+                                    calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, 
+                                    calculate_dipole_derivatives = calculate_dipole_derivatives,
+                                    nstates=nstates, 
                                     current_state=current_state,
                                     **kwargs)
             

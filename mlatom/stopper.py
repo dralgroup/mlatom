@@ -13,5 +13,9 @@ def stopMLatom(errorMsg):
         print(' <!> %s <!>' % errorMsg)
     sys.exit()
 
+def warningMLatom(warningMsg):
+    if warningMsg != '':
+        print(' * Warning * %s' % warningMsg)
+
 if __name__ == '__main__':
     stopMLatom('Call the main program!')

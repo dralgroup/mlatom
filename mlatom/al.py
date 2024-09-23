@@ -227,8 +227,8 @@ class al():
         # ..sampler_kwargs: Kwargs for sampler used in active learning iterations
         if 'sampler_kwargs' in kwargs:
             self.sampler_kwargs = kwargs['sampler_kwargs']
-            if kwargs['sampler'] == 'lzsh':
-                if 'number_of_points_to_sample' not in kwargs['sampler_kwargs']:
+            if 'sampler' in kwargs:
+                if kwargs['sampler'] == 'lzsh' and 'number_of_points_to_sample' not in kwargs['sampler_kwargs']:
                     self.sampler_kwargs['number_of_points_to_sample'] = kwargs['new_points']
             if 'nthreads' in kwargs:
                 self.sampler_kwargs['nthreads'] = kwargs['nthreads']
@@ -453,7 +453,7 @@ class al():
             self.label_points_moldb(method=self.reference_method,model_predict_kwargs=self.model_predict_kwargs,moldb=init_cond_db,nthreads=self.label_nthreads)
             fail_count = 0
             for init_mol in init_cond_db:
-                if not 'failed' in init_mol.__dict__ or not init_mol.failed:
+                if (not 'failed' in init_mol.__dict__ and 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__) or not init_mol.failed:
                 # if 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__:
                     self.init_cond_db += init_mol
                 else:
@@ -568,7 +568,8 @@ class al():
         fail_count = 0
         init_cond_db.dump('debug.json',format='json')
         for init_mol in init_cond_db:
-            if not 'failed' in init_mol.__dict__ or not init_mol.failed:
+            if (not 'failed' in init_mol.__dict__ and 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__) or not init_mol.failed:
+            #if not 'failed' in init_mol.__dict__ or not init_mol.failed:
             # if 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__:
                 self.init_cond_db += init_mol
             else:
@@ -593,7 +594,8 @@ class al():
         if nmols > 0:
             self.label_points_moldb(method=self.reference_method,model_predict_kwargs=self.model_predict_kwargs,moldb=self.molecular_pool_to_label,nthreads=self.label_nthreads)
             for mol in self.molecular_pool_to_label:
-                if not 'failed' in mol.__dict__ or not mol.failed:
+                if (not 'failed' in mol.__dict__ and 'energy' in mol.__dict__ and 'energy_gradients' in mol.atoms[0].__dict__) or not mol.failed:
+                #if not 'failed' in mol.__dict__ or not mol.failed:
                 # if 'energy' in mol.__dict__ and 'energy_gradients' in mol.atoms[0].__dict__:
                     self.labeled_database.molecules.append(mol)
                     labeled_database_iteration.molecules.append(mol)
@@ -689,7 +691,10 @@ class al():
         def label(imol):
             mol2label = moldb[imol]
             if not ('energy' in mol2label.__dict__ and 'energy_gradients' in mol2label[0].__dict__):
-                method.predict(molecule=mol2label,calculate_energy=calculate_energy,calculate_energy_gradients=calculate_energy_gradients,calculate_hessian=calculate_hessian,**model_predict_kwargs)
+                try:
+                    method.predict(molecule=mol2label,calculate_energy=calculate_energy,calculate_energy_gradients=calculate_energy_gradients,calculate_hessian=calculate_hessian,**model_predict_kwargs)
+                except:
+                    print('labeling failed!')
             return mol2label
         def sptask(molecule=None, model=None, refmethod_kwargs={}):
             model.predict(molecule=molecule, **refmethod_kwargs)

@@ -10,7 +10,8 @@ import os
 import numpy as np
 from .. import constants, models
 
-class columbus_methods(models.model):
+class columbus_methods(models.model, metaclass=models.meta_method):
+    
     def __init__(self, command_line_arguments=None, save_files_in_current_directory=True, working_directory=None, directory_with_input_files='', **kwargs):
         self.command_line_arguments = command_line_arguments
         self.save_files_in_current_directory = save_files_in_current_directory

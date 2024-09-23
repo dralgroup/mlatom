@@ -420,7 +420,7 @@ class mlatom_args(ArgsBase):
                 'sample', 'sampleFromSlices', 'mergeSlices','slice',
             # Simulation tasks 
                 # PES tasks
-                'geomopt', 'ts', 'freq', 'irc',
+                'geomopt', 'ts', 'freq', 'irc', 'ir',
                 # Dynamics
                 'MD', 
                 # Vibrational spectra
@@ -511,7 +511,7 @@ class mlatom_args(ArgsBase):
                 'YgradFile', 'YgradEstFile', 'YgradB', 'YgradT', 'YgradEstT',
                 'YgradXYZfile', 'YgradXYZestFile', 'YgradXYZb', 'YgradXYZt', 'YgradXYZestT',
                 'MLprog', "MLmodelType",            
-                'qmprog',
+                'QMprog',
                 'mndokeywords', 'QMprogramKeywords', 'charges', 'multiplicities',
                 'optProg',
                 'freqProg',
@@ -699,6 +699,14 @@ class mlatom_args(ArgsBase):
                 if self.data[method]:
                     self.method = method
                     break
+            for key in self.data.keys():
+                if '/' in key and key not in self._method_list:
+                    self.method = key
+        if self.method:
+            if 'AIQM' in self.method.upper() and not self.QMprog:
+                self.QMprog = None
+            else:
+                self.QMprog = methods._get_program(self.method, self.QMprog)
         if not self._task:
             if not self.method:
                 Doc.printDoc({})

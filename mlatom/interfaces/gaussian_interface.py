@@ -18,7 +18,7 @@ from mlatom import simulations
 from mlatom.decorators import doc_inherit
 
 
-class gaussian_methods(models.model):
+class gaussian_methods(models.model, metaclass=models.meta_method):
     '''
     Gaussian interface
 
@@ -33,6 +33,7 @@ class gaussian_methods(models.model):
         The format of method should be the same as that in Gaussian, e.g., ``'B3LYP/6-31G*'``
         
     '''
+    
     def __init__(self,method='B3LYP/6-31G*',additional_input='',nthreads=None,save_files_in_current_directory=False, working_directory=None, **kwargs):
         if not "GAUSS_EXEDIR" in os.environ:
             raise ValueError('enviromental variable GAUSS_EXEDIR is not set')
@@ -56,6 +57,7 @@ class gaussian_methods(models.model):
                 calculate_energy=True,
                 calculate_energy_gradients=False,
                 calculate_hessian=False,
+                calculate_dipole_derivatives=False,
                 gaussian_keywords=None,):
         '''
             gaussian_keywords (some type): ``# needs to be documented``.
@@ -66,6 +68,7 @@ class gaussian_methods(models.model):
         self.calculate_energy_gradients = calculate_energy_gradients
         self.calculate_energy = calculate_energy
         self.calculate_hessian = calculate_hessian
+        self.calculate_dipole_derivatives = calculate_dipole_derivatives
         # self.writechk = False
         if gaussian_keywords == None:
             self.gaussian_keywords = ''
@@ -83,6 +86,8 @@ class gaussian_methods(models.model):
                 pass 
             else:
                 method += ' freq'     
+            if calculate_dipole_derivatives:
+                method += ' IOp(7/33=1)'
 
         import tempfile, subprocess
         with tempfile.TemporaryDirectory() as tmpdirname:
@@ -105,7 +110,7 @@ class gaussian_methods(models.model):
             
 
     def parse_gaussian_output(self, filename, molecule):
-        assistant = Gaussian_output_reading_assistant(self.calculate_energy,self.calculate_energy_gradients,self.calculate_hessian,self.energy_to_read)
+        assistant = Gaussian_output_reading_assistant(self.calculate_energy,self.calculate_energy_gradients,self.calculate_hessian,self.calculate_dipole_derivatives,self.energy_to_read)
         assistant.read_output(filename,molecule)
 
     def find_energy_to_read_in_Gaussian(self):
@@ -369,10 +374,7 @@ def write_gaussian_EOu(EOu_file, derivs, molecule):
             # dipole derivatives            DDip(I), I=1,9*NAtoms
             ddip = np.zeros(9*natoms)
             if 'dipole_derivatives' in molecule.__dict__.keys():
-                # Rescale the dipole derivatives by a factor of 0.1 so that anharmonic 
-                # infrared intensities can be printed properly when using AIQM1
-                # Later the intensities will be rescaled by a factor of 100
-                ddip = molecule.dipole_derivatives * constants.Bohr2Angstrom * constants.Debye2au / 10.0
+                ddip = molecule.dipole_derivatives * constants.Bohr2Angstrom * constants.Debye2au 
             output = writer.write(ddip)
             fEOu.write(output)
             fEOu.write('\n')
@@ -405,7 +407,7 @@ def read_freq_thermochemistry_from_Gaussian_output(outputfile, molecule):
         if 'Red. masses --' in lines[iline]: molecule.reduced_masses += [float(xx) for xx in lines[iline].split()[3:]]
         if 'Frc consts  --' in lines[iline]: molecule.force_constants += [float(xx) for xx in lines[iline].split()[3:]]
         if 'IR Inten    --' in lines[iline]: 
-            if 'dipole_derivatives' in molecule.__dict__.keys(): molecule.infrared_intensities += [float(xx)*100 for xx in lines[iline].split()[3:]]
+            if 'dipole_derivatives' in molecule.__dict__.keys(): molecule.infrared_intensities += [float(xx) for xx in lines[iline].split()[3:]]
         if 'Atom  AN      X      Y      Z' in lines[iline]:
             for iatom in range(natoms):
                 xyzs = np.array([float(xx) for xx in lines[iline+iatom+1].split()[2:]])
@@ -470,7 +472,7 @@ def read_anharmonic_frequencies(outputfile,molecule):
                     read_overtone = False 
                 else:
                     anharmonic_overtones.append(eval(templine[38:48]))
-                    harmonic_overtones.append(eval(templine[24:38]))
+                    harmonic_overtones.append(eval(templine[24:38].strip().split()[-1]))
                     icount += 1 
             overtones_flag = False
         if 'Combination Bands' in lines[iline] and combination_bands_flag:
@@ -484,7 +486,7 @@ def read_anharmonic_frequencies(outputfile,molecule):
                     read_combinaion_band = False 
                 else:
                     anharmonic_combination_bands.append(eval(templine[38:48]))
-                    harmonic_combination_bands.append(eval(templine[24:38]))
+                    harmonic_combination_bands.append(eval(templine[24:38].strip().split()[-1]))
                     icount += 1 
             combination_bands_flag = False
         if 'ZPE(anh)' in lines[iline]:
@@ -514,7 +516,7 @@ def read_anharmonic_frequencies(outputfile,molecule):
         for ii in range(len(molecule.frequencies)):
             templine = lines[flag+ii]
             try:
-                intensity = eval(templine.strip().split()[-1]) * 100 # the intensities are rescaled by a factor of 100
+                intensity = eval(templine.strip().split()[-1])
                 anharmonic_infrared_intensities.append(intensity)
             except:
                 anharmonic_infrared_intensities.append(math.nan)
@@ -529,7 +531,7 @@ def read_anharmonic_frequencies(outputfile,molecule):
                 read_overtone = False 
             else:
                 try:
-                    intensity = eval(temp[-1]) * 100 # the intensities are rescaled by a factor of 100
+                    intensity = eval(temp[-1]) 
                     anharmonic_overtones_infrared_intensities.append(intensity)
                 except:
                     anharmonic_overtones_infrared_intensities.append(math.nan)
@@ -546,7 +548,7 @@ def read_anharmonic_frequencies(outputfile,molecule):
                 read_combinaion_band = False 
             else:
                 try:
-                    intensity = eval(temp[-1]) * 100 # the intensities are rescaled by a factor of 100
+                    intensity = eval(temp[-1]) 
                     anharmonic_combination_bands_infrared_intensities.append(intensity)
                 except:
                     anharmonic_combination_bands_infrared_intensities.append(math.nan)
@@ -698,16 +700,35 @@ def read_Hessian_matrix_from_Gaussian_chkfile(filename,molecule):
         hessian /= constants.Bohr2Angstrom**2
         molecule.hessian = hessian
 
+def read_dipole_derivatives_from_Gaussian_output(lines,flag,mol):
+    if flag == -1:
+        return 
+    natoms = len(mol)
+    dipole_derivatives = []
+    for ii in range(3*natoms):
+        line = lines[flag+ii].strip()
+        if ii == 0:
+            line = line.split('=')[-1].strip()
+        line = line.replace('D','E')
+        # Parsing is a bit complex to make sure that it works for all versions
+        split_idx = [0]
+        for istr in range(len(line)):
+            if line[istr] == 'E':
+                split_idx.append(istr+4)
+        for isplit in range(len(split_idx)-1):
+            dipole_derivatives.append(float(line[split_idx[isplit]:split_idx[isplit+1]]))
 
+    mol.dipole_derivatives = np.array(dipole_derivatives) / constants.Debye
 
 class Gaussian_output_reading_assistant():
     def __init__(self,calculate_energy=True,calculate_energy_gradients=False,calculate_hessian=False,
-                 energy_to_read=None):
+                 calculate_dipole_derivatives=False,energy_to_read=None):
         # Some arguments of Gaussian job
         self.calculate_energy = calculate_energy 
         self.calculate_energy_gradients = calculate_energy_gradients 
         self.calculate_hessian = calculate_hessian
         self.energy_to_read = energy_to_read
+        self.calculate_dipole_derivatives = calculate_dipole_derivatives
         # What to read in Gaussian output file
         self.read_energy = False 
         self.read_energy_gradients = False 
@@ -715,12 +736,15 @@ class Gaussian_output_reading_assistant():
         self.read_Mulliken_charges = True 
         self.read_dipole_moment = True 
         self.read_job_status = True 
+        self.read_dipole_derivatives = False
         if self.calculate_energy:
             self.read_energy = True 
         if self.calculate_energy_gradients:
             self.read_energy_gradients = True 
         if self.calculate_hessian:
             self.read_hessian = True 
+            if self.calculate_dipole_derivatives:
+                self.read_dipole_derivatives = True
 
     def read_output(self,filename,molecule):
         job_status_flag = -1
@@ -756,6 +780,13 @@ class Gaussian_output_reading_assistant():
                         if 'Forces (Hartrees/Bohr)' in lines[iline]:
                             forces_flag = iline+3
                             read_energy_gradients_from_Gaussian_output(lines,forces_flag,molecule)
+                            self.read_energy_gradients = False
+                if self.calculate_dipole_derivatives:
+                    if self.read_dipole_derivatives:
+                        if 'DipoleDeriv ' in lines[iline]:
+                            dipole_derivatives_flag = iline 
+                            read_dipole_derivatives_from_Gaussian_output(lines,dipole_derivatives_flag,molecule)
+                            self.read_dipole_derivatives = False
         if self.calculate_hessian:
             newmolecule = molecule.copy()
             freq_flag = read_freq_thermochemistry_from_Gaussian_output(filename,newmolecule)

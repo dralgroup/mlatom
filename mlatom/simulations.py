@@ -138,11 +138,14 @@ class optimize_geometry():
             if "GAUSS_EXEDIR" in os.environ: self.program = 'Gaussian'
             else:
                 try:
-                    import ase
-                    self.program = 'ASE'
+                    import geometric
+                    self.program = 'geometric'
+                # try:
+                #     import ase
+                #     self.program = 'ASE'
                 except:
                     try: import scipy.optimize
-                    except: raise ValueError('please set $GAUSS_EXEDIR or install ase or install scipy')
+                    except: raise ValueError('please set $GAUSS_EXEDIR or install geometric or install scipy')
         
         self.optimization_algorithm = optimization_algorithm
         
@@ -425,11 +428,15 @@ class freq():
 
 
     """
-    def __init__(self, model=None, model_predict_kwargs={}, molecule=None, program=None, normal_mode_normalization='mass deweighted normalized', anharmonic=False, anharmonic_kwargs={}, working_directory=None):
+    def __init__(self, model=None, model_predict_kwargs={}, molecule=None, program=None, ir=False, normal_mode_normalization='mass deweighted normalized', anharmonic=False, anharmonic_kwargs={}, working_directory=None):
         if model != None:
             self.model = model
         self.model_predict_kwargs = model_predict_kwargs
         self.molecule = molecule
+        self.ir = ir
+        if self.ir:
+            if not 'calculate_dipole_derivatives' in self.model_predict_kwargs:
+                self.model_predict_kwargs['calculate_dipole_derivatives'] = True
         if program != None:
             self.program = program
         else:
@@ -453,7 +460,11 @@ class freq():
             if not 'shape' in self.molecule.__dict__:
                 self.molecule.shape = 'nonlinear'
             self.freq_modified_from_TorchANI(molecule=self.molecule,normal_mode_normalization=self.normal_mode_normalization,model=self.model, model_predict_kwargs=self.model_predict_kwargs)
-        
+
+        if 'dipole_derivatives' in self.molecule.__dict__:
+            if self.program.casefold() != 'Gaussian'.casefold():
+                self.ir_intensities(normal_mode_normalization='mass deweighted normalized')
+
     def freq_gaussian(self, anharmonic):
         self.successful = False
         from .interfaces import gaussian_interface
@@ -494,9 +505,44 @@ class freq():
 
     def freq_pyscf(self):
         self.successful = False
-        self.model.predict(molecule=self.molecule, calculate_energy=True, calculate_hessian=True, **self.model_predict_kwargs)
+        self.model.predict(molecule=self.molecule, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=True, **self.model_predict_kwargs)
         from .interfaces import pyscf_interface
         self.successful = pyscf_interface.thermo_calculation(molecule=self.molecule)
+
+    # This function uses dipole derivatives in Debye/Angstrom
+    # The unit of IR intensities (km/mol) refers to kernel_ir function in 
+    # https://github.com/pyscf/properties/blob/master/pyscf/prop/infrared/rhf.py
+    def ir_intensities(self,normal_mode_normalization='mass deweighted normalized'):
+        Natoms = len(self.molecule)
+        Nfreqs = len(self.molecule.frequencies)
+        masses = self.molecule.get_nuclear_masses()
+        kmmol = constants.fine_structure_constant**2 * 1e-3 * constants.au2ram * constants.Avogadro_constant * np.pi * constants.Bohr2Angstrom * 1e-10 / 3
+        de = np.copy(self.molecule.dipole_derivatives) * constants.Debye
+        if normal_mode_normalization == 'mass deweighted normalized':
+            # mass deweighted normalized to mass weighted normalized
+            nm = np.zeros((Nfreqs,Natoms,3))
+            for imode in range(Nfreqs):
+                for iatom in range(Natoms):
+                    nm[imode][iatom] = self.molecule[iatom].normal_modes[imode] * np.sqrt(masses[iatom])
+            for imode in range(Nfreqs):
+                nm[imode] /= np.sqrt(np.sum(nm[imode]**2))
+            # mass weighted normalized to mass deweighted unnormalized
+            for imode in range(Nfreqs):
+                for iatom in range(Natoms):
+                    nm[imode][iatom] = nm[imode][iatom] / np.sqrt(masses[iatom])
+        elif normal_mode_normalization == 'mass deweighted unnormalized':
+            nm = np.zeros((Nfreqs,Natoms,3))
+            for imode in range(Nfreqs):
+                for iatom in range(Natoms):
+                    nm[imode][iatom] = self.molecule[iatom].normal_modes[imode]
+        else:
+            return
+        new_de = de.reshape((Natoms*3,3))
+
+        # The normal modes here should be mass deweighted unnormalized ones
+        nm = nm.reshape((nm.shape[0],3*Natoms))
+        de_nm = np.dot(nm,new_de)
+        self.molecule.infrared_intensities = kmmol * np.einsum("qt, qt -> q", de_nm,de_nm)
     
     @classmethod
     def freq_modified_from_TorchANI(cls,molecule,normal_mode_normalization,model=None, **kwargs):
@@ -534,7 +580,7 @@ class freq():
             model_predict_kwargs = {}
 
         if not model is None:
-            model.predict(molecule=molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=True)
+            model.predict(molecule=molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=True, **model_predict_kwargs)
         
         mhessian2fconst = 4.359744650780506
         unit_converter = 17091.7006789297
@@ -662,7 +708,7 @@ class thermochemistry():
     
     * ``DeltaHf298``: Heat of formation at 298 K
     """
-    def __init__(self, model=None, molecule=None, program=None, normal_mode_normalization='mass deweighted normalized'):
+    def __init__(self, model=None, molecule=None, program=None, ir=False, normal_mode_normalization='mass deweighted normalized'):
         if model != None:
             self.model = model
         self.molecule = molecule
@@ -676,7 +722,7 @@ class thermochemistry():
                     self.program = 'ASE'
                 except:
                     raise ValueError('please set $GAUSS_EXEDIR or install ase')
-        freq(model=model, molecule=self.molecule, program=program, normal_mode_normalization=normal_mode_normalization)
+        freq(model=model, molecule=self.molecule, program=program, ir=ir,normal_mode_normalization=normal_mode_normalization)
         if self.program.casefold() == 'ASE'.casefold(): self.thermochem_ase()
         # Calculate heats of formation
         self.calculate_heats_of_formation()
@@ -856,3 +902,4 @@ def numerical_hessian(molecule, model_with_function_to_predict_energy, eps=5.291
         coordinates2[i] = x0
 
     return hess
+

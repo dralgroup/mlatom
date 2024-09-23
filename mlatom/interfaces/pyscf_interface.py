@@ -8,29 +8,26 @@
   !---------------------------------------------------------------------------! 
 '''
 
+# TODO: check convergence criterion for gradients and energy
+
 import os
 import numpy as np
 
-import pyscf
-from pyscf import gto, scf
-from pyscf.dft.libxc import *
-from pyscf import hessian
-from pyscf.hessian import thermo
-from pyscf.hessian.thermo import *
-from pyscf.hessian.thermo import _get_rotor_type, _get_TR
-import tempfile
+from multiprocessing import cpu_count
+import sys
 
-from .. import constants, data, simulations, stopper, models
+from .. import constants, stopper, models
 from ..decorators import doc_inherit
 
 class OMP_pyscf(models.model):
     def set_num_threads(self, nthreads=0):
         super().set_num_threads(nthreads)
         if self.nthreads:
-            os.environ["OMP_NUM_THREADS"] = str(self.nthreads)
+            import pyscf
+            # os.environ["OMP_NUM_THREADS"] = str(self.nthreads)
             pyscf.lib.misc.num_threads(n=self.nthreads)
 
-class pyscf_methods(OMP_pyscf):
+class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=["HF", 'MP2', "FCI", "CISD" "CCSD", "CCSD(T)"]):
     '''
     PySCF interface
 
@@ -50,17 +47,47 @@ class pyscf_methods(OMP_pyscf):
         
     '''
 
-    def __init__(self, method='B3LYP/6-31g', **kwargs):
+    def __init__(self, method='B3LYP/6-31g', nthreads=None, **kwargs):
         
         self.method = method.split('/')[0]
+        if not 'DM21' in self.method.upper():
+            if 'PYSCF_PATH' in os.environ:
+                sys.path.insert(0,os.environ['PYSCF_PATH'])
+       
         self.basis = method.split('/')[1]
-
-        if 'nthreads' in kwargs.keys():
-            self.nthreads = kwargs['nthreads']
+        if nthreads is None:
+            self.nthreads = cpu_count()
         else:
-            self.nthreads = 1
-
-    def predict_for_molecule(self, molecule=None, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, **kwargs):
+            self.nthreads = nthreads
+        if 'infrared' in kwargs:
+            self.infrared = kwargs['infrared']
+        else:
+            self.infrared = False
+        if 'density_fitting' in kwargs:
+            self.density_fitting = kwargs['density_fitting']
+        else:
+            self.density_fitting = False
+            
+    @classmethod
+    def is_available_method(cls, method):
+        # methods can be used without `method` keywords:
+        # DFT, HF, MP2, FCI, CISD, CCSD, CCSD(T) / [basis set]
+        if not 'DM21' in method.upper():
+            if 'PYSCF_PATH' in os.environ:
+                sys.path.insert(0,os.environ['PYSCF_PATH'])
+        from pyscf.dft.libxc import parse_xc
+        method = method.split('/')[0]
+        if method.casefold() in [m.casefold() for m in cls.available_methods]:
+            return True
+        try:
+            parse_xc(method)
+            return True
+        except:
+            return False
+            
+    def predict_for_molecule(self, molecule=None, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, calculate_dipole_derivatives=False, **kwargs):
+        from pyscf import gto, scf
+        from pyscf.dft.libxc import parse_xc
         pyscf_mol = gto.Mole()
         pyscf_mol.atom = [
             [a.element_symbol, tuple(a.xyz_coordinates)]
@@ -105,8 +132,10 @@ class pyscf_methods(OMP_pyscf):
             pyscf_method = cc.CCSD(pyscf_method_hf.run())
 
         # TDSCF/TDDFT
-        elif 'TD ' in self.method.upper():
-            f = self.method.split()[1]
+        # Currently TD-DFT in pyscf cannot specify nstates. By default it will give results for 3 lowest singlets and they are not saved properly.
+        # Gradients are availble in pyscf but not implemented here. Hessian is not available.
+        elif 'TD-' == self.method.upper()[:3]:
+            f = self.method.split('-', 1)[1]
             if 'HF' == f.upper():
                 pyscf_method_hf = scf.HF(pyscf_mol).run()
                 pyscf_method = pyscf_method_hf.TDHF()
@@ -136,16 +165,29 @@ class pyscf_methods(OMP_pyscf):
 
         # CASCI/CASSCF
 
-        pyscf_method.kernel()
+        # check if the method support density fitting
+        if self.method.upper() in ['MP2', "FCI", "CISD", "CCSD", "CCSD(T)"] and self.density_fitting:
+            self.density_fitting = False
+            print(f'Density fitting is not supported for {self.method} in pyscf and will be turned off automatically')
 
         if calculate_energy:
-            molecule.energy = pyscf_method.e_tot
+            if not calculate_energy_gradients and not calculate_hessian and self.density_fitting:
+                pyscf_method.density_fit().run()
+                pyscf_method.e_tot = sum(pyscf_method.scf_summary.values())
+            else:
+                pyscf_method.kernel()
 
-            if 'CCSD(T)' == self.method.upper():
-                molecule.energy = pyscf_method.e_tot + pyscf_method.ccsd_t()
+            if self.density_fitting:
+                molecule.energy = pyscf_method.e_tot
+            else:
+                if pyscf_method.converged:
+                    molecule.energy = pyscf_method.e_tot
+                    if 'CCSD(T)' == self.method.upper():
+                        molecule.energy = pyscf_method.e_tot + pyscf_method.ccsd_t()
+                else:
+                    print("PySCF doesn't converge and energy will not be stored in molecule")
 
         if calculate_energy_gradients:
-
             # FCI not supported 
             if 'FCI' == self.method.upper():
                 errmsg = 'Gradients in pyscf do not support FCI '
@@ -153,49 +195,67 @@ class pyscf_methods(OMP_pyscf):
             
             # NOTE: PySCF use Bohr as unit by default for gradients calculation
             molecule_gradients = pyscf_method.nuc_grad_method().kernel()
-            molecule_gradients = molecule_gradients/constants.Bohr2Angstrom
-
-            if 'CCSD(T)' == self.method.upper():
-                from pyscf.grad import ccsd_t as ccsd_t_grad
-                # gradients of uccsdt are not supported
-                if isinstance(pyscf_method, cc.uccsd.UCCSD):
-                    errmsg = 'Gradients for UCCSD(T) not supported in pyscf'
-                    raise ValueError(errmsg)
-                molecule_gradients = ccsd_t_grad.Gradients(pyscf_method).kernel()
-            for ii in range(len(molecule.atoms)):
-                molecule.atoms[ii].energy_gradients = molecule_gradients[ii]            
-        if calculate_hessian:
             
+            if pyscf_method.converged:
+                molecule_gradients = molecule_gradients/constants.Bohr2Angstrom
+
+                if 'CCSD(T)' == self.method.upper():
+                    from pyscf.grad import ccsd_t as ccsd_t_grad
+                    # gradients of uccsdt are not supported
+                    if isinstance(pyscf_method, cc.uccsd.UCCSD):
+                        errmsg = 'Gradients for UCCSD(T) not supported in pyscf'
+                        raise ValueError(errmsg)
+                    molecule_gradients = ccsd_t_grad.Gradients(pyscf_method).kernel()
+                for ii in range(len(molecule.atoms)):
+                    molecule.atoms[ii].energy_gradients = molecule_gradients[ii]
+            else:
+                print("PySCF doesn't converge and gradients will not be stored in molecule")            
+        if calculate_hessian:
+            method_type = ''
+
             # HF, DFT only
             from pyscf import hessian
-            if isinstance(pyscf_method, scf.hf.RHF):      
-                #hess = hessian.RHF(pyscf_method).kernel()
-                pass
-
-            elif isinstance(pyscf_method, scf.uhf.UHF):
-                #hess = hessian.UHF(pyscf_method).kernel()
-                pass
-
-            elif isinstance(pyscf_method, dft.rks.RKS):
+            from pyscf import dft
+            # rks inherits rhf, check rks first
+            if isinstance(pyscf_method, dft.rks.RKS):
+                method_type = 'rks'
                 #hess = hessian.RKS(pyscf_method).kernel()
                 pass
             
             elif isinstance(pyscf_method, dft.uks.UKS):
+                method_type = 'uks'
                 #hess = hessian.UKS(pyscf_method).kernel()
                 pass
-            
+
+            elif isinstance(pyscf_method, scf.hf.RHF):      
+                method_type = 'rhf'
+                #hess = hessian.RHF(pyscf_method).kernel()
+                pass
+
+            elif isinstance(pyscf_method, scf.uhf.UHF):
+                method_type = 'uhf'
+                #hess = hessian.UHF(pyscf_method).kernel()
+                pass
+
             else:
                 errmsg = 'Hessian in pyscf only support HF and DFT'
                 raise ValueError(errmsg)
 
             # NOTE: PySCF use Bohr as unit by default for hessian calculation
             hess = pyscf_method.Hessian().kernel()
-            natom = len(molecule.atoms)
-            h = np.zeros((3*natom, 3*natom))
-            for ii in range(natom):
-                for jj in range(natom):
-                    h[ii*3:(ii+1)*3, jj*3:(jj+1)*3] = hess[ii][jj]
-            molecule.hessian = h / constants.Bohr2Angstrom**2
+
+            if pyscf_method.converged:
+                natom = len(molecule.atoms)
+                h = np.zeros((3*natom, 3*natom))
+                for ii in range(natom):
+                    for jj in range(natom):
+                        h[ii*3:(ii+1)*3, jj*3:(jj+1)*3] = hess[ii][jj]
+                molecule.hessian = h / constants.Bohr2Angstrom**2
+
+                if calculate_dipole_derivatives:
+                    calc_dipole_derivatives(pyscf_method,molecule,method_type)
+            else:
+                print("PySCF doesn't converge and hessian will not be stored in molecule")
 
     def predict_for_molecule_DM21(self, molecule=None, pyscf_mol=None, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, **kwargs):
         # reference: https://github.com/google-deepmind/deepmind-research/tree/f5de0ede8430809180254ee957abf36ed62579ef/density_functional_approximation_dm21
@@ -204,7 +264,6 @@ class pyscf_methods(OMP_pyscf):
         # DM21m - trained on molecules dataset.
         # DM21mc - trained on molecules dataset, and fractional charge constraints.
         # DM21mu - trained on molecules dataset, and electron gas constraints.
-
         from pyscf import dft
         try:
             import density_functional_approximation_dm21 as dm21
@@ -254,6 +313,9 @@ class pyscf_methods(OMP_pyscf):
 
 def thermo_calculation(molecule):
     # construct pyscf molecule object
+    from pyscf.hessian.thermo import harmonic_analysis
+    from pyscf import gto
+    import numpy
     pyscf_mol = gto.Mole()
     pyscf_mol.atom = [[a.element_symbol, tuple(a.xyz_coordinates)] for a in molecule.atoms]
     #pyscf_mol.basis = method.split('/')[1]
@@ -283,6 +345,9 @@ def thermo_calculation(molecule):
     molecule.reduced_masses = thermo_results['reduced_mass'].real
     # normal modes
     mode = thermo_results['norm_mode'].real
+    # Pyscf provides mass deweighted unnormalized normal modes. Normalize them here.
+    for imode in range(mode.shape[0]):
+        mode /= np.sqrt(np.sum(mode[imode]**2))
     for iatom in range(len(molecule.atoms)):
         molecule.atoms[iatom].normal_modes = []
         for ii in range(mode.shape[0]):
@@ -306,10 +371,9 @@ def thermo_calculation(molecule):
 def thermo_modified_from_pyscf(molecule, freq, temperature=298.15, pressure=101325):
 # https://github.com/pyscf/pyscf/blob/master/pyscf/hessian/thermo.py
 
-    from functools import reduce
     import numpy
-    from pyscf import lib
     from pyscf.data import nist
+    from pyscf.hessian.thermo import _get_rotor_type, rotation_const, rotational_symmetry_number
 
     mol = molecule
     atom_coords = mol.atom_coords()
@@ -406,6 +470,35 @@ def thermo_modified_from_pyscf(molecule, freq, temperature=298.15, pressure=1013
     results['G_tot' ] = (_sum('G'), 'Eh')
 
     return results
+
+# There is no guarantee that this function gives correct dipole derivatives,
+# as the package itself is not fully tested
+def calc_dipole_derivatives(pyscf_method,mol,method_type=''):
+    import warnings
+    try:
+        # Ignore tons of warnings in pyscf.prop package
+        warnings.filterwarnings("ignore")
+        from pyscf.prop.infrared import rhf,rks,uhf,uks
+        # Raise a much simpler warning
+        warnings.filterwarnings("default")
+        stopper.warningMLatom('Trying to calculate dipole derivatives using pyscf.prop package. It is not fully tested.')
+    except:
+        stopper.warningMLatom('Essential package for dipole derivatives not found, please refer to https://github.com/pyscf/properties/tree/master.')
+        return 
+    # print(method_type)
+    if method_type == 'rhf':
+        mf_ir = rhf.Infrared(pyscf_method)
+    elif method_type == 'rks':
+        mf_ir = rks.Infrared(pyscf_method)
+    elif method_type == 'uhf':
+        mf_ir = uhf.Infrared(pyscf_method)
+    elif method_type == 'uks':
+        mf_ir = uks.Infrared(pyscf_method)
+    else:
+        return
+    dipole_derivatives = np.array(mf_ir.kernel_dipderiv()) / constants.Debye
+    # print(dipole_derivatives)
+    mol.dipole_derivatives = dipole_derivatives.reshape(9*len(mol))
 
 
 if __name__ == '__main__':

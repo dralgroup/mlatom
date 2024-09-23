@@ -14,7 +14,7 @@ from requests.structures import CaseInsensitiveDict
 from .. import stopper, simulations, models
 from ..decorators import doc_inherit
 
-class mndo_methods(models.model):
+class mndo_methods(models.model, metaclass=models.meta_method):
     '''
     MNDO interface
 
@@ -47,8 +47,6 @@ class mndo_methods(models.model):
                         'PM3', 'AM1', 'MNDO/d', 'MNDOC', 'MNDO',
                         'MINDO/3', 'CNDO/2', 'SCC-DFTB', 'SCC-DFTB-heats',
                         'MNDO/H', 'MNDO/dH']]
-
-    available_methods = models.methods.methods_map['mndo'] #need to sync with dict method_keywords somehow
     
     def __init__(self, method='ODM2*', read_keywords_from_file='', save_files_in_current_directory=True, working_directory=None, **kwargs):
         self.method = method
@@ -57,10 +55,6 @@ class mndo_methods(models.model):
             self.read_keywords_from_file = os.path.abspath(read_keywords_from_file)
         self.save_files_in_current_directory = save_files_in_current_directory
         self.working_directory = working_directory
-        if 'infrared' in kwargs:
-            self.infrared = kwargs['infrared']
-        else:
-            self.infrared = False
         try: self.mndobin = os.environ['mndobin']
         except:
             errmsg = 'Cannot find the MNDO program, please set the environment variable: export mndobin=...'
@@ -75,6 +69,7 @@ class mndo_methods(models.model):
                 calculate_energy=True, 
                 calculate_energy_gradients=False, 
                 calculate_hessian=False,
+                calculate_dipole_derivatives=False,
                 calculate_nacv=False,
                 read_density_matrix=False):
         
@@ -148,7 +143,7 @@ class mndo_methods(models.model):
 
                         fmndo.writelines('%s igeom=1 iform=1 nsav15=3 +\n' % CaseInsensitiveDict(self.method_keywords)[self.method])
                         fmndo.writelines('icuts=-1 icutg=-1 kitscf=9999 iscf=9 iplscf=9 +\n')
-                        if self.infrared:
+                        if calculate_dipole_derivatives:
                             fmndo.writelines('iprint=-1 kprint=-5 lprint=0 mprint=0 jprint=-1 +\n')
                         else:
                             fmndo.writelines('iprint=-1 kprint=-5 lprint=-2 mprint=0 jprint=-1 +\n')
@@ -321,7 +316,7 @@ class mndo_methods(models.model):
                     
                     # read gradient(s)
                     if nstates == 1:
-                        if calculate_energy_gradients:
+                        if calculate_energy_gradients[0]:
                             if found_ffort15_grad_flag:
                                 energy_gradient = []
                                 for line in ffort15_lines[ffort15_grad_index: ffort15_grad_index+natoms]:
@@ -413,7 +408,7 @@ class mndo_methods(models.model):
                             if 'DIPOLE DERIVATIVES' in outputs[iline]:
                                 if 'CARTESIAN COORDINATES' in outputs[iline+1]:
                                     # calculate dipole derivatives        
-                                    if any(calculate_hessian) and self.infrared:
+                                    if any(calculate_hessian) and calculate_dipole_derivatives:
                                         dipole_derivatives = []
                                         flag = iline+6
                                         icount = 1

@@ -865,12 +865,12 @@ class Sampler():
                         break
                 prob_list, prob_list_aux =  predict_probabilites_gapMD(gap_traj, current_state=lower_surface_list[i]+1, time_step=time_step_gapMD) 
                 UQ_db = data.molecular_database()
-                for i in range(len(prob_list)):
-                    if i > stop_index -1 and stop_index != -1:
+                for k in range(len(prob_list)):
+                    if k > stop_index -1 and stop_index != -1:
                         break
-                    diff = abs(max(prob_list[i])-max(prob_list_aux[i]))
+                    diff = abs(max(prob_list[k])-max(prob_list_aux[k]))
                     if diff > prob_threshold:
-                        UQ_db.molecules.append(traj.steps[i].molecule)
+                        UQ_db.molecules.append(gap_traj.steps[k].molecule)
                         #print('prob UQ diverged at gapMD trajectory %d at time %.2f fs' % (itraj, (i)*time_step))
                 
                 if len(UQ_db) >0:
@@ -902,12 +902,12 @@ class Sampler():
                         break
                 prob_list, prob_list_aux =  predict_probabilites_gapMD(gap_traj, current_state=0, time_step=time_step_gapMD) 
                 UQ_db = data.molecular_database()
-                for i in range(len(prob_list)):
-                    if i > stop_index -1 and stop_index != -1:
+                for k in range(len(prob_list)):
+                    if k > stop_index -1 and stop_index != -1:
                         break
-                    diff = abs(max(prob_list[i])-max(prob_list_aux[i]))
+                    diff = abs(max(prob_list[k])-max(prob_list_aux[k]))
                     if diff > prob_threshold:
-                        UQ_db.molecules.append(traj.steps[i].molecule)
+                        UQ_db.molecules.append(gap_traj.steps[k].molecule)
                         #print('prob UQ diverged at gapMD trajectory %d at time %.2f fs' % (itraj, (i)*time_step))
                 
                 if len(UQ_db) >0:
@@ -925,7 +925,7 @@ class Sampler():
                 if len(sampled_db) != 0:
                     moldb.append(sampled_db)
                 else:
-                    return moldb
+                    return data.molecular_databse()
             return sample_from_DB(moldb, max_points)
         else:
             moldb = loop_alnamd()

@@ -183,16 +183,20 @@ class methods(model):
 
     methods_map = {
     'aiqm1': ['AIQM1', 'AIQM1@DFT', 'AIQM1@DFT*'],
-    'ani': ["ANI-1x", "ANI-1ccx", "ANI-2x", 'ANI-1x-D4', 'ANI-2x-D4', 'ANI-1xnr'], 
+    'dens': [],
+    'torchani': ["ANI-1x", "ANI-1ccx", "ANI-2x", 'ANI-1x-D4', 'ANI-2x-D4', 'ANI-1xnr'], 
     'aimnet2': ["AIMNet2@b973c", "AIMNet2@wb97m-d3"],
     'mndo': ['ODM2*', 'ODM2', 'ODM3', 'OM3', 'OM2', 'OM1', 'PM3', 'AM1', 'MNDO/d', 'MNDOC', 'MNDO', 'MINDO/3', 'CNDO/2', 'SCC-DFTB', 'SCC-DFTB-heats', 'MNDO/H', 'MNDO/dH'],
     'sparrow': ['DFTB0', 'DFTB2', 'DFTB3', 'MNDO', 'MNDO/d', 'AM1', 'RM1', 'PM3', 'PM6', 'OM2', 'OM3', 'ODM2*', 'ODM3*', 'AIQM1'],
     'xtb': ['GFN2-xTB'],
     'dftd4': ['D4'],
+    'dftd3': ['d3zero', 'd3bj', 'd3bjm', 'd3zerom', 'd3op'],
+    'dens': [],
     'ccsdtstarcbs': ['CCSD(T)*/CBS'],
+    # in-interface method searching for a empty list
+    'pyscf': [],
     'gaussian': [],
     'columbus': [],
-    'pyscf': [],
     'turbomole': [],
     'orca': [],
     }
@@ -204,24 +208,8 @@ class methods(model):
         self.program = program
         if kwargs != {}: self.kwargs = kwargs
         
-        if program != None:
-            if program.casefold() in self.methods_map:
-                self.interface = interfaces.__dict__[program.casefold()](method=method, **kwargs)
-        elif self.method.casefold() in [mm.casefold() for mm in self.methods_map['mndo']] or self.method in [mm.casefold() for mm in self.methods_map['sparrow']]:
-            if self.method.casefold() in [mm.casefold() for mm in self.methods_map['mndo']] and 'mndobin' in os.environ:
-                from .interfaces.mndo_interface import mndo_methods
-                self.interface = mndo_methods(method=method, **kwargs)
-            elif self.method.casefold() in [mm.casefold() for mm in self.methods_map['sparrow']] and 'sparrowbin' in os.environ:
-                from .interfaces.sparrow_interface import sparrow_methods
-                self.interface = sparrow_methods(method=method, **kwargs)
-            else:
-                errmsg = "Can't find appropriate program for the requested method, please set the environment variable: export mndobin=... or export sparrowbin=..."
-                raise ValueError(errmsg)
-        else:
-            for interface, interfaced_methods in self.methods_map.items():
-                if self.method.casefold() in [mm.casefold() for mm in interfaced_methods]:
-                    self.interface = interfaces.__dict__[interface](method=method, **kwargs)
-                    break
+        program = self._get_program(method, program)
+        self.interface = interfaces.__dict__[program]()(method=method, **kwargs)
     
     @property
     def nthreads(self):
@@ -237,6 +225,36 @@ class methods(model):
     def config_multiprocessing(self):
         super().config_multiprocessing()
         self.interface.config_multiprocessing()
+
+    @classmethod
+    def _get_program(cls, method, program):
+        if program:
+            if program.lower() not in  ['turbomole', 'columbus'] and not method:
+                raise ValueError('A method must be specified')
+            if program.casefold() in cls.methods_map:
+                return program.casefold()
+            else:
+                raise ValueError('Unrecognized program')
+        else:
+            program_list = []
+            for program, methods in cls.methods_map.items():
+                if methods:
+                    if method.casefold() in [m.casefold() for m in methods]:
+                        try:
+                            interfaces.__dict__[program]()()
+                            program_list.append(program)
+                        except:
+                            pass
+                else: 
+                    try:
+                        if interfaces.__dict__[program]().is_available_method(method):
+                            program_list.append(program)  
+                    except:
+                        pass
+                
+            if len(set(program_list)) != 0:
+                return program_list[0]                     
+            raise ValueError("Cannot find appropriate program for the requested method")
 
     @classmethod
     def known_methods(cls):
@@ -264,6 +282,18 @@ class methods(model):
         if format == 'dict':
             return model_dict
 
+class meta_method(type):
+    def __new__(cls, name, bases, namespace, available_methods=[]):
+        new = super().__new__(cls, name, bases, namespace)
+        if not available_methods:
+            available_methods = methods.methods_map[name.split('_')[0]]
+        new.available_methods = available_methods
+        return new
+    
+    def is_available_method(self, method):
+        return method.casefold() in [m.casefold() for m in self.available_methods]
+    
+        
 # Parent model class
 class ml_model(model):
     '''
@@ -1239,7 +1269,6 @@ def mace(**kwargs):
     from .interfaces.mace_interface import mace
     return mace(**kwargs)
 
-
 class model_tree_node(model):
     '''
     Create a model tree node.
@@ -1341,6 +1370,8 @@ class model_tree_node(model):
         else:
             for child in self.children:
                 child.predict(**kwargs)
+                if 'weight' in child.__dict__.keys():
+                    mol.__dict__[child.name].__dict__['weight'] = child.weight
 
             if self.operator == 'sum':
                 for mol in molDB.molecules:
@@ -1348,6 +1379,12 @@ class model_tree_node(model):
                         mol.__dict__[self.name].sum(properties+atomic_properties)
                     for mol_el_st in mol.electronic_states:
                         mol_el_st.__dict__[self.name].sum(properties+atomic_properties)
+            if self.operator == 'weighted_sum':
+                for mol in molDB.molecules:
+                    if not mol.electronic_states:
+                        mol.__dict__[self.name].weighted_sum(properties+atomic_properties)
+                    for mol_el_st in mol.electronic_states:
+                        mol_el_st.__dict__[self.name].weighted_sum(properties+atomic_properties)
             if self.operator == 'average':
                 for mol in molDB.molecules:
                     if not mol.electronic_states:
@@ -1404,6 +1441,7 @@ class model_tree_node(model):
             'operator': self.operator,
             'model': self.model.dump(format='dict') if self.model else None,
             'nthreads': self.nthreads,
+            'weight': self.weight if 'weight' in self.__dict__ else None
         }
 
         if format == 'json':
@@ -1463,8 +1501,11 @@ def load_dict(model_dict):
         name = model_dict['name']
         operator = model_dict['operator']
         model = load_dict(model_dict['model']) if model_dict['model'] else None
+        weight = model_dict['weight'] if 'weight' in model_dict else None 
         model = model_tree_node(name=name, children=children, operator=operator, model=model)
-
+        if weight:
+            model.weight = weight
+        
     model.set_num_threads(nthreads)
     return model
 

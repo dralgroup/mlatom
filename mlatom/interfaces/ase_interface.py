@@ -73,8 +73,12 @@ def optimize_geometry(initial_molecule, model, convergence_criterion_for_forces,
     
     from ase import optimize
     opt = optimize.__dict__[optimization_algorithm](atoms)
-    opt.run(fmax=convergence_criterion_for_forces, steps=maximum_number_of_steps)
-    
+    # redirect output of ASE
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        aselog = open(f'{tmpdirname}/templog','w')
+        opt.logfile = aselog
+        opt.run(fmax=convergence_criterion_for_forces, steps=maximum_number_of_steps)
+        
     # For some reason ASE dumps the same energy twice. Here we remove the repeated value.
     if len(optimization_trajectory.steps) > 1:
         if abs(optimization_trajectory.steps[1].molecule.energy - optimization_trajectory.steps[0].molecule.energy) < 1e-13:

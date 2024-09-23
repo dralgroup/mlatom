@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any, Union, Dict, List, Optional, Iterable
 import uuid, copy, os, json
 import numpy as np
+import h5py
 import functools
 from . import constants
 from . import conversions
@@ -136,19 +137,21 @@ class molecule:
         id: The unique ID for this molecule.
         charge: The electric charge of the molecule.
         multiplicity: The multiplicity of the molecule.
-        load:
-            Load a molecule object from a dumped file.
+    
+    load(filename: stringe, format: string):
+        Load a molecule object from a dumped file.
+        
+        Updates a molecule object if initialized:
+        
+            ``mol = molecule(); mol.load(filename='mymol.json')``
+        Returns a molecule object if called as class method:
+        
+            ``mol = molecule.load(filename='mymol.json')``
             
-            Updates a molecule object if initialized:
+        Arguments:
+            filename (str): filename or path
             
-                ``mol = molecule(); mol.load(filename='mymol.json')``
-            Returns a molecule object if called as class method:
-            
-                ``mol = molecule.load(filename='mymol.json')``
-                
-            Arguments:
-                filename (str): filename or path
-                format (str, optional): currently, only 'json' format is supported.
+            format (str, optional): currently, only 'json' format is supported.
     '''
     load = load_molecule_cls()
     def __init__(self, charge: int = 0, multiplicity: int = 1, atoms: List[atom] = None, pbc: Optional[Union[np.ndarray, bool]] = None, cell: Optional[np.ndarray] = None): 
@@ -385,8 +388,6 @@ class molecule:
         self.add_xyz_vectorial_property(
             vector=derivative, xyz_vectorial_property=xyz_derivative_property)
     
-    add_xyz_derivative_properties = add_xyz_derivative_property
-    
     def add_hessian_property(self, hessian, hessian_propety='hessian'):
         self.add_scalar_property(hessian[:len(self)*3,:len(self)*3], property_name=hessian_propety)
     
@@ -401,8 +402,6 @@ class molecule:
         '''
         for j in range(len(self)):
             self.atoms[j].__dict__[xyz_vectorial_property] = vector[j]
-
-    add_xyz_vectorial_properties = add_xyz_vectorial_property
 
     def write_file_with_xyz_coordinates(self, filename: str, format: Union[str, None] = None) -> None:
         '''
@@ -535,8 +534,6 @@ class molecule:
         for atom in self.atoms: 
             vectorial_properties.append(atom.__dict__[property_name] if property_name in atom.__dict__ else np.full(3, np.nan))
         return array(np.copy(vectorial_properties)).astype(float)
-    
-    get_xyz_vectorial_property = get_xyz_vectorial_properties
 
     def get_nuclear_masses(self):
         return array([atom.nuclear_mass for atom in self.atoms])
@@ -906,6 +903,15 @@ class properties_tree_node():
             for child in self.children:
                 property_values_list.append(child.__dict__[property_name])
             self.__dict__[property_name] = np.sum(property_values_list, axis=0)
+
+    def weighted_sum(self, properties):
+        for property_name in properties:
+            property_values_list = []
+            for child in self.children:
+                if 'weight' not in child.__dict__.keys():
+                    child.weight = 1
+                property_values_list.append(child.__dict__[property_name]*child.weight)
+            self.__dict__[property_name] = np.sum(property_values_list, axis=0)
     
     def average(self, properties):
         for property_name in properties:
@@ -920,7 +926,7 @@ class properties_tree_node():
             for child in self.children:
                 property_values_list.append(child.__dict__[property_name])
             self.__dict__[property_name + '_standard_deviation'] = np.std(property_values_list, axis=0)
-
+            
 class molecular_database:
     '''
     Create a database for molecule objects.
@@ -1022,6 +1028,123 @@ class molecular_database:
         self.read_from_xyz_string(xyz_string)
         return self
         
+    def read_from_h5_file(self, 
+        h5_file: str = '', 
+        properties: list = None, 
+        parallel: Union[bool,int,tuple] = False, 
+        verbose:bool = False) -> molecular_database:
+        '''
+        Generate molecular database from formatted h5 file. The first level should be configurations (or ensemble of molecules with same number of atoms) and the second level should be conformations and their properties. 'species' and 'coordinates' are required to construct molecule. An example format of h5 file:
+
+        ```
+        /003                  dict
+        /003/species          array (624, 3) [int8]
+        /003/coordinates      array (624, 3, 3) [float32]
+        /003/energies         array (624,) [float64]
+        /003/property1        ['wb97x/def2tzvpp']
+        /003/property2        array (624, 2) [int8]
+        ```
+        
+        If the first two dimensions of the size of the value equals (number_of_configurations, number_of_atoms), the remaining dimension of the value will be assigned to each atom as xyz derivative properties. If the first dimensions of the size of the value equals to number of configurations, corresponging value will be assigned to each molecule. If only one value is provided for the property, it will be copied into each molecule.  
+        For example, in the above case, the properties stored in each `molecule` object would be: {'energies': `float`, 'property1':'wb97x/def2tzvpp', 'property2': `numpy.ndarray` of size (2,0)}
+
+        Arguments:
+            h5file (str): path to h5 file. 
+            properties (list): the properties to be stored in molecular database. By default all the properties presented in h5 file will be stored.
+            parallel (int or tuple or bool): 
+                - If `int` is provided, the value will be assigned to the number of workers, Batch size will be calculated automatically.
+                - If `tuple` is provided, the first value will be assigned to the number of workers and the second value will be assigned to the batch size. 
+                - If `bool` is provided, `True` means all the CPUs available will be used and batch size will be adjusted accordingly. 
+            verbose (bool): whether to print the loading message.
+
+        ''' 
+        
+        import sys
+        import joblib 
+        
+        h5data = h5dataloader(h5_file)
+
+        def configurations():
+            for cc in h5data:
+                yield cc
+
+        def conformations():
+            for m in configurations():
+                species = m['species']
+                coordinates = m['coordinates']
+                (nc, na, _) = coordinates.shape
+                for i in range(coordinates.shape[0]):
+                    ret = {'species': species[i], 'coordinates': coordinates[i]}
+                    for k in properties:
+                        if k in m:
+                            if len(m[k]) == nc:
+                                ret[k] = m[k][i]
+                            else:
+                                ret[k] = m[k]
+                    yield ret
+        
+        def pool(batch):
+            empty_pool = []
+            for cc in conformations():  
+                empty_pool.append(cc)
+                if len(empty_pool) >= batch:
+                    yield empty_pool
+                    empty_pool = []
+            yield empty_pool
+
+        def batch_load(b, properties):
+            mols = []
+            for cc in b:
+                mol = molecule.from_numpy(species=cc['species'],coordinates=cc['coordinates'])
+                na = cc['coordinates'].shape[0]
+                if not properties:
+                    properties = [*cc]
+                    properties.remove('species')
+                    properties.remove('coordinates')
+
+                for prop in properties:
+                    if type(cc[prop]) == np.ndarray and cc[prop].shape == (na, 3):
+                        mol.add_xyz_derivative_property(cc[prop],prop,prop)
+                    elif type(cc[prop]) in {list, np.ndarray} and len(cc[prop]) == 1:
+                        mol.add_scalar_property(cc[prop][0],prop)
+                    else:
+                        mol.add_scalar_property(cc[prop],prop)
+                mols.append(mol)
+            return mols
+                
+        if parallel:
+            if type(parallel) == int:
+                njobs = parallel
+                counts = h5data.size()
+                batch = counts//njobs
+
+            elif type(parallel) == tuple:
+                njobs, batch = (parallel)
+            else:
+                njobs = -1
+                counts = h5data.size()
+                import multiprocessing as mp 
+                ncpu = mp.cpu_count() 
+                batch = counts//ncpu
+        else:
+            njobs = 1
+            counts = h5data.size()
+            batch = counts
+
+        if verbose:
+            print(f'{njobs} workers will be used and {batch} tasks are assigned to each worker.')
+            if batch < 100 and njobs > 1:
+                print('WARNING: batch size less than 100 is not recommended to use parallel loading.') # need to benchmark to set the threshold.
+            sys.stdout.flush()
+
+        mols = joblib.Parallel(n_jobs=njobs, verbose=10 if verbose else 0)(joblib.delayed(batch_load)(b, properties) for b in pool(batch))
+
+        for mm in mols:
+            self.molecules += mm
+
+        return self 
+
+
     @classmethod
     def from_xyz_file(cls, filename: str) -> molecular_database:
         '''
@@ -1066,7 +1189,8 @@ class molecular_database:
             scalars: The scalar to be added.
             property_name (str, optional): The name assign to the scalar property.
         '''
-        for i in range(scalars.shape[0]):
+        # for i in range(scalars.shape[0]):
+        for i in range(len(scalars)):
             self.molecules[i].add_scalar_property(scalars[i], property_name=property_name)
 
     def add_scalar_properties_from_file(self, filename: str, property_name: str = 'y') -> None: # kind of redundant? mol.a = x does the samething
@@ -1460,8 +1584,17 @@ class molecular_database:
         if len(self) % batch_size:
             yield self[(batch_id + 1)*batch_size:]
            
-    def split(self, sampling='random', number_of_splits=2, split_equally=None, fraction_of_points_in_splits=None, indices=None):
-        return sample(molecular_database_to_split=self, sampling=sampling, number_of_splits=number_of_splits, split_equally=split_equally, fraction_of_points_in_splits=fraction_of_points_in_splits, indices=indices)
+    def split(self, sampling='random', number_of_splits=2, split_equally=None, fraction_of_points_in_splits=None):
+        '''
+        Splits molecular database.
+        
+        Arguments:
+            sampling (str, optional): default 'random'. Can be also 'none'.
+            split_equally (bool, optinoal): default ``False``; if set to ``True`` splits 50:50.
+            fraction_of_points_in_splits (list, optional): e.g., [0.8, 0.2] is the default one
+            indices
+        '''
+        return sample(molecular_database_to_split=self, sampling=sampling, number_of_splits=number_of_splits, split_equally=split_equally, fraction_of_points_in_splits=fraction_of_points_in_splits)
 
     @property         
     def size(self):
@@ -1512,7 +1645,7 @@ class molecular_database:
     def xyz_coordinates(self, value):
         for i, mol in enumerate(self):
             mol.xyz_coordinates = value[i]
-            
+    
     def _is_uniform_cell(self):
         cells = self.get_properties('cell')
         pbcs = self.get_properties('pbc')
@@ -1525,7 +1658,7 @@ class molecular_database:
                     return True
             except:
                 return False
-            
+
     def view(self):
         '''
         Visualize the molecular database. Uses ``py3Dmol``.
@@ -1582,6 +1715,9 @@ def dict_to_atom_class_instance(dd):
 def dict_to_properties_tree_node_class_instance(original_dict, original_key, mol):
     node = properties_tree_node()
     dd = original_dict[original_key]
+    name = dd['name']
+    if name in mol.__dict__:
+        return
     for key in dd.keys():
         if type(dd[key]) == list:
             if type(dd[key][0]) == float:
@@ -1879,7 +2015,7 @@ class molecular_trajectory():
     
     def to_database(self) -> molecular_database:
         '''
-        Return a molecular database that formed by the molecules in the trajectory.
+        Return a molecular database comprising the molecules in the trajectory.
         '''
         return molecular_database([step.molecule for step in self.steps])
     
@@ -2047,8 +2183,57 @@ class h5md():
     def __exit__(self, exception_type, exception_value, traceback):
         self.close()
 
+class h5dataloader:
+    
+    def __init__(self, store_file):
+        
+        if not os.path.exists(store_file):
+            exit('Error: file not found - ' + store_file)
+        self.store = h5py.File(store_file, 'r')
 
-def sample(molecular_database_to_split=None, sampling='random', number_of_splits=2, split_equally=None, fraction_of_points_in_splits=None, indices=None):
+    def h5py_dataset_iterator(self, g, prefix=''):
+        """Group recursive iterator
+
+        Iterate through all groups in all branches and return datasets in dicts)
+        """
+        
+        for key in g.keys():
+            item = g[key]
+            path = '{}/{}'.format(prefix, key)
+            keys = [i for i in item.keys()]
+            if isinstance(item[keys[0]], h5py.Dataset):  # test for dataset
+                # data = {'path': path}
+                data = {}
+                for k in keys:
+                    if not isinstance(item[k], h5py.Group):
+                        dataset = np.array(item[k][()])
+
+                        if isinstance(dataset, np.ndarray):
+                            if dataset.size != 0:
+                                if isinstance(dataset[0], np.bytes_):
+                                    dataset = [a.decode('ascii')
+                                               for a in dataset]
+                                if isinstance(dataset[0], bytes):
+                                    dataset = [a.decode('utf-8')
+                                               for a in dataset]
+                        data.update({k: dataset})
+                yield data
+            else:  # test for group (go down)
+                yield from self.h5py_dataset_iterator(item, path)
+
+    def __iter__(self):
+        """Default class iterator (iterate through all data)"""
+        for data in self.h5py_dataset_iterator(self.store):
+            yield data
+
+    # def get_size(self):
+    def size(self):
+        count = 0
+        for g in self.store.values():
+            count = count + len(g['coordinates'][:])
+        return count
+
+def sample(molecular_database_to_split=None, sampling='random', number_of_splits=2, split_equally=None, fraction_of_points_in_splits=None):
     molDB = molecular_database_to_split
     Ntot = len(molDB)
     if number_of_splits==2 and fraction_of_points_in_splits==None and split_equally==None:
@@ -2116,6 +2301,75 @@ def read_y_file(filename=''):
         for line in fy:
             Ys.append(float(line))
     return Ys
+
+def write_gaussian_log(molecule, filename):
+
+    def write_freq_block(f, s):
+        f.write('             '+''.join(s) + '\n')
+        symmetry_normal_modes = ['N']*len(s)
+        frequency = [f'{molecule.frequencies[int(ii)-1]:21.4f}' for ii in s]
+        reduced_mass = [f'{molecule.reduced_masses[int(ii)-1]:21.4f}' for ii in s]
+        force_constants = [f'{molecule.force_constants[int(ii)-1]:21.4f}' for ii in s]
+        if 'infrared_intensities' in molecule.__dict__:
+            ir_density = [f'{molecule.infrared_intensities[int(ii)-1]:21.4f}' for ii in s]
+        else:
+            ir_density = [f'{0.0000:21.4f}']*len(s)
+        if 'raman_intensities' in molecule.__dict__:
+            raman_intensities = [f'{molecule.raman_intensities[int(ii)-1]:21.4f}' for ii in s]
+            depolar = [f'{0.0000:21.4f}']*len(s)
+        else:
+            raman_intensities = [f'{0.0000:21.4f}']*len(s)
+            depolar = [f'{0.0000:21.4f}']*len(s)
+        ints = [int(ii)-1 for ii in s]
+        f.write('                                 '+'                    '.join(symmetry_normal_modes) + '\n')
+        f.write(' Frequencies --' + ''.join(frequency) + '\n')
+        f.write(' Red. masses --' + ''.join(reduced_mass) + '\n')
+        f.write(' Frc consts  --' + ''.join(force_constants) + '\n')
+        f.write(' IR Inten    --' + ''.join(ir_density) + '\n')
+        if 'raman_intensities' in molecule.__dict__:
+            f.write(' Raman Activ --' + ''.join(raman_intensities) + '\n')
+            f.write(' Depolar (P) --' + ''.join(depolar) + '\n')
+            f.write(' Depolar (U) --' + ''.join(depolar) + '\n')
+        f.write('  Atom  AN                ' + '      '.join(['X      Y      Z']*len(s)) + '\n')
+        for iatom in range(len(molecule.atoms)): 
+            normal_modes = []
+            for ii in ints:
+                nm_str = [f'{nm:7.2f}' for nm in molecule.atoms[iatom].normal_modes[ii]]
+                normal_modes.append(''.join(nm_str))
+            f.write(f'  '+f'{iatom+1:3.0f}  {molecule.atoms[iatom].atomic_number:3.0f}            ' + ''.join(normal_modes) + '\n')
+
+    def chunks(lst, n):
+        """Yield successive n-sized chunks from lst."""
+        for i in range(0, len(lst), n):
+            yield lst[i:i + n]
+
+    f = open(filename, 'w')
+    f.write(''' Entering Gaussian System
+ Output generated using Gaussian format for frequencies and geometries with MLatom (for visualization purposes only)
+ ----------------------------------------------------------------------
+ #freq model/mlatom
+ ----------------------------------------------------------------------
+''')
+    f.write('''
+                         Standard orientation:                         
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+''')
+    for iatom in range(len(molecule.atoms)):
+        atom = molecule.atoms[iatom]
+        f.write(' %6d %10d %10d       %11.6f %11.6f %11.6f\n' % (iatom+1, atom.atomic_number, 0,
+                    atom.xyz_coordinates[0], atom.xyz_coordinates[1], atom.xyz_coordinates[2]))
+    f.write(''' ---------------------------------------------------------------------\n''')
+    f.write('\n')
+    nnormal_modes = len(molecule.frequencies)
+    splits = list(chunks(list(range(nnormal_modes)),3))
+    for s in splits:
+        s = [f'{ii+1:21.0f}' for ii in s]
+        # s = [f'{ii:11.0f}' for ii in s]
+        write_freq_block(f, s)
+    f.close()
 
 class isotope:
     nuclear_charge = 0   # units: elementary charge;      type: int

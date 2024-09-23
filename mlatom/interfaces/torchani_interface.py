@@ -109,6 +109,7 @@ class ani(models.ml_model, models.torchani_model):
         'force_coefficient':    models.hyperparameter(value=0.1, minval=0.05, maxval=5, optimization_space='linear'),
         'median_loss':          models.hyperparameter(value=False),
         'validation_loss_type': models.hyperparameter(value='MSE', choices=['MSE', 'mean_RMSE']),
+        'loss_type':            models.hyperparameter(value='weighted', choices=['weighted', 'geometric']),
         #### Network ####
         "neurons":              models.hyperparameter(value=[[160, 128, 96]]),
         "activation_function":  models.hyperparameter(value=lambda: torch.nn.CELU(0.1), optimization_space='choice', choices=["CELU", "ReLU", "GELU"], dtype=(str, type, FunctionType)),
@@ -133,9 +134,9 @@ class ani(models.ml_model, models.torchani_model):
     meta_data = {
         "genre": "neural network"
     }
-    verbose = 1
+    verbose = 1 # 2 can give more training information
 
-    def __init__(self, model_file: str = None, device: str = None, hyperparameters: Union[Dict[str,Any], models.hyperparameters]={}, verbose=1):
+    def __init__(self, model_file: str = None, device: str = None, hyperparameters: Union[Dict[str,Any], models.hyperparameters]={}, verbose=1, **kwargs):
         if device == None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.device = torch.device(device)
@@ -143,6 +144,10 @@ class ani(models.ml_model, models.torchani_model):
         self.hyperparameters.update(hyperparameters)
         self.verbose = verbose
         self.energy_shifter = torchani.utils.EnergyShifter(None)
+        if 'key' in kwargs:
+            self.key = kwargs['key']
+        else:
+            self.key = None
         if model_file: 
             if os.path.isfile(model_file):
                 self.load(model_file)
@@ -204,6 +209,7 @@ class ani(models.ml_model, models.torchani_model):
             return
         
         model_dict = torch.load(model_file, map_location=torch.device('cpu'))
+
 
         if 'property' in model_dict['args']:
             self.property_name = model_dict['args']['property']
@@ -310,6 +316,7 @@ class ani(models.ml_model, models.torchani_model):
         reset_optimizer: bool = False,
         reset_energy_shifter: bool = False,
         save_every_epoch: bool = False,
+        save_epoch_interval: int = None,
         energy_weighting_function: Callable = None,
         energy_weighting_function_kwargs: dict = {},
     ) -> None:
@@ -324,6 +331,7 @@ class ani(models.ml_model, models.torchani_model):
             reset_network (bool, optional): Whether to re-construct the network before training.
             reset_optimizer (bool, optional): Whether to re-define the optimizer before training .
             save_every_epoch (bool, optional): Whether to save model in every epoch, valid when ``save_model`` is ``True``.
+            save_epoch_interval (int, optional): The interval to save each epoch.
             energy_weighting_function (Callable, optional): A weighting function :math:`\mathit{W}(\mathbf{E_ref})` that assign weights to training points based on their reference energies.
             energy_weighting_function_kwargs (dict, optional): Extra weighting function arguments in a dictionary.
         '''
@@ -336,6 +344,14 @@ class ani(models.ml_model, models.torchani_model):
             self.energy_shifter = torchani.utils.EnergyShifter(None)
         
         self.data_setup(molecular_database, validation_molecular_database, spliting_ratio, property_to_learn, xyz_derivative_property_to_learn)
+
+        # print energy shifter information
+        if self.verbose and self.verbose == 2:
+            print('\nDelta self atomic energies: ', )
+            for sp, esp in zip(self.species_order, self.energy_shifter.self_energies):
+                print(f'{sp} : {esp}')
+            print('\n')
+            sys.stdout.flush()
 
         if not self.model:
             self.model_setup(**self.hyperparameters)
@@ -354,6 +370,9 @@ class ani(models.ml_model, models.torchani_model):
         if self.verbose: print(self.model)
 
         if check_point and os.path.isfile(check_point):
+            if self.verbose and self.verbose == 2:
+                print(f'\nCheckpoint file {check_point} found. Model training will start from checkpoint.\n')
+                sys.stdout.flush()
             checkpoint = torch.load(check_point)
             self.nn.load_state_dict(checkpoint['nn'])
             if not reset_optim_state:
@@ -364,6 +383,9 @@ class ani(models.ml_model, models.torchani_model):
     
         def validate():
             total_error  = 0.0
+            mae_sum = torch.nn.L1Loss(reduction='sum'); energy_mae = 0.0
+            # mse_sum = torch.nn.MSELoss(reduction='sum'); energy_mse = 0.0
+            energy_loss = 0.0
             count = 0
             for properties in self.validation_set:
                 true_energies = properties['energies'].to(self.device).float()
@@ -376,20 +398,33 @@ class ani(models.ml_model, models.torchani_model):
                     weightings_e = 1
                 coordinates = properties['coordinates'].to(self.device).float()
                 _, predicted_energies = self.model((species, coordinates))
+
+                # add MAE, RMSE, loss report
+                # energy_mse += mse_sum(predicted_energies*weightings_e, true_energies*weightings_e).item()
+                energy_mae += mae_sum(predicted_energies*weightings_e, true_energies*weightings_e).item()
+                energy_loss += (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).sum().item()
+
                 if self.hyperparameters.validation_loss_type == 'mean_RMSE':                    
                     total_error += loss_function(predicted_energies, true_energies, weightings_e, reduction='sum').nanmean().sqrt().item()
                 else:
                     total_error += loss_function(predicted_energies, true_energies, weightings_e, reduction='sum').nanmean().item()
                 count += predicted_energies.shape[0]
-            return total_error/count
+
+            return total_error/count, (total_error/count)**0.5, energy_mae/count, energy_loss/count
 
         def loss_function(prediction, reference, weightings=1, reduction='none'):
             return torch.nn.functional.mse_loss(prediction*weightings, reference*weightings, reduction=reduction)
 
         if self.verbose: print("training starting from epoch", self.AdamW_scheduler.last_epoch + 1)
         for _ in range(self.AdamW_scheduler.last_epoch + 1, self.hyperparameters.max_epochs + 1):
-            rmse = validate()
-            if self.verbose: print('validation loss:', rmse, 'at epoch', self.AdamW_scheduler.last_epoch + 1)
+            mse, rmse, mae, validation_loss = validate()
+            if self.verbose: 
+                print('validation loss:', mse, 'at epoch', self.AdamW_scheduler.last_epoch + 1)
+                if self.verbose == 2:
+                    print('validation MAE:', mae, 'at epoch', self.AdamW_scheduler.last_epoch + 1)
+                    print('validation RMSE:', rmse, 'at epoch', self.AdamW_scheduler.last_epoch + 1)
+                    print('validation energy loss:', validation_loss, 'at epoch', self.AdamW_scheduler.last_epoch + 1)
+                    print('best validation MSE:', self.AdamW_scheduler.best)
             sys.stdout.flush()
             learning_rate = self.AdamW.param_groups[0]['lr']
             if self.verbose: print('learning_rate:',learning_rate)
@@ -397,12 +432,15 @@ class ani(models.ml_model, models.torchani_model):
             if learning_rate < self.hyperparameters.early_stopping_learning_rate:
                 break
 
-            if self.AdamW_scheduler.is_better(rmse, self.AdamW_scheduler.best) or save_every_epoch:
+            if self.AdamW_scheduler.is_better(mse, self.AdamW_scheduler.best) or save_every_epoch:
                 if save_model:
                     self.save(self.model_file)
+            if save_epoch_interval:
+                if (self.AdamW_scheduler.last_epoch + 1)%save_epoch_interval==0 and save_model:
+                    self.save(f'{self.model_file}.epoch{self.AdamW_scheduler.last_epoch + 1}')
 
-            self.AdamW_scheduler.step(rmse)
-            self.SGD_scheduler.step(rmse)
+            self.AdamW_scheduler.step(mse)
+            self.SGD_scheduler.step(mse)
             for properties in tqdm.tqdm(
                 self.subtraining_set,
                 total=len(self.subtraining_set),
@@ -433,7 +471,10 @@ class ani(models.ml_model, models.torchani_model):
                         energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
                     # true_forces[true_forces.isnan()]=forces[true_forces.isnan()]
                     force_loss = (loss_function(true_forces, forces, weightings_f).sum(dim=(1, 2)) / num_atoms).nanmean()
-                    loss = energy_loss + self.hyperparameters.force_coefficient * force_loss
+                    if self.hyperparameters.loss_type == 'weighted':
+                        loss = energy_loss + self.hyperparameters.force_coefficient * force_loss
+                    if self.hyperparameters.loss_type == 'geometric':
+                        loss = (energy_loss * force_loss)**0.5
                 else:
                     coordinates = properties['coordinates'].to(self.device).float()
                     _, predicted_energies = self.model((species, coordinates))
@@ -445,6 +486,10 @@ class ani(models.ml_model, models.torchani_model):
                 self.AdamW.step()
                 self.SGD.step()
 
+            if self.verbose and self.verbose == 2:
+                print('Training loss:', loss.item(), 'at epoch', self.AdamW_scheduler.last_epoch,'\n')
+                sys.stdout.flush()
+
             if check_point:
                 torch.save({
                     'nn':               self.nn.state_dict(),
@@ -453,6 +498,14 @@ class ani(models.ml_model, models.torchani_model):
                     'AdamW_scheduler':  self.AdamW_scheduler.state_dict(),
                     'SGD_scheduler':    self.SGD_scheduler.state_dict(),
                 }, check_point)
+
+        # print the performance of the best model
+        if self.verbose and self.verbose == 2:
+            print('\nPerformance of the best model on validation set')
+            _, best_rmse, best_mae, best_val_loss = validate()
+            print('best validation MAE:', best_mae,)
+            print('best validation RMSE:', best_rmse,)
+            print('best validation energy loss:', best_val_loss,)
 
         if save_model and not use_last_model:
             self.load(self.model_file)
@@ -519,6 +572,8 @@ class ani(models.ml_model, models.torchani_model):
         kwargs = models.hyperparameters(kwargs)
         if len(kwargs.neurons) == 1:
             self.neurons = [kwargs.neurons[0].copy() for _ in range(len(self.species_order))]
+        else:
+            self.neurons = kwargs.neurons
 
         self.networkdict = OrderedDict()
         for i, specie in enumerate(self.species_order):
@@ -1439,7 +1494,7 @@ class ani_child(models.torchani_model):
     def node(self,):
         return models.model_tree_node(name=self.name, operator='predict', model=self)
     
-class ani_methods(models.torchani_model):
+class torchani_methods(models.torchani_model, metaclass=models.meta_method):
     '''
     Create a model object with one of the ANI methods
 
@@ -1448,7 +1503,6 @@ class ani_methods(models.torchani_model):
         device (str, optional): Indicate which device the calculation will be run on, i.e. 'cpu' for CPU, 'cuda' for Nvidia GPUs. When not speficied, it will try to use CUDA if there exists valid ``CUDA_VISIBLE_DEVICES`` in the environ of system.
 
     '''
-    available_methods = models.methods.methods_map['ani']
     atomic_energies = {'ANI-1ccx': {1:-0.50088088, 6:-37.79199048, 7:-54.53379230, 8:-75.00968205}}
 
     def __init__(self, method: str = 'ANI-1ccx', device: str = 'cuda' if torch.cuda.is_available() else 'cpu', **kwargs):
@@ -1572,7 +1626,7 @@ def load_ani1xnr_model():
 
     return model_ensemble
 
-class aimnet2_methods(models.torchani_model):
+class aimnet2_methods(models.torchani_model, metaclass=models.meta_method):
     '''
     Universal ML methods with AIMNet2: https://doi.org/10.26434/chemrxiv-2023-296ch
 
@@ -1582,7 +1636,6 @@ class aimnet2_methods(models.torchani_model):
 
     '''
     
-    available_methods = models.methods.methods_map['aimnet2']
     element_symbols_available = ['H', 'B', 'C', 'N', 'O', 'F', 'Si', 'P', 'S', 'Cl', 'As', 'Se', 'Br', 'I']
 
     def __init__(self, method: str = 'AIMNet2@b973c', device: str = 'cuda' if torch.cuda.is_available() else 'cpu', **kwargs):

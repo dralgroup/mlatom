@@ -40,6 +40,8 @@ class Args(ArgsBase):
             'noang':1,
             'DOF':-6,
             'linear':0,
+            'charges':0,
+            'multiplicities':1,
 
         })
 
@@ -93,6 +95,9 @@ class MD_CMD():
         else:
             mol = data.molecule()
             mol.load(args.normalModefile)
+
+        mol.charge = int(args.charges)
+        mol.multiplicity = int(args.multiplicities)
 
         # Deal with degrees of freedom
         if args.initConditions == '' or args.initConditions.lower() == 'user-defined' or args.initConditions.lower() == 'random':
