@@ -1,10 +1,14 @@
 # Updates
 
+- upcoming: ANI-1ccx-gelu, AIQM2.
 - MLatom 3.11.0 (23.09.2024) - DENS24 functionals, simpler choice of methods, IR spectra, important bug fixes (particularly for active learning) ([overview](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-11-0)).
 - MLatom 3.10.0-1 (21-22.08.2024) - active learning for surface hopping MD, multi-state ANI for excited states, gapMD for efficient exploration of the conical intersection regions, quality of life improvements such as viewing molecules, databases, and trajectories in Jupyter, easier load of molecules ([overview](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-10-0)).
+- [A-MLatom/MLatom\@XACS](https://xacs.xmu.edu.cn/docs/mlatom/a-mlatom-xacs.html) update (24.07.2024) - [Raman spectra](https://xacs.xmu.edu.cn/docs/mlatom/tutorial_raman.html)
 - MLatom 3.9.0 (23.07.2024) - [periodic boundary conditions](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-9-0)
 - MLatom 3.8.0 (17.07.2024) - [directly learning dynamics](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-8-0)
 - MLatom 3.7.0-1 (03-04.07.2024) - [active learning & batch parallelization of MD](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-7-0-3-7-1)
+- [A-MLatom/MLatom\@XACS](https://xacs.xmu.edu.cn/docs/mlatom/a-mlatom-xacs.html) update (27.06.2024) - [universal and updatable AI-enhanced QM methods (UAIQM)](https://xacs.xmu.edu.cn/docs/mlatom/tutorial_uaiqm.html)
+- [A-MLatom/MLatom\@XACS](https://xacs.xmu.edu.cn/docs/mlatom/a-mlatom-xacs.html) update (20.06.2024) - [IR spectra](https://xacs.xmu.edu.cn/docs/mlatom/tutorial_ir.html)
 - MLatom 3.6.0 (15.05.2024) - [+ new universal ML models (ANI-1xnr, AIMnet2, DM21)](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-6-0)
 - MLatom 3.5.0 (08.05.2024) - [quasi-classical trajectory/molecular dynamics](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-5-0)
 - MLatom 3.4.0 (29.04.2024) - [usability improvements with focus on geometry optimizations](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-4-0)
