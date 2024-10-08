@@ -80,8 +80,22 @@ def molDB2ANIdata(molDB,
                 ret['energies'] = mol.__dict__[property_to_learn]
             if xyz_derivative_property_to_learn is not None:
                 ret['forces'] = -1 * mol.get_xyz_vectorial_properties(xyz_derivative_property_to_learn)
+            if mol.pbc is not None:
+                ret['pbc'] = mol.pbc
+            if mol.cell is not None:
+                ret['cell'] = mol.cell
             yield ret
     return TransformableIterable(IterableAdapter(lambda: molDBiter()))
+
+PADDING = {
+    'species': -1,
+    'coordinates': 0.0,
+    'forces': 0.0,
+    'energies': 0.0,
+    'pbc': False,
+    'cell': 0.0,
+}    
+
 
 class ani(models.ml_model, models.torchani_model):
     '''
@@ -342,7 +356,10 @@ class ani(models.ml_model, models.torchani_model):
         
         if reset_energy_shifter:
             self.energy_shifter = torchani.utils.EnergyShifter(None)
-        
+            
+        if not molecular_database._is_uniform_cell():
+            print('non-uniform PBC cells detected, using batch_size=1')
+            self.hyperparameters.batch_size = 1
         self.data_setup(molecular_database, validation_molecular_database, spliting_ratio, property_to_learn, xyz_derivative_property_to_learn)
 
         # print energy shifter information
@@ -390,6 +407,8 @@ class ani(models.ml_model, models.torchani_model):
             for properties in self.validation_set:
                 true_energies = properties['energies'].to(self.device).float()
                 species = properties['species'].to(self.device)
+                pbc = properties['pbc'][0].to(self.device) if 'pbc' in properties else None
+                cell = properties['cell'][0].float().to(self.device) if 'cell' in properties else None
                 num_atoms = (species >= 0).sum(dim=1, dtype=true_energies.dtype)
 
                 if callable(energy_weighting_function):
@@ -397,7 +416,7 @@ class ani(models.ml_model, models.torchani_model):
                 else:
                     weightings_e = 1
                 coordinates = properties['coordinates'].to(self.device).float()
-                _, predicted_energies = self.model((species, coordinates))
+                _, predicted_energies = self.model((species, coordinates), pbc=pbc, cell=cell)
 
                 # add MAE, RMSE, loss report
                 # energy_mse += mse_sum(predicted_energies*weightings_e, true_energies*weightings_e).item()
@@ -450,6 +469,8 @@ class ani(models.ml_model, models.torchani_model):
                 true_energies = properties['energies'].to(self.device).float()
                 species = properties['species'].to(self.device)
                 num_atoms = (species >= 0).sum(dim=1, dtype=true_energies.dtype)
+                pbc = properties['pbc'][0].to(self.device) if 'pbc' in properties else None
+                cell = properties['cell'][0].float().to(self.device) if 'cell' in properties else None
 
                 if callable(energy_weighting_function):
                     weightings_e = energy_weighting_function(self.energy_shifter((species, true_energies)).energies, **energy_weighting_function_kwargs)
@@ -462,7 +483,7 @@ class ani(models.ml_model, models.torchani_model):
                 if xyz_derivative_property_to_learn:
                     coordinates = properties['coordinates'].to(self.device).float().requires_grad_(True)
                     true_forces = properties['forces'].to(self.device).float()
-                    _, predicted_energies = self.model((species, coordinates))
+                    _, predicted_energies = self.model((species, coordinates), pbc=pbc, cell=cell)
                     forces = -torch.autograd.grad(predicted_energies.sum(), coordinates, create_graph=True, retain_graph=True)[0]
                     # true_energies[true_energies.isnan()]=predicted_energies[true_energies.isnan()]
                     if self.hyperparameters.median_loss:
@@ -477,7 +498,7 @@ class ani(models.ml_model, models.torchani_model):
                         loss = (energy_loss * force_loss)**0.5
                 else:
                     coordinates = properties['coordinates'].to(self.device).float()
-                    _, predicted_energies = self.model((species, coordinates))
+                    _, predicted_energies = self.model((species, coordinates), pbc=pbc, cell=cell)
                     loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
 
                 self.AdamW.zero_grad()
@@ -533,12 +554,12 @@ class ani(models.ml_model, models.torchani_model):
             batch_size = 1
         
         for batch in molDB.batches(batch_size):
-            for properties in molDB2ANIdata(batch).species_to_indices(self.species_order).collate(batch_size):
+            for properties in molDB2ANIdata(batch).species_to_indices(self.species_order).collate(batch_size, PADDING):
                 species = properties['species'].to(self.device)
                 xyz_coordinates = properties['coordinates'].float().to(self.device)
                 break
-            pbc = torch.tensor(batch[0].pbc).to(self.device) if batch[0].pbc is not None else None
-            cell = torch.tensor(batch[0].cell).float().to(self.device) if batch[0].cell is not None else None
+            pbc = properties['pbc'][0].to(self.device) if 'pbc' in properties else None
+            cell = properties['cell'][0].float().to(self.device) if 'cell' in properties else None
             if pbc is not None and cell is not None:
                 xyz_coordinates = torchani.utils.map2central(cell, xyz_coordinates, pbc)
             xyz_coordinates = xyz_coordinates.requires_grad_(bool(xyz_derivative_property_to_predict or hessian_to_predict))
@@ -552,7 +573,7 @@ class ani(models.ml_model, models.torchani_model):
                     batch.add_xyz_vectorial_properties(grads, xyz_derivative_property_to_predict)
                 if hessian_to_predict:
                     ANI_NN_hessians = torchani.utils.hessian(xyz_coordinates, energies=ANI_NN_energies)
-                    batch.add_scalar_properties(ANI_NN_hessians.detach().cpu().numpy(), hessian_to_predict)
+                    batch.add_hessian_properties(ANI_NN_hessians.detach().cpu().numpy(), hessian_to_predict)
 
 
     def AEV_setup(self, **kwargs):
@@ -748,8 +769,8 @@ class ani(models.ml_model, models.torchani_model):
         
         self.energy_shifter = self.energy_shifter.to(self.device)
         
-        self.subtraining_set = self.subtraining_set.collate(self.hyperparameters.batch_size)
-        self.validation_set = self.validation_set.collate(self.hyperparameters.batch_size)
+        self.subtraining_set = self.subtraining_set.collate(self.hyperparameters.batch_size, PADDING)
+        self.validation_set = self.validation_set.collate(self.hyperparameters.batch_size, PADDING)
 
         self.argsdict.update({'self_energies': self.energy_shifter.self_energies, 'property': self.property_name})
 class msani(models.ml_model, models.torchani_model):
@@ -1249,7 +1270,7 @@ class msani(models.ml_model, models.torchani_model):
             state_gradients =[]
             state_hessians = []
             for i in range(nstates):
-                for properties in molDB2ANIdata_state(batch, use_state=False).species_to_indices(self.species_order).collate(batch_size):
+                for properties in molDB2ANIdata_state(batch, use_state=False).species_to_indices(self.species_order).collate(batch_size, PADDING):
                     species = properties['species'].to(self.device)
                     state = torch.full((len(batch),),i).to(self.device)
                     xyz_coordinates = properties['coordinates'].float().to(self.device).requires_grad_(bool(xyz_derivative_property_to_predict or hessian_to_predict))
@@ -1442,8 +1463,8 @@ class msani(models.ml_model, models.torchani_model):
         
         self.energy_shifter = self.energy_shifter.to(self.device)
         
-        self.subtraining_set = self.subtraining_set.collate(self.hyperparameters.batch_size)
-        self.validation_set = self.validation_set.collate(self.hyperparameters.batch_size)
+        self.subtraining_set = self.subtraining_set.collate(self.hyperparameters.batch_size, PADDING)
+        self.validation_set = self.validation_set.collate(self.hyperparameters.batch_size, PADDING)
 
         self.argsdict.update({'self_energies': self.energy_shifter.self_energies, 'property': self.property_name})
 class ani_child(models.torchani_model):
@@ -1467,14 +1488,14 @@ class ani_child(models.torchani_model):
             batch_size = 1
 
         for batch in molDB.batches(batch_size):
-            for properties in molDB2ANIdata(batch).species_to_indices('periodic_table').collate(batch_size):
+            for properties in molDB2ANIdata(batch).species_to_indices('periodic_table').collate(batch_size, PADDING):
                 species = properties['species'].to(self.device)
                 if torchani.utils.PERIODIC_TABLE[0] == 'H':
                     species += 1
                 xyz_coordinates = properties['coordinates'].float().to(self.device)
                 break
-            pbc = torch.tensor(batch[0].pbc).to(self.device) if batch[0].pbc is not None else None
-            cell = torch.tensor(batch[0].cell).float().to(self.device) if batch[0].cell is not None else None
+            pbc = properties['pbc'][0].to(self.device) if 'pbc' in properties else None
+            cell = properties['cell'][0].float().to(self.device) if 'cell' in properties else None
             if pbc is not None and cell is not None:
                 xyz_coordinates = torchani.utils.map2central(cell, xyz_coordinates, pbc)
             xyz_coordinates = xyz_coordinates.requires_grad_(calculate_energy_gradients or calculate_hessian)
@@ -1499,10 +1520,11 @@ class torchani_methods(models.torchani_model, metaclass=models.meta_method):
     Create a model object with one of the ANI methods
 
     Arguments:
-        method (str): A string that specifies the method. Available choices: ``'ANI-1x'``, ``'ANI-1ccx'``, or ``'ANI-2x'``.
+        method (str): A string that specifies the method. Available choices: ``'ANI-1x'``, ``'ANI-1ccx'``, ``'ANI-2x'``, ``'ANI-1ccx-gelu'`` or ``'ANI-1x-gelu'``.
         device (str, optional): Indicate which device the calculation will be run on, i.e. 'cpu' for CPU, 'cuda' for Nvidia GPUs. When not speficied, it will try to use CUDA if there exists valid ``CUDA_VISIBLE_DEVICES`` in the environ of system.
 
     '''
+    # no atomic energies for ANI-1ccx-gelu thus calculating energy on single atom will get error
     atomic_energies = {'ANI-1ccx': {1:-0.50088088, 6:-37.79199048, 7:-54.53379230, 8:-75.00968205}}
 
     def __init__(self, method: str = 'ANI-1ccx', device: str = 'cuda' if torch.cuda.is_available() else 'cpu', **kwargs):
@@ -1513,6 +1535,10 @@ class torchani_methods(models.torchani_model, metaclass=models.meta_method):
         self.method = method
         if 'ANI-1xnr'.casefold() in method.casefold():
             self.model = load_ani1xnr_model().to(self.device)
+        elif 'ANI-1ccx-gelu'.casefold() in method.casefold():
+            self.model = self.load_ani_gelu_model('ani1ccx_gelu')
+        elif 'ANI-1x-gelu'.casefold() in method.casefold():
+            self.model = self.load_ani_gelu_model('ani1x_gelu')
         elif 'ANI-1x'.casefold() in method.casefold():
             self.model = torchani.models.ANI1x(periodic_table_index=True).to(self.device).double()
         elif 'ANI-1ccx'.casefold() in method.casefold():
@@ -1521,17 +1547,26 @@ class torchani_methods(models.torchani_model, metaclass=models.meta_method):
             self.model = torchani.models.ANI2x(periodic_table_index=True).to(self.device).double()
         else:
             print("method not found, please check ANI_methods().available_methods")
-            
-        self.element_symbols_available = self.model.species
 
         modelname = method.lower().replace('-','')
-        self.children = [ani_child(self.model, index, name=f'{modelname}_nn{index}', device=self.device).node() for index in range(len(self.model))]
+        if 'gelu'.casefold() in method.casefold():
+            self.element_symbols_available = self.model[0].species_order
+            self.children = [models.model_tree_node(name=f'{modelname}_nn{index}', model=self.model[index], operator='predict') for index in range(len(self.model))]
+        else:
+            self.element_symbols_available = self.model.species
+            self.children = [ani_child(self.model, index, name=f'{modelname}_nn{index}', device=self.device).node() for index in range(len(self.model))]
         if 'D4'.casefold() in self.method.casefold():
             d4 = models.model_tree_node(name='d4_wb97x', operator='predict', model=models.methods(method='D4', functional='wb97x'))
             ani_nns = models.model_tree_node(name=f'{modelname}_nn', children=self.children, operator='average')
             self.model = models.model_tree_node(name=modelname, children=[ani_nns, d4], operator='sum')
         else:
             self.model = models.model_tree_node(name=modelname, children=self.children, operator='average')
+
+    def load_ani_gelu_model(self, method):
+
+        currentdir=os.path.dirname(__file__)
+        dirname=os.path.join(currentdir, f'../ani_gelu_model')
+        return [ani(model_file=f'{dirname}/{method}_cv{ii}.pt', verbose=0) for ii in range(8)]
             
     @doc_inherit
     def predict(

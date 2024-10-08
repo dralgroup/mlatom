@@ -49,14 +49,16 @@ def useMLmodel(args):
     saving_predictions(molecular_database, YestFile=args.YestFile, YgradXYZestFile=args.YgradXYZestFile, hessianEstFile=args.hessianEstFile, method=args.method)
     if args.method:
         print('')
-        if args.AIQM1 or args.AIQM1DFT or args.AIQM1DFTstar or args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4:
+        if args.AIQM1 or args.AIQM1DFT or args.AIQM1DFTstar or args.AIQM2 or args.AIQM2DFT or args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4 or args.ani1ccxgelu or args.ani1xgelu or args.ani1ccxgelud4 or args.ani1xgelud4:
             nmol = 0
             for mol in molecular_database:
                 nmol += 1
                 print('\n\n Properties of molecule %d\n' % nmol)
                 if args.AIQM1 or args.AIQM1DFT or args.AIQM1DFTstar:
                     printing_aiqm1_results(aiqm1=args.AIQM1, molecule=mol)
-                elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4:
+                if args.AIQM2 or args.AIQM2DFT:
+                    printing_aiqm2_results(molecule=mol)
+                elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4 or args.ani1ccxgelu or args.ani1xgelu or args.ani1ccxgelud4 or args.ani1xgelud4:
                     printing_animethod_results(methodname=model.method, molecule=mol)
         else:
             for imol in range(len(molecular_database.molecules)): print(' Energy of molecule %6d: %25.13f Hartree' % (imol+1, molecular_database.molecules[imol].energy))
@@ -406,7 +408,9 @@ def geomopt(args):
             print('\n\n Final properties of molecule %d\n' % (imol+1))
             printing_aiqm1_results(aiqm1=args.AIQM1, molecule=geomopt.optimized_molecule)
             print('\n')
-        elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4:
+        if args.AIQM2 or args.AIQM2DFT:
+            printing_aiqm2_results(molecule=geomopt.optimized_molecule)
+        elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4 or args.ani1ccxgelu or args.ani1xgelu or args.ani1ccxgelud4 or args.ani1xgelud4:
             print('\n\n Final properties of molecule %d\n' % (imol+1))
             printing_animethod_results(methodname=model.method, molecule=geomopt.optimized_molecule)
             print('\n')
@@ -485,7 +489,10 @@ def freq(args):
         if args.AIQM1 or args.AIQM1DFT or args.AIQM1DFTstar:
             printing_aiqm1_results(aiqm1=args.AIQM1, molecule=mol)
             print('')
-        elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4:
+        if args.AIQM2 or args.AIQM2DFT:
+            printing_aiqm2_results(molecule=mol)
+            print('')
+        elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4 or args.ani1ccxgelu or args.ani1xgelu or args.ani1ccxgelud4 or args.ani1xgelud4:
             printing_animethod_results(methodname=model.method, molecule=mol)
             print('')
         if hasattr(mol, 'energy'):  print(fmt % ('ZPE-exclusive internal energy at      0 K', mol.energy))
@@ -503,6 +510,9 @@ def freq(args):
             # To-do: make it work for ANI-1ccx
             if args.AIQM1:
                 if mol.aiqm1_nn.energy_standard_deviation > 0.41*constants.kcalpermol2Hartree:
+                    print(' * Warning * Heat of formation have high uncertainty!')
+            if args.AIQM2:
+                if mol.aiqm2_nn.energy_standard_deviation > 0.36*constants.kcalpermol2Hartree:
                     print(' * Warning * Heat of formation have high uncertainty!')
             if args.ani1ccx:
                 if mol.ani1ccx.energy_standard_deviation > 1.68*constants.kcalpermol2Hartree:
@@ -1005,6 +1015,20 @@ def printing_aiqm1_results(aiqm1=True, molecule=None):
     print(fmt % ('Sum of atomic self energies', molecule.__dict__[aiqm1method+'_atomic_energy_shift'].energy))
     print(fmt % ('ODM2* contribution', molecule.odm2star.energy), file=sys.stdout)
     if aiqm1: print(fmt % ('D4 contribution', molecule.d4_wb97x.energy))
+    print(fmt % ('Total energy', molecule.energy))
+
+def printing_aiqm2_results(molecule=None):
+    fmt = ' %-41s: %15.8f Hartree'
+    # find aiqm1 keyword
+    for kk,_ in molecule.__dict__.items():
+        if 'aiqm2' in kk and kk[-2:]=='nn':
+            aiqm2method = kk.replace('_nn','')
+            break
+    print(fmt % ('Standard deviation of NN contribution', molecule.__dict__[aiqm2method+'_nn'].energy_standard_deviation), end='')
+    print(' %15.5f kcal/mol' % (molecule.__dict__[aiqm2method+'_nn'].energy_standard_deviation * constants.Hartree2kcalpermol))
+    print(fmt % ('NN contribution', molecule.__dict__[aiqm2method+'_nn'].energy))
+    print(fmt % ('GFN2-xTB* contribution', molecule.gfn2xtbstar.energy), file=sys.stdout)
+    print(fmt % ('D4 contribution', molecule.d4wb97x.energy))
     print(fmt % ('Total energy', molecule.energy))
     
 def printing_animethod_results(methodname=None, molecule=None):
