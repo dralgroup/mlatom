@@ -46,9 +46,10 @@ class xtb_methods(models.OMP_model, metaclass=models.meta_method):
 
     '''
     
-    def __init__(self, method='GFN2-xTB', read_keywords_from_file='', nthreads=None, **kwargs):
+    def __init__(self, method='GFN2-xTB', read_keywords_from_file='', without_d4=False, nthreads=None, **kwargs):
         self.method = method
         self.read_keywords_from_file = read_keywords_from_file
+        self.without_d4 = without_d4
         try:
             self.xtbbin = os.environ['xtb']
         except:
@@ -68,6 +69,9 @@ class xtb_methods(models.OMP_model, metaclass=models.meta_method):
                 calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False):
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
         
+        if self.without_d4:
+            self.xtbbin = "%s/xtb" % os.path.dirname(__file__)
+
         additional_xtb_keywords = []
         if self.read_keywords_from_file != '':
             kw_file = self.read_keywords_from_file
@@ -95,6 +99,8 @@ class xtb_methods(models.OMP_model, metaclass=models.meta_method):
                 # with open(f'{tmpdirname}/.CHRG', 'w') as fcharge, open(f'{tmpdirname}/.UHF', 'w') as fuhf:
                 #     fcharge.writelines(f'{mol.charge}\n')
                 #     fuhf.writelines(f'{number_of_unpaired_electrons}\n')
+                if self.without_d4:
+                    xtbargs += ['--withoutd4']
                 outputs = []
                 if calculate_energy and not calculate_energy_gradients:
                     proc = subprocess.Popen(xtbargs + additional_xtb_keywords, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=tmpdirname, universal_newlines=True)

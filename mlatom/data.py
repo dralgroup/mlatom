@@ -216,7 +216,8 @@ class molecule:
         '''
         Map all atoms outside the unicell into it.
         '''
-        self.cell_coordinates -= np.floor(self.cell_coordinates) * self.pbc
+        if self.pbc is not None:
+            self.cell_coordinates -= np.floor(self.cell_coordinates) * self.pbc
         
 
     def read_from_xyz_file(self, filename: str, format: Union[str, None] = None) -> molecule:
@@ -700,7 +701,7 @@ class molecule:
         xyzs = []
         for shift in shifts:
             xyzs.append(self.xyz_coordinates + shift @ self.cell)
-        return self.from_numpy(np.concatenate(xyzs, 0), np.repeat(self.atomic_numbers, len(shifts)))
+        return self.from_numpy(np.concatenate(xyzs, 0), np.tile(self.atomic_numbers, len(shifts)))
     
     def dump(self, filename=None, format='json'):
         '''
@@ -1652,13 +1653,37 @@ class molecular_database:
         try:
             if set(cells) == {None} and set(pbcs) == {None}:
                 return True
+            else:
+                return False
         except:
             try:
-                if np.max(np.std(cells, 0)) == 0 and np.max(np.std(pbcs, 0)):
+                if np.max(np.std(cells, 0)) == 0 and np.max(np.std(pbcs, 0)) == 0:
                     return True
+                else:
+                    return False
             except:
                 return False
+    
+    @property
+    def pbc(self):
+        if self._is_uniform_cell():
+            return self[0].pbc
+            
+    @pbc.setter
+    def pbc(self, pbc):
+        for mol in self:
+            mol.pbc = pbc
 
+    @property
+    def cell(self):
+        if self._is_uniform_cell():
+            return self[0].cell
+            
+    @cell.setter
+    def cell(self, cell):
+        for mol in self:
+            mol.cell = cell
+            
     def view(self):
         '''
         Visualize the molecular database. Uses ``py3Dmol``.

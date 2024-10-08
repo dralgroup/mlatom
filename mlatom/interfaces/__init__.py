@@ -6,6 +6,10 @@ def aiqm1():
     from ..aiqm1 import aiqm1 as interface
     return interface
 
+def aiqm2():
+    from ..aiqm2 import aiqm2 as interface 
+    return interface
+
 def dens():
     from ..dens import dens as interface 
     return interface
