@@ -1,6 +1,6 @@
 # Updates
 
-- MLatom 3.12.0 (08.10.2024) - [AIQM2](https://chemrxiv.org/engage/chemrxiv/article-details/67042664cec5d6c1427a144f), ANI-1ccx-gelu (release on PyPi scheduled for Oct. 8-9).
+- MLatom 3.12.0 (08.10.2024) - [AIQM2](https://doi.org/10.26434/chemrxiv-2024-j8pxp), [ANI-1ccx-gelu](https://doi.org/10.26434/chemrxiv-2024-c8s16).
 - MLatom 3.11.0 (23.09.2024) - DENS24 functionals, simpler choice of methods, IR spectra, important bug fixes (particularly for active learning) ([overview](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-11-0)).
 - MLatom 3.10.0-1 (21-22.08.2024) - active learning for surface hopping MD, multi-state ANI for excited states, gapMD for efficient exploration of the conical intersection regions, quality of life improvements such as viewing molecules, databases, and trajectories in Jupyter, easier load of molecules ([overview](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-10-0)).
 - [A-MLatom/MLatom\@XACS](https://xacs.xmu.edu.cn/docs/mlatom/a-mlatom-xacs.html) update (24.07.2024) - [Raman spectra](https://xacs.xmu.edu.cn/docs/mlatom/tutorial_raman.html)
