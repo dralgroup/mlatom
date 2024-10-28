@@ -1,3 +1,5 @@
+[![Downloads](https://static.pepy.tech/badge/mlatom)](https://pepy.tech/project/mlatom)  [![Downloads](https://static.pepy.tech/badge/mlatom/month)](https://pepy.tech/project/mlatom)  [![Downloads](https://static.pepy.tech/badge/mlatom/week)](https://pepy.tech/project/mlatom)
+
 # Updates
 
 - MLatom 3.12.0 (08.10.2024) - [AIQM2](https://doi.org/10.26434/chemrxiv-2024-j8pxp), [ANI-1ccx-gelu](https://doi.org/10.26434/chemrxiv-2024-c8s16).
