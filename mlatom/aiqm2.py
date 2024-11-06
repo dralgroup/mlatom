@@ -1,5 +1,6 @@
 from . import data, models, constants
 from multiprocessing import cpu_count
+from .interfaces.torchani_interface import ani
 import os 
 
 class aiqm2(models.model, metaclass=models.meta_method):
@@ -51,20 +52,23 @@ class aiqm2(models.model, metaclass=models.meta_method):
         molecule=None,
         calculate_energy=True, 
         calculate_energy_gradients=False, 
-        calculate_hessian=False
+        calculate_hessian=False,
+        calculate_dipole_derivatives=False,
     ):
 
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
         for mol in molDB.molecules:
             self.predict_for_molecule(molecule=mol,
-                                calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian)
+                                calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian,
+                                calculate_dipole_derivatives=calculate_dipole_derivatives)
 
     def predict_for_molecule( # no specific treatment to atomic energies currently
         self,
         molecule=None,
         calculate_energy=True, 
         calculate_energy_gradients=False, 
-        calculate_hessian=False
+        calculate_hessian=False,
+        calculate_dipole_derivatives=False,
     ):
 
         for atom in molecule.atoms:
@@ -75,16 +79,20 @@ class aiqm2(models.model, metaclass=models.meta_method):
         self.aiqm2_model.predict(
             molecule=molecule,
             calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, 
+            calculate_dipole_derivatives=calculate_dipole_derivatives,
         )
 
         molecule.__dict__[f'{self.model_name}_nn'].standard_deviation(properties=['energy'])
 
     def load(self):
+        if not os.path.exists(os.path.join(self.dirname, f'{self.model_name}_cv0.pt')):
+            self.download_models()
+        
         model_paths = [os.path.join(self.dirname, f'{self.model_name}_cv{ii}.pt') for ii in range(8)]
 
         baseline = models.model_tree_node(
             name='gfn2xtbstar',
-            model=models.methods(method='GFN2-xTB', without_d4=True, **self.qm_program_kwargs),
+            model=models.methods(method='GFN2-xTB*', **self.qm_program_kwargs),
             operator='predict'
         )
         d4 = models.model_tree_node(
@@ -97,7 +105,10 @@ class aiqm2(models.model, metaclass=models.meta_method):
             children=[
                 models.model_tree_node(
                     name=f'{self.model_name}_nn_{ii}',
-                    model=models.ani(
+                    # model=models.ani(
+                    #     model_file=model_paths[ii],
+                    #     verbose=0),
+                    model=ani_wrapper(
                         model_file=model_paths[ii],
                         verbose=0),
                     operator='predict'
@@ -112,4 +123,22 @@ class aiqm2(models.model, metaclass=models.meta_method):
             operator='sum'
         )
 
-        
+    def download_models(self):
+        import requests
+        urls = [f"https://github.com/dralgroup/mlatom/raw/refs/heads/main/mlatom/aiqm2_model/{self.model_name}_cv{ii}.pt" for ii in range(8)]
+        if not os.path.exists(self.dirname):
+            os.makedirs(self.dirname, exist_ok=True)
+        print(f'Downloading aiqm2 model parameters ...')
+        for ii in range(8):
+            resource_res = requests.get(urls[ii])
+            with open(f'{self.dirname}/{self.model_name}_cv{ii}.pt','wb') as f:
+                f.write(resource_res.content)
+
+class ani_wrapper(ani):
+    def __init__(self,**kwargs):
+        super().__init__(**kwargs)
+
+    def predict(self,**kwargs):
+        if 'calculate_dipole_derivatives' in kwargs.keys():
+            del kwargs['calculate_dipole_derivatives']
+        super().predict(**kwargs)

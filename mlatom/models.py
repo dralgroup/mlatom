@@ -189,7 +189,7 @@ class methods(model):
     'aimnet2': ["AIMNet2@b973c", "AIMNet2@wb97m-d3"],
     'mndo': ['ODM2*', 'ODM2', 'ODM3', 'OM3', 'OM2', 'OM1', 'PM3', 'AM1', 'MNDO/d', 'MNDOC', 'MNDO', 'MINDO/3', 'CNDO/2', 'SCC-DFTB', 'SCC-DFTB-heats', 'MNDO/H', 'MNDO/dH'],
     'sparrow': ['DFTB0', 'DFTB2', 'DFTB3', 'MNDO', 'MNDO/d', 'AM1', 'RM1', 'PM3', 'PM6', 'OM2', 'OM3', 'ODM2*', 'ODM3*', 'AIQM1'],
-    'xtb': ['GFN2-xTB'],
+    'xtb': ['GFN2-xTB', 'GFN2-xTB*'],
     'dftd4': ['D4'],
     'dftd3': ['d3zero', 'd3bj', 'd3bjm', 'd3zerom', 'd3op'],
     'dens': [],

@@ -40,6 +40,9 @@ class plot(object):
         self.markers = []
         self.linewidths = []
 
+        self.invert_xaxis = False 
+        self.invert_yaxis = False
+
     def make_figure(self):
         import matplotlib
         import matplotlib.pyplot as plt
@@ -145,6 +148,11 @@ class plot(object):
             plt.xlim(left=self.plotstart)
         if self.plotend:
             plt.xlim(right=self.plotend)
+
+        if self.invert_xaxis:
+            ax.invert_xaxis()
+        if self.invert_yaxis:
+            ax.invert_yaxis()
 
         if not all(label == None for label in self.labels):
             plt.legend(lines, [ll.get_label() for ll in lines],

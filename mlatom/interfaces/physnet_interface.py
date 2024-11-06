@@ -135,8 +135,8 @@ class physnet(models.ml_model, models.tensorflow_model):
         for hyperparam in self.hyperparameters:
             if hyperparam in args.hyperparameter_optimization['hyperparameters']:
                 self.parse_hyperparameter_optimization(args, hyperparam)
-            elif hyperparam in args.data:
-                self.hyperparameters[hyperparam].value = args.data[hyperparam]
+            # elif hyperparam in args.data:
+            #     self.hyperparameters[hyperparam].value = args.data[hyperparam]
             elif 'physnet' in args.data and hyperparam in args.physnet.data:
                 self.hyperparameters[hyperparam].value = args.physnet.data[hyperparam]
     

@@ -925,7 +925,7 @@ class Sampler():
                 if len(sampled_db) != 0:
                     moldb.append(sampled_db)
                 else:
-                    return data.molecular_databse()
+                    return data.molecular_database()
             return sample_from_DB(moldb, max_points)
         else:
             moldb = loop_alnamd()
