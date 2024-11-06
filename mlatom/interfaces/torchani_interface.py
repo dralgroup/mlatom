@@ -174,8 +174,8 @@ class ani(models.ml_model, models.torchani_model):
         for hyperparam in self.hyperparameters:
             if hyperparam in args.hyperparameter_optimization['hyperparameters']:
                 self.parse_hyperparameter_optimization(args, hyperparam)
-            elif hyperparam in args.data:
-                self.hyperparameters[hyperparam].value = args.data[hyperparam]
+            # elif hyperparam in args.data:
+            #     self.hyperparameters[hyperparam].value = args.data[hyperparam]
             elif 'ani' in args.data and hyperparam in args.ani.data:
                 self.hyperparameters[hyperparam].value = args.ani.data[hyperparam]
 
@@ -847,8 +847,8 @@ class msani(models.ml_model, models.torchani_model):
         for hyperparam in self.hyperparameters:
             if hyperparam in args.hyperparameter_optimization['hyperparameters']:
                 self.parse_hyperparameter_optimization(args, hyperparam)
-            elif hyperparam in args.data:
-                self.hyperparameters[hyperparam].value = args.data[hyperparam]
+            # elif hyperparam in args.data:
+            #     self.hyperparameters[hyperparam].value = args.data[hyperparam]
             elif 'ani' in args.data and hyperparam in args.ani.data:
                 self.hyperparameters[hyperparam].value = args.ani.data[hyperparam]
     
@@ -1566,7 +1566,20 @@ class torchani_methods(models.torchani_model, metaclass=models.meta_method):
 
         currentdir=os.path.dirname(__file__)
         dirname=os.path.join(currentdir, f'../ani_gelu_model')
+        if not os.path.exists(f'{dirname}/{method}_cv0.pt'):
+            self.download_models(dirname, method)
         return [ani(model_file=f'{dirname}/{method}_cv{ii}.pt', verbose=0) for ii in range(8)]
+
+    def download_models(self, dirname, method):
+        import requests
+        urls = [f"https://github.com/dralgroup/mlatom/raw/refs/heads/main/mlatom/ani_gelu_model/{method}_cv{ii}.pt" for ii in range(8)]
+        if not os.path.exists(dirname):
+            os.makedirs(dirname, exist_ok=True)
+        print(f'Downloading ani gelu model parameters ...')
+        for ii in range(8):
+            resource_res = requests.get(urls[ii])
+            with open(f'{dirname}/{method}_cv{ii}.pt','wb') as f:
+                f.write(resource_res.content)
             
     @doc_inherit
     def predict(

@@ -13,6 +13,15 @@
 import os
 import numpy as np
 
+import pyscf
+from pyscf import gto, scf
+from pyscf.dft.libxc import *
+from pyscf import hessian
+from pyscf.hessian import thermo
+from pyscf.hessian.thermo import *
+from pyscf.hessian.thermo import _get_rotor_type, _get_TR
+import tempfile
+import timeit
 from multiprocessing import cpu_count
 import sys
 
@@ -256,6 +265,9 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
                     calc_dipole_derivatives(pyscf_method,molecule,method_type)
             else:
                 print("PySCF doesn't converge and hessian will not be stored in molecule")
+
+            if calculate_dipole_derivatives:
+                calc_dipole_derivatives(pyscf_method,molecule,method_type)
 
     def predict_for_molecule_DM21(self, molecule=None, pyscf_mol=None, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, **kwargs):
         # reference: https://github.com/google-deepmind/deepmind-research/tree/f5de0ede8430809180254ee957abf36ed62579ef/density_functional_approximation_dm21

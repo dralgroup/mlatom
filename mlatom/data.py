@@ -17,7 +17,6 @@ import h5py
 import functools
 from . import constants
 from . import conversions
-from .stopper import stopMLatom
 
 periodic_table = """ X
   H                                                                                                                           He
@@ -866,24 +865,33 @@ class molecule:
             xyzvib += f" {disp[0]:25.13f} {disp[1]:25.13f} {disp[2]:25.13f}\n"
         return xyzvib
 
-    def view(self, normal_mode=None):
+    def view(self, normal_mode=None, slider=True):
         '''
         Visualize the molecule and its vibrations if requested. Uses ``py3Dmol``.
         Arguments:
             normal_mode (integer, optional): the index of a normal mode to visualize. Default: None.
+            slider(bool, optional):          show interactive slider to choose the mode.
+                                             Default: True (only works if normal_mode is not None).
         '''
         import py3Dmol
-        py3Dmolargs = []
-        if not normal_mode is None:
-            xyzstr = self.get_xyzvib_string(normal_mode=normal_mode)
-            py3Dmolargs = [{'vibrate': {'frames':15,'amplitude':0.8}}]
+        def animate(mode):
+            py3Dmolargs = []
+            viewer = py3Dmol.view(width=400, height=300)
+            if not normal_mode is None:
+                xyzstr = self.get_xyzvib_string(normal_mode=mode)
+                py3Dmolargs = [{'vibrate': {'frames':15,'amplitude':0.8}}]
+            else:
+                xyzstr = self.get_xyz_string()
+            viewer.addModel(xyzstr, "xyz", *py3Dmolargs)
+            viewer.setStyle({"stick": {}, "sphere": {"scale": 0.25}})
+            if not normal_mode is None: viewer.animate({'loop': 'backAndForth'})
+            viewer.show()
+        if not normal_mode is None and slider:
+            import ipywidgets
+            _ = ipywidgets.interact(animate,
+                        mode=ipywidgets.IntSlider(min=0, max=len(self.frequencies)-1, step=1, value=normal_mode))
         else:
-            xyzstr = self.get_xyz_string()
-        viewer = py3Dmol.view(width=400, height=300)
-        viewer.addModel(xyzstr, "xyz", *py3Dmolargs)
-        viewer.setStyle({"stick": {}, "sphere": {"scale": 0.25}})
-        if not normal_mode is None: viewer.animate({'loop': 'backAndForth'})
-        viewer.show()
+            animate(normal_mode)
 
 class properties_tree_node():
     def __init__(self, name=None, parent=None, children=None, properties=None):

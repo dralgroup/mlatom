@@ -420,7 +420,7 @@ class mlatom_args(ArgsBase):
                 'sample', 'sampleFromSlices', 'mergeSlices','slice',
             # Simulation tasks 
                 # PES tasks
-                'geomopt', 'ts', 'freq', 'irc', 'ir',
+                'geomopt', 'ts', 'freq', 'irc', 'ir','raman',
                 # Dynamics
                 'MD', 
                 # Vibrational spectra
@@ -473,6 +473,7 @@ class mlatom_args(ArgsBase):
         self.set_keyword_alias('AIMNet2@B973c', ['aimnet2atb973c'])
         self.set_keyword_alias('AIMNet2@wb97M-D3', ['aimnet2atwb97md3'])
         self.set_keyword_alias('GFN2-xTB', ['gfn2xtb'])
+        self.set_keyword_alias('GFN2-xTB*',['gfn2xtbstar'])
         self.set_keyword_alias('MNDO/dH', ['mndodh'])
         self.set_keyword_alias('MNDO/H', ['mndoh'])
         self.set_keyword_alias('MNDO/d', ['mndod'])
@@ -558,6 +559,12 @@ class mlatom_args(ArgsBase):
         # geomopt/ts/freq/irc
         self.add_dict_args({
             'optXYZ': "optgeoms.xyz",
+            # 'raman':False,
+            # 'ir': False,
+        })
+        # ir
+        self.add_dict_args({
+            'scaling': 0.0
         })
         # ASE
         self.parse_input_content([

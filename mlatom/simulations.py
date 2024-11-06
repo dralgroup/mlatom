@@ -428,15 +428,28 @@ class freq():
 
 
     """
-    def __init__(self, model=None, model_predict_kwargs={}, molecule=None, program=None, ir=False, normal_mode_normalization='mass deweighted normalized', anharmonic=False, anharmonic_kwargs={}, working_directory=None):
+    def __init__(self, model=None, model_predict_kwargs={}, molecule=None, program=None, ir=False, raman=False, normal_mode_normalization='mass deweighted normalized', anharmonic=False, anharmonic_kwargs={}, working_directory=None):
         if model != None:
             self.model = model
         self.model_predict_kwargs = model_predict_kwargs
         self.molecule = molecule
         self.ir = ir
+        self.raman = raman
         if self.ir:
+            # import inspect
+            # args = ['self']
+            # for subclass in self.model.__mro__:
+            #     if 'predict' in subclass.__dict__:
+            #         args += inspect.getfullargspec(subclass.predict).args[1:]
+            # print(args)
+            # if not 'calculate_dipole_derivatives' in args:
+            #     raise TypeError('the model cannot be used for IR spectra calculations')
+            # else:
             if not 'calculate_dipole_derivatives' in self.model_predict_kwargs:
                 self.model_predict_kwargs['calculate_dipole_derivatives'] = True
+        if self.raman:
+            if not 'calculate_polarizability_derivatives' in self.model_predict_kwargs:
+                self.model_predict_kwargs['calculate_polarizability_derivatives'] = True
         if program != None:
             self.program = program
         else:
@@ -464,6 +477,9 @@ class freq():
         if 'dipole_derivatives' in self.molecule.__dict__:
             if self.program.casefold() != 'Gaussian'.casefold():
                 self.ir_intensities(normal_mode_normalization='mass deweighted normalized')
+        if 'polarizability_derivatives' in self.molecule.__dict__:
+            if self.program.casefold() != 'Gaussian'.casefold():
+                self.raman_intensities(normal_mode_normalization='mass deweighted normalized')
 
     def freq_gaussian(self, anharmonic):
         self.successful = False
@@ -505,7 +521,7 @@ class freq():
 
     def freq_pyscf(self):
         self.successful = False
-        self.model.predict(molecule=self.molecule, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=True, **self.model_predict_kwargs)
+        self.model.predict(molecule=self.molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=True, **self.model_predict_kwargs)
         from .interfaces import pyscf_interface
         self.successful = pyscf_interface.thermo_calculation(molecule=self.molecule)
 
@@ -543,6 +559,43 @@ class freq():
         nm = nm.reshape((nm.shape[0],3*Natoms))
         de_nm = np.dot(nm,new_de)
         self.molecule.infrared_intensities = kmmol * np.einsum("qt, qt -> q", de_nm,de_nm)
+
+    def raman_intensities(self,normal_mode_normalization='mass deweighted normalized'):
+        Natoms = len(self.molecule)
+        Nfreqs = len(self.molecule.frequencies)
+        masses = self.molecule.get_nuclear_masses()
+        if normal_mode_normalization == 'mass deweighted normalized':
+            # mass deweighted normalized to mass weighted normalized
+            nm = np.zeros((Nfreqs,Natoms,3))
+            for imode in range(Nfreqs):
+                for iatom in range(Natoms):
+                    nm[imode][iatom] = self.molecule[iatom].normal_modes[imode] * np.sqrt(masses[iatom])
+            for imode in range(Nfreqs):
+                nm[imode] /= np.sqrt(np.sum(nm[imode]**2))
+            # mass weighted normalized to mass deweighted unnormalized
+            for imode in range(Nfreqs):
+                for iatom in range(Natoms):
+                    nm[imode][iatom] = nm[imode][iatom] / np.sqrt(masses[iatom])
+        elif normal_mode_normalization == 'mass deweighted unnormalized':
+            nm = np.zeros((Nfreqs,Natoms,3))
+            for imode in range(Nfreqs):
+                for iatom in range(Natoms):
+                    nm[imode][iatom] = self.molecule[iatom].normal_modes[imode]
+        else:
+            return
+        
+        polard = np.copy(self.molecule.polarizability_derivatives)
+        new_polard = polard.reshape((Natoms*3,6))
+        nm = nm.reshape((nm.shape[0],3*Natoms))
+        polard_nm = np.dot(nm,new_polard)
+        intensities = []
+        for each in polard_nm:
+            a2 = (each[0]+each[2]+each[5])**2 / 9.0
+            gamma2 = ((each[0]-each[2])**2 + (each[0]-each[5])**2 + (each[2]-each[5])**2 + 6*(each[1]**2+each[3]**2+each[4]**2)) / 2.0
+            intensities.append(45.0*a2+7.0*gamma2)
+        intensities = np.array(intensities).astype(float)
+        self.molecule.raman_intensities = intensities * constants.au2Angstrom4byamu * constants.au2ram
+        
     
     @classmethod
     def freq_modified_from_TorchANI(cls,molecule,normal_mode_normalization,model=None, **kwargs):
@@ -708,7 +761,7 @@ class thermochemistry():
     
     * ``DeltaHf298``: Heat of formation at 298 K
     """
-    def __init__(self, model=None, molecule=None, program=None, ir=False, normal_mode_normalization='mass deweighted normalized'):
+    def __init__(self, model=None, molecule=None, program=None, ir=False, raman=False, normal_mode_normalization='mass deweighted normalized'):
         if model != None:
             self.model = model
         self.molecule = molecule
@@ -722,7 +775,8 @@ class thermochemistry():
                     self.program = 'ASE'
                 except:
                     raise ValueError('please set $GAUSS_EXEDIR or install ase')
-        freq(model=model, molecule=self.molecule, program=program, ir=ir,normal_mode_normalization=normal_mode_normalization)
+        print(ir)
+        freq(model=model, molecule=self.molecule, program=program, ir=ir, raman=raman, normal_mode_normalization=normal_mode_normalization)
         if self.program.casefold() == 'ASE'.casefold(): self.thermochem_ase()
         # Calculate heats of formation
         self.calculate_heats_of_formation()

@@ -23,7 +23,7 @@ class xtb_methods(models.OMP_model, metaclass=models.meta_method):
 
     .. note::
 
-        Only GFN2-xTB is available. 
+        GFN2-xTB and GFN2-xTB* (remove D4 from GFN2-xTB) are available. 
 
     Examples:
 
@@ -46,16 +46,19 @@ class xtb_methods(models.OMP_model, metaclass=models.meta_method):
 
     '''
     
-    def __init__(self, method='GFN2-xTB', read_keywords_from_file='', without_d4=False, nthreads=None, **kwargs):
+    def __init__(self, method='GFN2-xTB', read_keywords_from_file='', nthreads=None, **kwargs):
         self.method = method
+        if self.method.lower() == 'GFN2-xTB*'.lower():
+            self.without_d4 = True
+        else:
+            self.without_d4 = False
         self.read_keywords_from_file = read_keywords_from_file
-        self.without_d4 = without_d4
+
         try:
             self.xtbbin = os.environ['xtb']
         except:
-            msg = 'Cannot find the xtb program, please set the environment variable: export xtb=...'
-            raise ValueError(msg)
-        
+            self.xtbbin = "%s/xtb" % os.path.dirname(__file__)
+
         if nthreads is None:
             from multiprocessing import cpu_count
             self.nthreads = cpu_count()
@@ -66,12 +69,12 @@ class xtb_methods(models.OMP_model, metaclass=models.meta_method):
         
     @doc_inherit
     def predict(self, molecular_database=None, molecule=None,
-                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False):
+                calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, calculate_dipole_derivatives=False,calculate_polarizability_derivatives=False):
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
-        
-        if self.without_d4:
-            self.xtbbin = "%s/xtb" % os.path.dirname(__file__)
 
+        if calculate_dipole_derivatives or self.without_d4:
+            self.xtbbin = "%s/xtb" % os.path.dirname(__file__)
+        
         additional_xtb_keywords = []
         if self.read_keywords_from_file != '':
             kw_file = self.read_keywords_from_file
@@ -167,7 +170,10 @@ class xtb_methods(models.OMP_model, metaclass=models.meta_method):
 
                 if calculate_hessian:
                     natoms = len(mol.atoms)
-                    proc = subprocess.Popen(xtbargs + ['--hess'] + additional_xtb_keywords, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=tmpdirname, universal_newlines=True)
+                    if not calculate_polarizability_derivatives:
+                        proc = subprocess.Popen(xtbargs + ['--hess'] + additional_xtb_keywords, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=tmpdirname, universal_newlines=True)
+                    else:
+                        proc = subprocess.Popen(xtbargs + ['--hess','--ptb','--alpha'] + additional_xtb_keywords, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=tmpdirname, universal_newlines=True)
                     outs,errs = proc.communicate()
                     stdout = outs.split('\n')
                     stderr = errs.split('\n')
@@ -187,6 +193,16 @@ class xtb_methods(models.OMP_model, metaclass=models.meta_method):
                                     hess.append(float(xx) / (constants.Bohr2Angstrom**2))
                             hess = np.array(hess).astype(float)
                             mol.hessian = hess.reshape(natoms*3,natoms*3)
+                        # Read dipole derivatives
+                        if calculate_dipole_derivatives:
+                            if os.path.exists(f'{tmpdirname}/dipd'):
+                                with open(f'{tmpdirname}/dipd', 'r') as fout:
+                                    dipd = []
+                                    for iline, line in enumerate(fout.readlines()):
+                                        if iline == 0: continue 
+                                        dipd += [float(each) for each in line.split()]
+                                    dipd = np.array(dipd).astype(float)
+                                    mol.dipole_derivatives = dipd / constants.Debye
 
 
 if __name__ == '__main__':

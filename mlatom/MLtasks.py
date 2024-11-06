@@ -409,7 +409,9 @@ def geomopt(args):
             printing_aiqm1_results(aiqm1=args.AIQM1, molecule=geomopt.optimized_molecule)
             print('\n')
         if args.AIQM2 or args.AIQM2DFT:
+            print('\n\n Final properties of molecule %d\n' % (imol+1))
             printing_aiqm2_results(molecule=geomopt.optimized_molecule)
+            print('\n')
         elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4 or args.ani1ccxgelu or args.ani1xgelu or args.ani1ccxgelud4 or args.ani1xgelud4:
             print('\n\n Final properties of molecule %d\n' % (imol+1))
             printing_animethod_results(methodname=model.method, molecule=geomopt.optimized_molecule)
@@ -451,6 +453,7 @@ def freq(args):
         geomopt = simulations.thermochemistry(model=model,
                                         molecule=mol,
                                         ir=args.ir,
+                                        raman=args.raman,
                                         **kwargs)
         mol.dump(f'freq{mol.number}.json',format='json')
         mol.dump(f'freq_gaussian{mol.number}.log',format='gaussian')
@@ -481,6 +484,32 @@ def freq(args):
             print('              (cm^-1)            (AMU)           (mDyne/A)')
             for i in range(len(mol.frequencies)):
                 print('%6d %15.4f %15.4f %18.4f' % (i+1, mol.frequencies[i], mol.reduced_masses[i], mol.force_constants[i]))
+
+        if 'infrared_intensities' in mol.__dict__:
+            scaling = False
+            if abs(args.scaling - 0.0) > 1e-6:
+                if abs(args.scaling - 1.0) > 1e-8:
+                    scaling = True 
+                    scaling_factor = args.scaling
+            else:
+                if args.AIQM2:
+                    scaling = True
+                    scaling_factor = 0.962
+                elif args.AIQM1:
+                    scaling = True 
+                    scaling_factor = 0.957
+                # if args.method and 'uqiam_gfn2xtbstar' in args.method and 'cc' in args.method:
+                #     scaling = True 
+                #     scaling_factor = 0.962
+                
+            if scaling:
+                print(' Scale frequencies linearly')
+                print(f' Scaling factor: {scaling_factor}')
+                print('   Mode     Frequencies     Reduced masses     Force Constants       IR intensities')
+                print('              (cm^-1)            (AMU)           (mDyne/A)              (km/mol)')
+                for i in range(len(mol.frequencies)):
+                    print('%6d %15.4f %15.4f %18.4f     %18.4f' % (i+1, mol.frequencies[i]*scaling_factor, mol.reduced_masses[i], mol.force_constants[i], mol.infrared_intensities[i]))
+
             
         print(' %s ' % ('='*78))
         print(' %s Thermochemistry for molecule %6d' % (' '*20, imol+1))
@@ -520,6 +549,10 @@ def freq(args):
         print('')
 
 def ir(args):
+    freq(args)
+
+def raman(args):
+    args.ir = True 
     freq(args)
 
 def irc(args):

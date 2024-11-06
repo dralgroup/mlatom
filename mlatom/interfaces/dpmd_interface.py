@@ -198,8 +198,8 @@ class dpmd(models.ml_model, models.tensorflow_model):
         for hyperparam in self.hyperparameters:
             if hyperparam in args.hyperparameter_optimization['hyperparameters']:
                 self.parse_hyperparameter_optimization(args, hyperparam)
-            elif hyperparam in args.data:
-                self.hyperparameters[hyperparam].value = args.data[hyperparam]
+            # elif hyperparam in args.data:
+            #     self.hyperparameters[hyperparam].value = args.data[hyperparam]
             elif 'deepmd' in args.data and hyperparam in args.deepmd.data:
                 self.hyperparameters[hyperparam].value = args.deepmd.data[hyperparam]
 

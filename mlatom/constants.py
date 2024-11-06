@@ -44,7 +44,12 @@ Debye = 0.20819433442462576 # Unit: electron_charge / Angstrom
 au2Angstrom4byamu = 1.065693E-31 * 8.077608721857700E+019 * 16605390400000.0
 
 ev_nm_conversion_constant = planck_constant * Joule2eV * speed_of_light * 1E9
+hartree_nm_conversion_constant = ev_nm_conversion_constant / Hartree2eV
 def eV2nm(eV):
   return ev_nm_conversion_constant / eV
 def nm2eV(nm):
   return ev_nm_conversion_constant / nm
+def hartree2nm(hartree):
+  return hartree_nm_conversion_constant / hartree
+def nm2hartree(nm):
+  return hartree_nm_conversion_constant / nm
