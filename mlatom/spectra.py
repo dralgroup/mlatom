@@ -8,7 +8,7 @@
   !---------------------------------------------------------------------------! 
 '''
 
-import copy
+import os, copy
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.stats import wasserstein_distance
@@ -278,22 +278,21 @@ class uvvis(spectrum):
         if meta_data is not None:
             self.meta_data = meta_data            
 
-    def plot(self,filename,xaxis_caption='Wavelength (nm)',yaxis_caption='Extinction coefficient (M$^-1$ cm$^-1$)',title='UV-Vis spectrum'):
-        super().plot(filename=filename,xaxis_caption=xaxis_caption,yaxis_caption=yaxis_caption,title=title)
+    def plot(self,filename=None,xaxis_caption='Wavelength (nm)',yaxis_caption='Extinction coefficient (M$^-1$ cm$^-1$)',title='UV-Vis spectrum'):
+        plot_uvvis(spectra=[self], filename=filename, xaxis_caption=xaxis_caption, yaxis_caption=yaxis_caption, title=title)
 
     @classmethod
     def spc(cls, molecule=None,
-            #wavelengths_nm=np.arange(400, 800),
                  band_width=0.3, shift=0.0, refractive_index=1.0):
         '''
         Single-point convolution (SPC) approach for obtaining UV/vis spectrum
-        via calculating the excinction coefficient (and absorption cross section)
+        via calculating the exctinction coefficient (and absorption cross section)
         from the single-point excited-state simulations
         for a single geometry
         Implementation follows http://doi.org/10.1007/s00894-020-04355-y
 
         Arguments:
-            molecule (data.molecule):              molecule object with
+            molecule (:class:`mlatom.data.molecule`): molecule object with
                                                    excitation_energies (in Hartree, not eV!)
                                                    and oscillator_strengths
             wavelengths_nm (float, np.ndarray):    range of wavelengths in nm (default: np.arange(400, 800))
@@ -302,9 +301,10 @@ class uvvis(spectrum):
             refractive_index (float):              refractive index (default: 1)
         
         Example:
-            uvvis = mlatom.spectra.uvvis.spc(molecule=mol,
-                                             wavelengths_nm=np.arange(100, 200),
-                                             band_width=0.3)
+            uvvis = mlatom.spectra.uvvis.spc(
+                        molecule=mol,
+                        wavelengths_nm=np.arange(100, 200),
+                        band_width=0.3)
             # spectral properties can be accessed as:
             # uvvis.x is equivalent to uvvis.wavelengths_nm
             # uvvis.y is equivalent to uvvis.molar_absorbance
@@ -316,10 +316,13 @@ class uvvis(spectrum):
             uvvis.energies_eV
             # absorption cross-section (float, np.ndarray) in A^2/molecule
             uvvis.cross_section
+            # quick plot
+            uvvis.plot(filename='uvvis.png')
         '''
-        excitation_energies = molecule.excitation_energies * constants.Hartree2eV
+        excitation_energies = molecule.excitation_energies * constants.hartree2eV
         wavelengths_nm = np.arange(constants.eV2nm(np.max(excitation_energies) + 3*band_width),
-                                   constants.eV2nm(np.min(excitation_energies) - 3*band_width)
+                                   constants.eV2nm(np.min(excitation_energies) - 3*band_width),
+                                   0.2
                                    )
         new_spectrum = cls.broaden(line_spectrum=np.array([excitation_energies,
                                                      molecule.oscillator_strengths
@@ -359,7 +362,91 @@ class uvvis(spectrum):
           *   np.exp( -(constants.nm2eV(wavelength_range) - DeltaE + shift) ** 2 / (band_width ** 2) ) )
         return f
 
+    @classmethod
+    def nea(cls, molecular_database=None,
+                 wavelengths_nm=None,
+                 broadening_width=0.05):
+        '''
+        Nuclear ensemble approach (NEA) for obtaining UV/vis spectrum.
+        Implementation follows Theor. Chem. Acc. 2012, 131, 1237.
 
+        Arguments:
+            molecular_database (:class:`mlatom.data.molecular_database`): molecular_database object
+                                                   with molecules containing
+                                                   excitation_energies (in Hartree, not eV!)
+                                                   and oscillator_strengths
+            wavelengths_nm (float, np.ndarray):    range of wavelengths in nm (default: determined automatically)
+            broadening_width (float):              broadening factor in eV (default: 0.05 eV)
+        
+        Example:
+            uvvis = mlatom.spectra.uvvis.nea(molecular_database=db,
+                                             wavelengths_nm=wavelengths_nm,
+                                             broadening_width=0.02)
+            # spectral properties can be accessed as:
+            # uvvis.x is equivalent to uvvis.wavelengths_nm
+            # uvvis.y is equivalent to uvvis.molar_absorbance
+            # wavelength range (float, np.ndarray) in nm 
+            uvvis.wavelengths_nm
+            # molar absorbance (extinction coefficients) (float, np.ndarray) in M^-1 cm^-1
+            uvvis.molar_absorbance
+            # energies corresponding to the wavelength range (float, np.ndarray), in eV
+            uvvis.energies_eV
+            # absorption cross-section (float, np.ndarray) in A^2/molecule
+            uvvis.cross_section
+            # quick plot
+            uvvis.plot(filename='uvvis.png')
+        '''
+
+        from ctypes import c_double, CDLL, c_long 
+
+        npoints = len(molecular_database)
+        nexcitations = molecular_database[0].nstates-1
+
+        # calculate required prefactors
+        nref = 1 # ratio
+        prefactor = np.pi * constants.electron_charge**2 / (2 * constants.electron_mass * constants.speed_of_light * constants.eps0 * nref)  # m^2/s  unit
+        hplanck = constants.planck_constant * constants.J2hartree * constants.hartree2eV
+        prefactor = prefactor * hplanck / (2 * np.pi) * 1E20 # Angstrom^2*eV
+        exp_prefactor = 1 / (broadening_width * (np.pi / 2) ** 0.5)
+
+        if wavelengths_nm is None:
+            min_es = min([np.min(molecular_database[ipoint].excitation_energies) for ipoint in range(npoints)]) * constants.hartree2eV
+            max_es = max([np.max(molecular_database[ipoint].excitation_energies) for ipoint in range(npoints)]) * constants.hartree2eV
+            wavelengths_nm = np.arange(constants.eV2nm(max_es + 3*broadening_width),
+                                       constants.eV2nm(min_es - 3*broadening_width),0.2)
+        new_spectrum = cls()
+        new_spectrum.wavelengths_nm = data.array(wavelengths_nm)
+        new_spectrum.x = new_spectrum.wavelengths_nm
+        new_spectrum.energies_eV = constants.nm2eV(new_spectrum.wavelengths_nm)
+        n_spectra_points = len(new_spectrum.energies_eV)
+
+        # Convert to C-type
+        c_excitation_energies_eV = ((c_double * npoints) * nexcitations)() # C-type list with excitation energies in eV for all points
+        c_oscillator_strengths = ((c_double * npoints) * nexcitations)() # C-type list with oscillator strengths for all points
+        for iex in range(nexcitations):
+            for ipoint in range(npoints):
+                c_excitation_energies_eV[iex][ipoint] = molecular_database[ipoint].excitation_energies[iex] * constants.hartree2eV
+                c_oscillator_strengths[iex][ipoint] = molecular_database[ipoint].oscillator_strengths[iex]
+        c_broadening_width = c_double(broadening_width)
+        c_exp_prefactor = c_double(exp_prefactor)
+        c_prefactor = c_double(prefactor)
+        c_n_spectra_points = c_long(n_spectra_points)
+        c_energies_eV = (c_double* n_spectra_points)()
+        for ii in range(n_spectra_points):
+            c_energies_eV[ii] = new_spectrum.energies_eV[ii]
+        c_cross_section = (c_double * n_spectra_points)()
+
+        # calculate cross section
+        py_script_path   = os.path.abspath(__file__[:__file__.rfind('/')])
+        c_calculate_cross_section = CDLL(os.path.join(py_script_path, 'cs.so'))
+        _ = c_calculate_cross_section.cs_calc(c_excitation_energies_eV, c_oscillator_strengths, 
+                    nexcitations, npoints,
+                    c_broadening_width, c_exp_prefactor, c_n_spectra_points, c_prefactor,
+                    c_cross_section, c_energies_eV)
+        new_spectrum.cross_section = data.array(c_cross_section)   # absorption cross-section in A^2/molecule
+        new_spectrum.molar_absorbance = new_spectrum.cross_section / 3.82353e-5 # extinction coefficients in M^-1 cm^-1
+        new_spectrum.y = new_spectrum.molar_absorbance
+        return new_spectrum
 
 class ir(spectrum):
 
@@ -945,7 +1032,11 @@ def plot_spectra(spectra=None, linespectra=None,
         ax2 = ax.twinx()
         ax2.set_ylabel(y2axis_caption,
                         fontsize=18, color='red')
-        ax2.set_ylim(ymin=-0.05, ymax=max(linespectra[0].y) * 1.1)
+        if normalize:
+            y2max = 1.0
+        else:
+            y2max = max(linespectra[0].y) * 1.1
+        ax2.set_ylim(ymin=-0.05, ymax=y2max)
         ax2.tick_params(axis='both', colors='red')
         for ii in range(len(linespectra[0].x)):
             ax2.plot((linespectra[0].x[ii], linespectra[0].x[ii]),
@@ -980,7 +1071,10 @@ def plot_uvvis( spectra=None,
                 normalize=False,
                 shift=False, shiftby=None,
                 plotstart=None, plotend=None,):
-    spectra = copy.deepcopy(spectra)
+    if spectra is None:
+        spectra = []
+    else:
+        spectra = copy.deepcopy(spectra)
     linespectra = copy.deepcopy(linespectra)
     if molecule is not None and oscillator_strength:
         if 'oscillator_strengths' in molecule.__dict__:

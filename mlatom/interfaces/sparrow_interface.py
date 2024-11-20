@@ -124,21 +124,19 @@ class sparrow_methods(models.OMP_model, metaclass=models.meta_method):
                     mol.energy = np.loadtxt(f'{tmpdirname}/energy.dat', comments='#').tolist()
                 if calculate_energy_gradients:
                     if self.availability_of_gradients_for_methods[self.method]:
-                        gradients = np.loadtxt(f'{tmpdirname}/gradients.dat', comments='#') / constants.Bohr2Angstrom 
+                        mol.energy_gradients = np.loadtxt(f'{tmpdirname}/gradients.dat', comments='#') / constants.Bohr2Angstrom
                     else:
                         save_files_in_current_directory = self.save_files_in_current_directory
                         self.save_files_in_current_directory = False
-                        gradients = simulations.numerical_gradients(mol, self, 1e-5, kwargs_funtion_predict_energy = {'calculate_energy_gradients': False, 'calculate_hessian': False})
+                        _ = simulations.numerical_gradients(mol, self, 1e-5, model_kwargs = {'calculate_energy_gradients': False, 'calculate_hessian': False})
                         self.save_files_in_current_directory = save_files_in_current_directory
-                    for iatom in range(len(mol.atoms)):
-                        mol.atoms[iatom].energy_gradients = gradients[iatom]
                 if calculate_hessian:
                     if self.availability_of_gradients_for_methods[self.method]:
                         mol.hessian = np.loadtxt(f'{tmpdirname}/hessian.dat', comments='#') / (constants.Bohr2Angstrom**2)
                     else:
                         save_files_in_current_directory = self.save_files_in_current_directory
                         self.save_files_in_current_directory = False
-                        mol.hessian = simulations.numerical_hessian(mol, self, 5.29167e-4, 1e-5, kwargs_funtion_predict_energy = {'calculate_energy_gradients': False, 'calculate_hessian': False})
+                        _ = simulations.numerical_hessian(mol, self, 5.29167e-4, 1e-5, model_kwargs = {'calculate_energy_gradients': False, 'calculate_hessian': False})
                         self.save_files_in_current_directory = save_files_in_current_directory
 
 if __name__ == '__main__':

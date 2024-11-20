@@ -3,7 +3,7 @@
 
   !---------------------------------------------------------------------------! 
   ! Interface_MACE: Interface between MACE and MLatom                         ! 
-  ! Implementations by: Fuchun Ge                                             ! 
+  ! Implementations by: Fuchun Ge, Yuxinxin Chen, Matheus O. Bispo            ! 
   !---------------------------------------------------------------------------! 
 '''
 
@@ -36,8 +36,9 @@ from mace.tools.checkpoint import CheckpointBuilder, CheckpointIO
 from mace.tools.scripts_utils import (
     SubsetCollection,
     LRScheduler,
-    create_error_table,
 )
+
+from mace.tools.tables_utils import create_error_table
 
 def load_from_molDB(
     molecular_database: data.molecular_database,
@@ -48,9 +49,9 @@ def load_from_molDB(
 ) -> Tuple[Dict[int, float], mace_data.Configurations]:
     atoms_list = []
     for mol in molecular_database:
-        atoms_list.append(ase.Atoms(positions=mol.xyz_coordinates, numbers=mol.atomic_numbers, info={'energy': getattr(mol, energy_key) * constants.Hartree2eV} if energy_key else None))
+        atoms_list.append(ase.Atoms(positions=mol.xyz_coordinates, numbers=mol.atomic_numbers, info={'REF_energy': getattr(mol, energy_key) * constants.Hartree2eV} if energy_key else None))
         if gradients_key:
-            atoms_list[-1].new_array('forces', -1 * mol.get_xyz_vectorial_properties(gradients_key) * constants.Hartree2eV)
+            atoms_list[-1].new_array('REF_forces', -1 * mol.get_xyz_vectorial_properties(gradients_key) * constants.Hartree2eV)
 
     atomic_energies_dict = {}
     if extract_atomic_energies:
@@ -210,7 +211,7 @@ class mace(models.ml_model, models.torch_model):
         'log_dir': models.hyperparameter(value='MACE_logs'),
         'log_level': models.hyperparameter(value='INFO'),
     })
-    
+
     def __init__(self, model_file: str = None, device: str = None, hyperparameters: Union[Dict[str,Any], models.hyperparameters]={}, verbose=True):
         self.verbose = verbose
         if device == None:
@@ -230,7 +231,7 @@ class mace(models.ml_model, models.torch_model):
             self.model_file = model_file
         else:
             self.model_file = f'mace_{str(uuid.uuid4())}.pt'
-            
+
     def parse_args(self, args):
         super().parse_args(args)
         for hyperparam in self.hyperparameters:
@@ -240,16 +241,16 @@ class mace(models.ml_model, models.torch_model):
             #     self.hyperparameters[hyperparam].value = args.data[hyperparam]
             elif 'mace' in args.data and hyperparam in args.mace.data:
                 self.hyperparameters[hyperparam].value = args.mace.data[hyperparam]
-    
+
     def load(self, model_file: str):
         self.model = torch.load(model_file, map_location=self.device).to(self.device)
-        
+
     def save(self, model_file: str):
         if not model_file:
             model_file =f'mace_{str(uuid.uuid4())}.pt'
             self.model_file = model_file
         torch.save(self.model, model_file)
-    
+
     @doc_inherit        
     def train(
         self, 
@@ -265,25 +266,24 @@ class mace(models.ml_model, models.torch_model):
             hyperparameters (Dict[str, Any] | :class:`mlatom.models.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
         '''
         self.hyperparameters.update(hyperparameters)
-            
-        
+
         args = self.hyperparameters
-        
+
         if validation_molecular_database == 'sample_from_molecular_database':
             idx = np.arange(len(molecular_database))
             np.random.shuffle(idx)
             molecular_database, validation_molecular_database = [molecular_database[i_split] for i_split in np.split(idx, [int(len(idx) * spliting_ratio)])]
         elif not validation_molecular_database:
             raise NotImplementedError("please specify validation_molecular_database or set it to 'sample_from_molecular_database'")
-        
+
         tag = tools.get_tag(name=args.model, seed=args.seed)
         tools.set_seeds(args.seed)
         if self.verbose: tools.setup_logger(level=args.log_level, tag=tag, directory=args.log_dir)
-        
+
         config_type_weights = ast.literal_eval(args.config_type_weights) if type(args.config_type_weights) == 'str' else  args.config_type_weights
-        
+
         tools.set_default_dtype(args.default_dtype)
-            
+
         collections, self.atomic_energies_dict = get_dataset_from_molDB(
             train_db=molecular_database,
             valid_db=validation_molecular_database,
@@ -291,12 +291,12 @@ class mace(models.ml_model, models.torch_model):
             energy_key=property_to_learn,
             gradients_key=xyz_derivative_property_to_learn,
         )
-        
+
         logging.info(
             f"Total number of configurations: train={len(collections.train)}, valid={len(collections.valid)}, "
             f"tests=[{', '.join([name + ': ' + str(len(test_configs)) for name, test_configs in collections.tests])}]"
         )
-        
+
         self.z_table = tools.get_atomic_number_table_from_zs(
             z
             for configs in (collections.train, collections.valid)
@@ -358,15 +358,19 @@ class mace(models.ml_model, models.torch_model):
             shuffle=True,
             drop_last=True,
         )
-        valid_loader = torch_geometric.dataloader.DataLoader(
-            dataset=[
-                mace_data.AtomicData.from_config(config, z_table=self.z_table, cutoff=args.r_max)
-                for config in collections.valid
-            ],
-            batch_size=args.valid_batch_size,
-            shuffle=False,
-            drop_last=False,
-        )
+        valid_loader = {
+            "val0": torch_geometric.dataloader.DataLoader(
+                dataset=[
+                    mace_data.AtomicData.from_config(
+                        config, z_table=self.z_table, cutoff=args.r_max
+                    )
+                    for config in collections.valid
+                ],
+                batch_size=args.valid_batch_size,
+                shuffle=False,
+                drop_last=False,
+            )
+        }
 
         loss_fn: torch.nn.Module
         if args.loss == "weighted":
@@ -711,7 +715,7 @@ class mace(models.ml_model, models.torch_model):
             model=self.model,
             loss_fn=loss_fn,
             train_loader=train_loader,
-            valid_loader=valid_loader,
+            valid_loaders=valid_loader,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
             checkpoint_handler=checkpoint_handler,
@@ -727,15 +731,16 @@ class mace(models.ml_model, models.torch_model):
             max_grad_norm=args.clip_grad,
             log_errors=args.error_table,
             log_wandb=args.wandb,
+            save_all_checkpoints=True,
         )
 
         # Evaluation on test datasets
         logging.info("Computing metrics for training, validation, and test sets")
 
-        all_collections = [
-            ("train", collections.train),
-            ("valid", collections.valid),
-        ] + collections.tests
+        all_data_loaders = {
+            "train": train_loader,
+            "valid": valid_loader["val0"],
+        }
 
         for swa_eval in swas:
             epoch = checkpoint_handler.load_latest(
@@ -748,12 +753,13 @@ class mace(models.ml_model, models.torch_model):
 
             for param in self.model.parameters():
                 param.requires_grad = False
+
             table = create_error_table(
                 table_type=args.error_table,
-                all_collections=all_collections,
-                z_table=self.z_table,
-                r_max=args.r_max,
-                valid_batch_size=args.valid_batch_size,
+                all_data_loaders=all_data_loaders,
+                # z_table=self.z_table,
+                # r_max=args.r_max,
+                # valid_batch_size=args.valid_batch_size,
                 model=self.model,
                 loss_fn=loss_fn,
                 output_args=output_args,
@@ -769,7 +775,7 @@ class mace(models.ml_model, models.torch_model):
             self.save(self.model_file)
 
         logging.info("Done")
-        
+
     @doc_inherit
     def predict(
             self, 
@@ -788,11 +794,11 @@ class mace(models.ml_model, models.torch_model):
         '''
         molDB, property_to_predict, xyz_derivative_property_to_predict, hessian_to_predict = \
             super().predict(molecular_database=molecular_database, molecule=molecule, calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, property_to_predict = property_to_predict, xyz_derivative_property_to_predict = xyz_derivative_property_to_predict, hessian_to_predict = hessian_to_predict)
-        
+
         configs =[mace_data.config_from_atoms(ase.Atoms(positions=mol.xyz_coordinates, numbers=mol.atomic_numbers)) for mol in molDB]
-        
+
         self.z_table = utils.AtomicNumberTable([int(z) for z in self.model.atomic_numbers])
-        
+
         data_loader = torch_geometric.dataloader.DataLoader(
             dataset=[
                 mace_data.AtomicData.from_config(
@@ -804,7 +810,7 @@ class mace(models.ml_model, models.torch_model):
             shuffle=False,
             drop_last=False,
         )
-        
+
         energies_list = []
         forces_collection = []
         for batch in data_loader:
@@ -815,7 +821,7 @@ class mace(models.ml_model, models.torch_model):
                 self.model = self.model.float()
                 output = self.model(batch.to_dict(), compute_force=xyz_derivative_property_to_predict)
             energies_list.append(torch_tools.to_numpy(output["energy"]))
-            
+
             if xyz_derivative_property_to_predict:
                 forces = np.split(
                     torch_tools.to_numpy(output["forces"]),
@@ -826,10 +832,10 @@ class mace(models.ml_model, models.torch_model):
 
         energies = np.concatenate(energies_list, axis=0)
         if property_to_predict:
-            molDB.add_scalar_properties(energies / constants.Hartree2eV, property_to_predict)
+            molDB.add_scalar_properties(energies / constants.hartree2eV, property_to_predict)
         if xyz_derivative_property_to_predict:
             forces_list = np.array([
-                -1 / constants.Hartree2eV * forces for forces_list in forces_collection for forces in forces_list
+                -1 / constants.hartree2eV * forces for forces_list in forces_collection for forces in forces_list
             ])
             molDB.add_xyz_vectorial_properties(forces_list, xyz_derivative_property_to_predict)
 
@@ -846,14 +852,14 @@ class CheckpointHandler_modified(tools.CheckpointHandler):
 
         if self.old_cpk_path and not keep_last:
             os.remove(self.old_cpk_path)
- 
+
         checkpoint = self.builder.create_checkpoint(state)
         self.io.save(checkpoint, epochs, keep_last)
         filename = self.io._get_checkpoint_filename(epochs, self.io.swa_start)
         latest_model_path = os.path.join(self.io.directory, filename.replace('epoch', 'model_epoch'))
         torch.save(state.model, latest_model_path)
         self.old_cpk_path = latest_model_path
-            
+
 def printHelp():
     helpText = __doc__.replace('.. code-block::\n\n', '') + '''
   To use Interface_MACE, please install MACE and its dependencies by following the instructions on  https://github.com/ACEsuit/mace

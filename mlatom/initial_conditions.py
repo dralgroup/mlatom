@@ -49,7 +49,7 @@ def excitation_energy_window_filter(molecular_database=None,
     for mol in molDB.molecules:
         for i in range(1, len(mol.electronic_states)):
             try:
-                excitation_energy = (mol.electronic_states[i].energy - mol.electronic_states[0].energy) * constants.Hartree2eV
+                excitation_energy = (mol.electronic_states[i].energy - mol.electronic_states[0].energy) * constants.hartree2eV
             except:
                 continue
             if abs(excitation_energy - target_excitation_energy) <= window_half_width:

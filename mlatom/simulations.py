@@ -144,7 +144,9 @@ class optimize_geometry():
                 #     import ase
                 #     self.program = 'ASE'
                 except:
-                    try: import scipy.optimize
+                    try:
+                        import scipy.optimize
+                        self.program = 'scipy'
                     except: raise ValueError('please set $GAUSS_EXEDIR or install geometric or install scipy')
         
         self.optimization_algorithm = optimization_algorithm
@@ -775,7 +777,6 @@ class thermochemistry():
                     self.program = 'ASE'
                 except:
                     raise ValueError('please set $GAUSS_EXEDIR or install ase')
-        print(ir)
         freq(model=model, molecule=self.molecule, program=program, ir=ir, raman=raman, normal_mode_normalization=normal_mode_normalization)
         if self.program.casefold() == 'ASE'.casefold(): self.thermochem_ase()
         # Calculate heats of formation
@@ -909,7 +910,19 @@ class dmc():
         '''
         return self.result.get_zpe(onwards=start_step, ret_cm=False)
 
-def numerical_gradients(molecule, model_with_function_to_predict_energy, eps=1e-5, kwargs_funtion_predict_energy={}, return_molecular_database=False):
+def numerical_gradients(molecule, model, displacement=1e-5, model_kwargs={}, return_molecular_database=False, nthreads=None):
+    '''
+    Calculate numerical gradients.
+    Two-point numerical differentiation is used and the required single-point calculations are run in parallel.
+    
+    Arguments:
+        molecule (:class:`mlatom.data.molecule`):                               the molecule object.
+        model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): any model or method which provides energies (takes molecule as an argument).
+        displacement (float, optional):                                         displacement of nuclear coordinates in Angstrom (default: 1e-5).
+        model_kwargs (dict, optional):                                          kwargs to be passed to model (except for molecule).
+        return_molecular_database (bool, optional):                             whether to return the :class:`mlatom.data.molecular_database` with the displaced geometries and energies (default: False).
+        nthreads (int, optional):                                               number of threads (default: None, using all threads it can find).       
+    '''
     if return_molecular_database:
         molDB = data.molecular_database()
     coordinates = molecule.xyz_coordinates.reshape(-1)
@@ -917,43 +930,56 @@ def numerical_gradients(molecule, model_with_function_to_predict_energy, eps=1e-
     natoms = len(coordinates) // 3
     for ii in range(len(coordinates)):
         new_coordinates = np.copy(coordinates)
-        new_coordinates[ii] += eps
+        new_coordinates[ii] += displacement
         coordinates_list.append(new_coordinates)
     coordinates_list.append(coordinates)
     def get_energy(coordinates):
         current_molecule = molecule.copy()
         current_molecule.xyz_coordinates = coordinates.reshape(len(current_molecule.atoms),3)
-        model_with_function_to_predict_energy.predict(molecule=current_molecule, **kwargs_funtion_predict_energy)
+        model.predict(molecule=current_molecule, **model_kwargs)
         if return_molecular_database: molDB.molecules.append(current_molecule)
         return current_molecule.energy
     from multiprocessing import cpu_count
-    nthreads = cpu_count()
+    if nthreads == None:
+        nthreads = cpu_count()
     if nthreads == 1:
         energies = np.array([get_energy(each) for each in coordinates_list])
     else:
         from multiprocessing.pool import ThreadPool as Pool
-        model_with_function_to_predict_energy.set_num_threads(1)
+        model.set_num_threads(1)
         pool = Pool(processes=nthreads)
         energies = np.array(pool.map(get_energy, coordinates_list))
     relenergy = energies[-1]
-    gradients = (energies[:-1]-relenergy)/eps
-    if return_molecular_database: return gradients.reshape(natoms,3), molDB
-    else:                         return gradients.reshape(natoms,3)
+    gradients = (energies[:-1]-relenergy)/displacement
+    molecule.energy_gradients = gradients.reshape(natoms,3)
+    if return_molecular_database: return molecule.energy_gradients, molDB
+    else: return molecule.energy_gradients
 
-def numerical_hessian(molecule, model_with_function_to_predict_energy, eps=5.29167e-4, epsgrad=1e-5, kwargs_funtion_predict_energy={}):
-    g1 = numerical_gradients(molecule, model_with_function_to_predict_energy, epsgrad, kwargs_funtion_predict_energy)
+def numerical_hessian(molecule, model, displacement=5.29167e-4, displacement4grads=1e-5, model_kwargs={}):
+    '''
+    Calculate numerical Hessians.
+    Two-point numerical differentiation is used and the required single-point calculations are run in parallel.
+    
+    Arguments:
+        molecule (:class:`mlatom.data.molecule`):                               the molecule object.
+        model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): any model or method which provides energies (takes molecule as an argument).
+        displacement (float, optional):                                         displacement of nuclear coordinates in Angstrom (default: 5.29167e-4).
+        displacement4grads (float, optional):                                   displacement of nuclear coordinates in Angstrom (default: 1e-5) when calculating gradients.
+        model_kwargs (dict, optional):                                          kwargs to be passed to model (except for molecule).     
+    '''
+    g1 = numerical_gradients(molecule, model, displacement4grads, model_kwargs)
     coordinates1 = molecule.xyz_coordinates.reshape(-1)
     ndim = len(coordinates1)
     hess = np.zeros((ndim, ndim))
     coordinates2 = coordinates1
     for i in range(ndim):
         x0 = coordinates2[i]
-        coordinates2[i] = coordinates1[i] + eps
+        coordinates2[i] = coordinates1[i] + displacement
         molecule2 = molecule.copy()
         molecule2.xyz_coordinates = coordinates2.reshape(len(molecule2.atoms),3)
-        g2 = numerical_gradients(molecule2, model_with_function_to_predict_energy, epsgrad, kwargs_funtion_predict_energy)
-        hess[:, i] = (g2.reshape(-1) - g1.reshape(-1)) / eps
+        g2 = numerical_gradients(molecule2, model, displacement4grads, model_kwargs)
+        hess[:, i] = (g2.reshape(-1) - g1.reshape(-1)) / displacement
         coordinates2[i] = x0
-
+    molecule.hessian = hess
     return hess
 
