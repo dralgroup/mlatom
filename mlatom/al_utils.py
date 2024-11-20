@@ -948,7 +948,7 @@ class excess_energy_generator():
                 if rand <= self.Poisson_type_IEE_distribution_function(iee,self.aa,self.bb,self.number_of_valence_electrons)/self.maximum_probability:
                     break 
             # Sampled internal excess energies are saved in Hartree
-            internal_excess_energies.append(iee*constants.eV2Hartree)
+            internal_excess_energies.append(iee*constants.eV2hartree)
         
         return internal_excess_energies
 

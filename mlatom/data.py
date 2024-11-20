@@ -849,7 +849,35 @@ class molecule:
         '''
         The excitation energies of the molecule from ground state.
         '''
-        return self.state_energies[1:] - self.electronic_states[0].energy if len(self.electronic_states) > 1 else []
+        if '_excitation_energies' in self.__dict__:
+            return self._excitation_energies
+        else:
+            return self.state_energies[1:] - self.electronic_states[0].energy if len(self.electronic_states) > 1 else []
+
+    @excitation_energies.setter
+    def excitation_energies(self, excitation_energies=None):
+        if excitation_energies is not None:
+            elst = False
+            if 'electronic_states' in self.__dict__:
+                if self.electronic_states != []:
+                    if 'energy' in self.electronic_states[0].__dict__:
+                        elst = True
+                        for ii in range(len(excitation_energies)):
+                            self.electronic_states[ii+1].energy = self.electronic_states[0].energy + excitation_energies[ii]                        
+            if not elst: self._excitation_energies = excitation_energies
+
+
+    @property 
+    def nstates(self) -> np.int:
+        '''
+        The number of electronic states.
+        '''
+        if 'electronic_states' in self.__dict__:
+            if self.electronic_states != []:
+                return len(self.electronic_states)
+        if '_excitation_energies' in self.__dict__:
+            return len(self.excitation_energies)+1
+        return 0
 
     def get_xyzvib_string(self, normal_mode=0):
         '''

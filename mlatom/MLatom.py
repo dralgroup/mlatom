@@ -4,7 +4,7 @@
   !---------------------------------------------------------------------------!
   !                                                                           !
   !     MLatom: a Package for Atomistic Simulations with Machine Learning     !
-  !                             MLatom 3.13.0                                 !
+  !                             MLatom 3.14.0                                 !
   !                                   @                                       !
   !                 Xiamen Atomistic Computing Suite (XACS)                   !
   !                                                                           !
@@ -18,26 +18,26 @@
   ! copy of this software and associated documentation files (the "Software"),!
   ! to deal in the Software without restriction, including without limitation !
   ! the rights to use, copy, modify, merge, publish, distribute, sublicense,  !
-  ! and/or sell copies of the Software, and to permit persons to whom the     ! 
+  ! and/or sell copies of the Software, and to permit persons to whom the     !
   ! Software is furnished to do so, subject to the following conditions:      !
   !                                                                           !
   ! The above copyright notice and this permission notice shall be included   !
   ! in all copies or substantial portions of the Software.                    !
-  ! When this Software or its derivatives are used                            ! 
+  ! When this Software or its derivatives are used                            !
   ! in scientific publications, it shall be cited as:                         !
   !                                                                           !
-  ! Pavlo O. Dral, Fuchun Ge, Yi-Fan Hou, Peikun Zheng, Yuxinxin Chen,        ! 
+  ! Pavlo O. Dral, Fuchun Ge, Yi-Fan Hou, Peikun Zheng, Yuxinxin Chen,        !
   ! Mario Barbatti, Olexandr Isayev, Cheng Wang, Bao-Xin Xue,                 !
-  ! Max Pinheiro Jr, Yuming Su, Yiheng Dai, Yangtao Chen, Lina Zhang,         ! 
+  ! Max Pinheiro Jr, Yuming Su, Yiheng Dai, Yangtao Chen, Lina Zhang,         !
   ! Shuang Zhang, Arif Ullah, Quanhao Zhang, Yanchi Ou.                       !
   ! J. Chem. Theory Comput. 2024, 20, 1193-1213.                              !
   !                                                                           !
   ! Pavlo O. Dral, Fuchun Ge, Yi-Fan Hou, Peikun Zheng, Yuxinxin Chen,        !
   ! Bao-Xin Xue, Mikolaj Martyka, Max Pinheiro Jr, Yuming Su, Yiheng Dai,     !
   ! Yangtao Chen, Shuang Zhang, Lina Zhang, Arif Ullah, Quanhao Zhang,        !
-  ! Sebastian V. Pios, Yanchi Ou,                                             !
+  ! Sebastian V. Pios, Yanchi Ou, Matheus O. Bispo,                           !
   ! MLatom: A Package for Atomistic Simulations with Machine Learning,        !
-  ! version 3.13.0, Xiamen University, Xiamen, China, 2013-2024.              !
+  ! version 3.14.0, Xiamen University, Xiamen, China, 2013-2024.              !
   !                                                                           !
   ! The citations for MLatom's interfaces and features shall be eventually    !
   ! included too. See header.py, ref.json and http://mlatom.com.              !
@@ -49,7 +49,7 @@
   ! DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR     !
   ! OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE !
   ! USE OR OTHER DEALINGS IN THE SOFTWARE.                                    !
-  !                                                                           !  
+  !                                                                           !
   !---------------------------------------------------------------------------!
 
 '''
