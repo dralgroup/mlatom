@@ -283,6 +283,12 @@ class methods(model):
         if format == 'dict':
             return model_dict
 
+    def train(self, **kwargs):
+        if self.interface.__class__.__name__ != 'torchani_methods':
+            raise ValueError('Currently only ANI methods can be used to retrain')
+        self.interface.train(**kwargs)
+        return self.interface.model
+
 class meta_method(type):
     def __new__(cls, name, bases, namespace, available_methods=[]):
         new = super().__new__(cls, name, bases, namespace)

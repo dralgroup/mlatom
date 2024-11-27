@@ -322,17 +322,19 @@ class ani(models.ml_model, models.torchani_model):
         hyperparameters: Union[Dict[str,Any], models.hyperparameters] = {},
         spliting_ratio: float = 0.8, 
         save_model: bool = True,
+        file_to_save_model: str = None,
         check_point: str = None,
         reset_optim_state: bool = False,
         use_last_model: bool = False,
         reset_parameters: bool = False,
         reset_network: bool = False,
         reset_optimizer: bool = False,
-        reset_energy_shifter: bool = False,
+        reset_energy_shifter: Union[bool, torchani.utils.EnergyShifter, list] = False,
         save_every_epoch: bool = False,
         save_epoch_interval: int = None,
         energy_weighting_function: Callable = None,
         energy_weighting_function_kwargs: dict = {},
+        verbose: int = None
     ) -> None:
         r'''
             validation_molecular_database (:class:`mlatom.data.molecular_database` | str, optional): Explicitly defines the database for validation, or use ``'sample_from_molecular_database'`` to make it sampled from the training set.
@@ -351,11 +353,22 @@ class ani(models.ml_model, models.torchani_model):
         '''
         if hyperparameters:
             self.hyperparameters.update(hyperparameters)
+        if verbose:
+            self.verbose = verbose
+        if file_to_save_model:
+            self.model_file = file_to_save_model
 
         energy_weighting_function_kwargs = {k: (v.value if isinstance(v, models.hyperparameter) else v) for k, v in energy_weighting_function_kwargs.items()}
         
         if reset_energy_shifter:
-            self.energy_shifter = torchani.utils.EnergyShifter(None)
+            if self.energy_shifter:
+                self.energy_shifter_ = self.energy_shifter
+            if type(reset_energy_shifter) == list:
+                self.energy_shifter = torchani.utils.EnergyShifter(reset_energy_shifter)
+            elif isinstance(reset_energy_shifter, torchani.utils.EnergyShifter):
+                self.energy_shifter = reset_energy_shifter
+            else:
+                self.energy_shifter = torchani.utils.EnergyShifter(None)
             
         if not molecular_database._is_uniform_cell():
             print('non-uniform PBC cells detected, using batch_size=1')
@@ -372,6 +385,10 @@ class ani(models.ml_model, models.torchani_model):
 
         if not self.model:
             self.model_setup(**self.hyperparameters)
+        else:
+            if 'fixed_layers' in hyperparameters:
+                if hyperparameters['fixed_layers'] and type(hyperparameters['fixed_layers'])==list:
+                    self.fix_layers(layers_to_fix=hyperparameters['fixed_layers'])
 
         if reset_network:
             self.NN_setup(**self.hyperparameters)
@@ -765,6 +782,18 @@ class ani(models.ml_model, models.torchani_model):
                 self.subtraining_set = molDB2ANIdata(molecular_database, property_to_learn, xyz_derivative_property_to_learn).subtract_self_energies(self.energy_shifter, self.species_order).species_to_indices(self.species_order).shuffle()
         else:
             self.subtraining_set = molDB2ANIdata(molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).shuffle()
+
+        if len(self.species_order) != len(self.energy_shifter.self_energies):
+            true_species_order = sorted(data_element_symbols, key=lambda x: self.species_order.index(x))
+            expanded_self_energies = np.zeros((len(self.species_order)))
+            for ii, sp in enumerate(self.species_order):
+                if sp in true_species_order:
+                    expanded_self_energies[ii] = self.energy_shifter.self_energies[true_species_order.index(sp)]
+                elif 'energy_shifter_' in self.__dict__:
+                    expanded_self_energies[ii] = self.energy_shifter_.self_energies[ii]
+
+            self.energy_shifter.self_energies = torch.tensor(expanded_self_energies)
+        
         self.validation_set = molDB2ANIdata(validation_molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).shuffle()
         
         self.energy_shifter = self.energy_shifter.to(self.device)
@@ -1529,6 +1558,7 @@ class torchani_methods(models.torchani_model, metaclass=models.meta_method):
 
     def __init__(self, method: str = 'ANI-1ccx', device: str = 'cuda' if torch.cuda.is_available() else 'cpu', **kwargs):
         self.device = torch.device(device)
+        self.method = method
         self.model_setup(method)
 
     def model_setup(self, method):
@@ -1637,6 +1667,83 @@ class torchani_methods(models.torchani_model, metaclass=models.meta_method):
         else:
             modelname = self.method.lower().replace('-','')
         molecule.__dict__[f'{modelname}'].standard_deviation(properties=properties+atomic_properties)
+    
+    def train(self, **kwargs):
+        
+        # default settings
+        kwargs['save_model'] = True # force saving model
+        if 'file_to_save_model' in kwargs:
+            file_to_save_model = kwargs['file_to_save_model']
+        else:
+            file_to_save_model = None
+        if 'reset_energy_shifter' not in kwargs:
+            kwargs['reset_energy_shifter'] = True
+
+        if 'hyperparameters' in kwargs:
+            _hyperparameters = kwargs['hyperparameters']
+        else:
+            _hyperparameters = {}
+        # check hyperparameters
+        if 'fix_layers' not in _hyperparameters:
+            _hyperparameters['fixed_layers'] = [[0,4]]
+        if 'loss_type' not in _hyperparameters:
+            _hyperparameters['loss_type'] = 'geometric'
+        if 'max_epochs' not in _hyperparameters:
+            _hyperparameters['max_epochs'] = 100
+
+        kwargs['hyperparameters'] = _hyperparameters
+        
+        pretrained_models = []
+        if 'gelu'.casefold() in self.method.casefold():
+            if 'ANI-1ccx-gelu'.casefold() in self.method.casefold():
+                pretrained_models = self.load_ani_gelu_model(method='ani1ccx_gelu')
+            elif 'ANI-1x-gelu'.casefold() in self.method.casefold():
+                pretrained_models = self.load_ani_gelu_model(method='ani1x_gelu')
+        elif 'ANI-1xnr'.casefold() not in self.method.casefold():
+            animodel = ani()
+            if 'ANI-1ccx'.casefold() in self.method.casefold():
+                animodel.load_ani_model('ANI-1ccx')
+            elif 'ANI-1x'.casefold() in self.method.casefold():
+                animodel.load_ani_model('ANI-1x')
+            elif 'ANI-2x'.casefold() in self.method.casefold():
+                animodel.load_ani_model('ANI-2x')
+            for ii in range(8):
+                pmodel = ani()
+                pmodel.species_order = animodel.species_order
+                pmodel.aev_computer = animodel.aev_computer
+                pmodel.networkdict = animodel.networkdict[ii]
+                pmodel.neurons = animodel.neurons[ii]
+                pmodel.nn = animodel.nn[ii]
+                pmodel.energy_shifter = animodel.energy_shifter
+                pmodel.optimizer_setup(**pmodel.hyperparameters)
+
+                pmodel.model = torchani.nn.Sequential(animodel.aev_computer, animodel.nn[ii]).to(pmodel.device).float()
+                
+                pretrained_models.append(pmodel)
+        else:
+            raise ValueError('Currently ANI-1xnr can not be retrained on')
+
+        retrained_models = []
+        modelname = self.method.lower().replace('-','')
+        for ii, pmodel in enumerate(pretrained_models):
+            print(f'\nStart retraining on model {ii}...')
+            sys.stdout.flush()
+            if file_to_save_model:
+                kwargs['file_to_save_model'] = file_to_save_model + f'.cv{ii}'
+            else:
+                kwargs['file_to_save_model'] = f'{modelname}_retrained.pt.cv{ii}'
+            pmodel.train(**kwargs)
+            retrained_models.append(pmodel)
+
+        self.children = [
+            models.model_tree_node(
+                name=f'{modelname}_nn{ii}', 
+                model=rmodel, 
+                operator='predict') for ii, rmodel in enumerate(retrained_models)]
+        self.model = models.model_tree_node(
+            name=modelname, 
+            children=self.children, 
+            operator='average')
 
 def load_ani1xnr_model():
     # ANI-1xnr https://github.com/atomistic-ml/ani-1xnr/
@@ -1754,7 +1861,7 @@ class aimnet2_methods(models.torchani_model, metaclass=models.meta_method):
         local_dir = os.path.expanduser('~/.local/AIMNet2/')
         repo_name = "AIMNet2"
         tag_name = method.lower().replace('@', '_')
-        url = "https://github.com/isayevlab/{}/raw/main/models/{}_ens.jpt".format(repo_name, tag_name)
+        url = "https://github.com/isayevlab/{}/raw/old/models/{}_ens.jpt".format(repo_name, tag_name)
         if not os.path.exists(local_dir+f'{tag_name}_ens.jpt'):
             os.makedirs(local_dir, exist_ok=True)
             print(f'Downloading {method} model parameters ...')
