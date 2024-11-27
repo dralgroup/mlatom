@@ -793,7 +793,8 @@ class thermochemistry():
         if 'H0' in self.molecule.__dict__:
             atoms_have_H0 = True
             for atom in self.molecule.atoms:
-                if not 'H0' in atom.__dict__:
+                # if not 'H0' in atom.__dict__:
+                if not atom.H0:
                     atoms_have_H0 = False
                     break
             if not atoms_have_H0:

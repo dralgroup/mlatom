@@ -46,35 +46,80 @@ class atom:
     #xyz_coordinates = []  # list [x, y, z] with float numbers. Expected units: Angstrom
 
     def __init__(self, nuclear_charge: Union[int, None] = None, atomic_number: Union[int, None] = None, element_symbol: Union[str, None] = None, nuclear_mass: Union[float, None] = None, xyz_coordinates: Union[np.ndarray, List, None] = None):
+        '''
+        initialize atom object with atomic_number and xyz_coordinates only
+        '''
+        
+        if atomic_number != None:
+            self.atomic_number = atomic_number
+        if element_symbol != None:
+            self.atomic_number = element_symbol2atomic_number[element_symbol]
         if nuclear_charge != None:
-            self.nuclear_charge = nuclear_charge
-            self.atomic_number = int(self.nuclear_charge)
-            self.element_symbol = atomic_number2element_symbol[self.atomic_number]
-        elif atomic_number != None:
-            self.nuclear_charge = atomic_number
-            self.atomic_number = self.nuclear_charge
-            self.element_symbol = atomic_number2element_symbol[self.atomic_number]
-        elif element_symbol != None:
-            self.element_symbol = element_symbol
-            self.atomic_number = element_symbol2atomic_number[self.element_symbol]
-            self.nuclear_charge = self.atomic_number
-
-        # Detect the correct isotope
+            self.atomic_number = nuclear_charge
         if nuclear_mass != None:
-            most_similar_isotope = isotopes.get_most_similar_isotope_given_nuclear_charge_and_mass(self.nuclear_charge, nuclear_mass)
-            for key in most_similar_isotope.__dict__.keys():
-                self.__dict__[key] = most_similar_isotope.__dict__[key]
             self.nuclear_mass = nuclear_mass
-        elif 'nuclear_charge' in self.__dict__:
-            if self.nuclear_charge > 0:
-                most_abundant_isotope = isotopes.get_most_abundant_with_given_nuclear_charge(
-                    self.nuclear_charge)
-                for key in most_abundant_isotope.__dict__.keys():
-                    self.__dict__[key] = most_abundant_isotope.__dict__[key]
-                self.nuclear_mass = self.relative_isotopic_mass
 
         if type(xyz_coordinates) != type(None):
             self.xyz_coordinates = xyz_coordinates
+    
+    @property
+    def nuclear_charge(self):
+        if '_nuclear_charge' in self.__dict__:
+            self.atomic_number = self._nuclear_charge
+            return self._nuclear_charge
+        return self.atomic_number
+    
+    @nuclear_charge.setter
+    def nuclear_charge(self, value):
+        self._nuclear_charge = value
+    
+    @property
+    def element_symbol(self):
+        if '_element_symbol' in self.__dict__:
+            self.atomic_number = element_symbol2atomic_number[self._element_symbol]
+            return self._element_symbol
+        return atomic_number2element_symbol[self.atomic_number]
+
+    @element_symbol.setter
+    def element_symbol(self, value):
+        self._element_symbol = value
+    
+    @property
+    def nuclear_mass(self):
+        if '_nuclear_mass' not in self.__dict__:
+            if self.nuclear_charge > 0:
+                most_abundant_isotope = isotopes.get_most_abundant_with_given_nuclear_charge(
+                    self.nuclear_charge)
+                return most_abundant_isotope.relative_isotopic_mass
+        return self._nuclear_mass 
+
+    @nuclear_mass.setter
+    def nuclear_mass(self, value):
+        self._nuclear_mass = value
+
+    @property
+    def multiplicity(self):
+        nuclear_mass = self.nuclear_mass
+        isotope = isotopes.get_most_similar_isotope_given_nuclear_charge_and_mass(self.nuclear_charge, nuclear_mass)
+        if 'multiplicity' in isotope.__dict__:
+            return isotope.multiplicity
+        return 
+
+    @property
+    def H0(self):
+        nuclear_mass = self.nuclear_mass
+        isotope = isotopes.get_most_similar_isotope_given_nuclear_charge_and_mass(self.nuclear_charge, nuclear_mass)
+        if 'H0' in isotope.__dict__:
+            return isotope.H0
+        return
+
+    @property
+    def nuclear_spin(self):
+        nuclear_mass = self.nuclear_mass
+        isotope = isotopes.get_most_similar_isotope_given_nuclear_charge_and_mass(self.nuclear_charge, nuclear_mass)
+        if 'nuclear_spin' in isotope.__dict__:
+            return isotope.nuclear_spin
+        return
 
     def copy(self, atomic_labels=None) -> atom:
         '''
