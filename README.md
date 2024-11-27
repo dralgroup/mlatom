@@ -2,8 +2,9 @@
 
 # Updates
 
-- MLatom 3.14.0 (20.11.2024) - UV/vis spectra from single-point convolution and nuclear-ensemble approach. Updated interface to MACE to support its latest 0.3.8 version.
-- MLatom 3.13.0 (06.11.2024) - IR spectra calculations with AIQM1, AIQM2, UAIQM with semi-empirical baseline, and a range of QM methods (DFT, semi-empirical, ab initio wavefunction), with empirical scaling for better accuracy, special spectra module with plotting routines in Python. 
+- MLatom 3.15.0 (27.11.2024) - [fine-tuning](https://xacs.xmu.edu.cn/docs/mlatom/tutorial_tl.html#transfer-learning-from-the-universal-models) of the foundational ANI potentials ANI-1x, ANI-1ccx, ANI-1ccx-gelu, and ANI-2x.
+- MLatom 3.14.0 (20.11.2024) - [UV/vis spectra](https://xacs.xmu.edu.cn/docs/mlatom/tutorial_uvvis.html) from single-point convolution and nuclear-ensemble approach. Updated interface to MACE to support its latest 0.3.8 version.
+- MLatom 3.13.0 (06.11.2024) - [IR spectra](https://xacs.xmu.edu.cn/docs/mlatom/tutorial_ir.html) calculations with AIQM1, AIQM2, UAIQM with semi-empirical baseline, and a range of QM methods (DFT, semi-empirical, ab initio wavefunction), with empirical scaling for better accuracy, special spectra module with plotting routines in Python. 
 - MLatom 3.12.0 (08.10.2024) - [AIQM2](https://doi.org/10.26434/chemrxiv-2024-j8pxp), [ANI-1ccx-gelu](https://doi.org/10.26434/chemrxiv-2024-c8s16).
 - MLatom 3.11.0 (23.09.2024) - DENS24 functionals, simpler choice of methods, IR spectra, important bug fixes (particularly for active learning) ([overview](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-11-0)).
 - MLatom 3.10.0-1 (21-22.08.2024) - active learning for surface hopping MD, multi-state ANI for excited states, gapMD for efficient exploration of the conical intersection regions, quality of life improvements such as viewing molecules, databases, and trajectories in Jupyter, easier load of molecules ([overview](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-10-0)).
