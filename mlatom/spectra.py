@@ -278,7 +278,7 @@ class uvvis(spectrum):
         if meta_data is not None:
             self.meta_data = meta_data            
 
-    def plot(self,filename=None,xaxis_caption='Wavelength (nm)',yaxis_caption='Extinction coefficient (M$^-1$ cm$^-1$)',title='UV-Vis spectrum'):
+    def plot(self,filename=None,xaxis_caption='Wavelength (nm)',yaxis_caption='Extinction coefficient (M$^{-1}$ cm$^{-1}$)',title='UV-Vis spectrum'):
         plot_uvvis(spectra=[self], filename=filename, xaxis_caption=xaxis_caption, yaxis_caption=yaxis_caption, title=title)
 
     @classmethod
@@ -286,7 +286,7 @@ class uvvis(spectrum):
                  band_width=0.3, shift=0.0, refractive_index=1.0):
         '''
         Single-point convolution (SPC) approach for obtaining UV/vis spectrum
-        via calculating the exctinction coefficient (and absorption cross section)
+        via calculating the extinction coefficient (and absorption cross section)
         from the single-point excited-state simulations
         for a single geometry
         Implementation follows http://doi.org/10.1007/s00894-020-04355-y
@@ -319,9 +319,9 @@ class uvvis(spectrum):
             # quick plot
             uvvis.plot(filename='uvvis.png')
         '''
-        excitation_energies = molecule.excitation_energies * constants.hartree2eV
+        excitation_energies = data.array(molecule.excitation_energies) * constants.hartree2eV
         wavelengths_nm = np.arange(constants.eV2nm(np.max(excitation_energies) + 3*band_width),
-                                   constants.eV2nm(np.min(excitation_energies) - 3*band_width),
+                                   constants.eV2nm(max(0.01, np.min(excitation_energies) - 3*band_width)),
                                    0.2
                                    )
         new_spectrum = cls.broaden(line_spectrum=np.array([excitation_energies,
@@ -1024,7 +1024,7 @@ def plot_spectra(spectra=None, linespectra=None,
     plt.ylabel(yaxis_caption, fontsize=18)
     ax.tick_params(axis='both', which='major', labelsize=18)
     ax.tick_params(axis='both', which='minor', labelsize=18)
-    ax.ticklabel_format(axis='both', style='sci', scilimits=(0,3))#, labelsize=18)
+    ax.ticklabel_format(axis='both', style='sci', scilimits=(0,4))#, labelsize=18)
     ax.xaxis.get_offset_text().set_fontsize(18)
     ax.yaxis.get_offset_text().set_fontsize(18)
 

@@ -60,7 +60,7 @@ class atom:
             self.nuclear_mass = nuclear_mass
 
         if type(xyz_coordinates) != type(None):
-            self.xyz_coordinates = xyz_coordinates
+            self.xyz_coordinates = array(xyz_coordinates)
     
     @property
     def nuclear_charge(self):
@@ -137,10 +137,18 @@ class atom:
 
 
 def load_return_molecule(filename=None, format='json'):
+    newmol = None
     if format.casefold() == 'json'.casefold():
         jsonfile = open(filename, 'r')
         moldict = json.load(jsonfile)
         newmol = dict_to_molecule_class_instance(moldict)
+    elif format.casefold() == 'gaussian'.casefold():
+        from .interfaces import gaussian_interface
+        newmol = gaussian_interface.parse_gaussian_output(filename=filename)
+    else:
+        raise ValueError('Not supported format for loading molecule')
+    if newmol is None:
+        raise ValueError('failed to load the molecule - please check the file, path to it, and format')
     return newmol
 
 def load_molecule(molobj, filename=None, format='json'):
@@ -182,7 +190,7 @@ class molecule:
         charge: The electric charge of the molecule.
         multiplicity: The multiplicity of the molecule.
     
-    load(filename: stringe, format: string):
+    load(filename: string, format: string):
         Load a molecule object from a dumped file.
         
         Updates a molecule object if initialized:
@@ -567,6 +575,17 @@ class molecule:
             return self.__dict__[property_name] 
         elif property_name in self.__dir__() and isinstance(getattr(self.__class__, property_name), property):
             return getattr(self, property_name)
+        elif len(self.atoms) > 0:
+            if property_name in self.atoms[0].__dict__:
+                properties = []
+                for atom in self.atoms:
+                    properties.append(atom.__dict__[property_name])
+                try:
+                    return array(properties)
+                except:
+                    return properties
+            else:
+                return np.nan
         else: 
             return np.nan
 
@@ -888,7 +907,7 @@ class molecule:
         The energy gaps of different states.
         '''
         return self.state_energies - self.state_energies[:, np.newaxis]
-    
+ 
     @property 
     def excitation_energies(self) -> np.ndarray:
         '''
@@ -938,18 +957,20 @@ class molecule:
             xyzvib += f" {disp[0]:25.13f} {disp[1]:25.13f} {disp[2]:25.13f}\n"
         return xyzvib
 
-    def view(self, normal_mode=None, slider=True):
+    def view(self, normal_mode=None, slider=True, width=400, height=300):
         '''
         Visualize the molecule and its vibrations if requested. Uses ``py3Dmol``.
         Arguments:
             normal_mode (integer, optional): the index of a normal mode to visualize. Default: None.
             slider(bool, optional):          show interactive slider to choose the mode.
                                              Default: True (only works if normal_mode is not None).
+            width  (int, float):             the width  of the window with geometry. Default 400.
+            height (int, float):             the height of the window with geometry. Default 300.
         '''
         import py3Dmol
         def animate(mode):
             py3Dmolargs = []
-            viewer = py3Dmol.view(width=400, height=300)
+            viewer = py3Dmol.view(width=width, height=height)
             if not normal_mode is None:
                 xyzstr = self.get_xyzvib_string(normal_mode=mode)
                 py3Dmolargs = [{'vibrate': {'frames':15,'amplitude':0.8}}]
@@ -1765,13 +1786,17 @@ class molecular_database:
         for mol in self:
             mol.cell = cell
             
-    def view(self):
+    def view(self, width=400, height=300):
         '''
         Visualize the molecular database. Uses ``py3Dmol``.
+        
+        Arguments:
+            width  (int, float): the width  of the window with geometry. Default 400.
+            height (int, float): the height of the window with geometry. Default 300.
         '''
         import py3Dmol
         xyzstr = self.get_xyz_string()
-        viewer = py3Dmol.view(width=400, height=300)
+        viewer = py3Dmol.view(width=width, height=height)
         viewer.addModelsAsFrames(xyzstr, "xyz")
         viewer.setStyle({"stick": {}, "sphere": {"scale": 0.25}})
         viewer.zoomTo()
@@ -2125,12 +2150,16 @@ class molecular_trajectory():
         '''
         return molecular_database([step.molecule for step in self.steps])
     
-    def view(self):
+    def view(self, width=400, height=300):
         '''
         Visualize the molecular trajectory. Uses ``py3Dmol``.
+        
+        Arguments:
+            width  (int, float): the width  of the window with geometry. Default 400.
+            height (int, float): the height of the window with geometry. Default 300.
         '''
         moldb = self.to_database()
-        moldb.view()
+        moldb.view(width=width, height=height)
 
 class molecular_trajectory_step(object):
     def __init__(self, step=None, molecule=None):

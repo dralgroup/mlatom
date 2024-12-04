@@ -501,24 +501,10 @@ class freq():
         
         # Get results
         outputfile = f'{filename}.log'
+        if os.path.exists('gaussian_freq_mol.json'):
+            self.molecule.load(filename='gaussian_freq_mol.json', format='json')
         if not os.path.exists(outputfile): outputfile = f'{filename}.out'
-        self.successful = gaussian_interface.read_freq_thermochemistry_from_Gaussian_output(outputfile, self.molecule)
-        if anharmonic:
-            freq_len = len(self.molecule.frequencies)//2
-            self.molecule.frequencies = self.molecule.frequencies[:freq_len]
-            self.molecule.force_constants = self.molecule.force_constants[:freq_len]
-            self.molecule.reduced_masses = self.molecule.reduced_masses[:freq_len]
-            for iatom in range(len(self.molecule.atoms)):
-                self.molecule.atoms[iatom].normal_modes = self.molecule.atoms[iatom].normal_modes[:freq_len]
-            self.molecule.harmonic_frequencies = np.copy(self.molecule.frequencies)
-            gaussian_interface.read_anharmonic_frequencies(outputfile,self.molecule)
-            self.molecule.frequencies = self.molecule.anharmonic_frequencies              
-            thermochemistry_properties = ['ZPE','DeltaE2U','DeltaE2H','DeltaE2G','U0','H0','U','H','G','S']
-            for each_property in thermochemistry_properties:
-                self.molecule.__dict__['harmonic_'+each_property] = self.molecule.__dict__[each_property]
-                self.molecule.__dict__[each_property] = self.molecule.__dict__['anharmonic_'+each_property]
-        if self.molecule.infrared_intensities == []:
-            del(self.molecule.infrared_intensities)
+        gaussian_interface.parse_gaussian_output(filename=outputfile, molecule=self.molecule)
         if os.path.exists(os.path.join(self.working_directory,'gaussian_freq_mol.json')): os.remove(os.path.join(self.working_directory,'gaussian_freq_mol.json'))
 
     def freq_pyscf(self):

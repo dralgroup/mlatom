@@ -64,6 +64,7 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
                 sys.path.insert(0,os.environ['PYSCF_PATH'])
        
         self.basis = method.split('/')[1]
+
         if nthreads is None:
             self.nthreads = cpu_count()
         else:
@@ -89,12 +90,18 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
         if method.casefold() in [m.casefold() for m in cls.available_methods]:
             return True
         try:
+            if 'TDA'.casefold() in method.casefold():
+                import re
+                method = re.sub('tda-', '', method, flags=re.IGNORECASE)
+            elif 'TD'.casefold() in method.casefold():
+                import re
+                method = re.sub('td-', '', method, flags=re.IGNORECASE)
             parse_xc(method)
             return True
         except:
             return False
             
-    def predict_for_molecule(self, molecule=None, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, calculate_dipole_derivatives=False, **kwargs):
+    def predict_for_molecule(self, molecule=None, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=False, calculate_dipole_derivatives=False, nstates=None, current_state=None, **kwargs):
         from pyscf import gto, scf
         from pyscf.dft.libxc import parse_xc
         pyscf_mol = gto.Mole()
@@ -107,7 +114,6 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
         pyscf_mol.verbose = 0
         pyscf_mol.unit = 'Ang'
         pyscf_mol.build()
-
         # DM21
         if 'DM21' in self.method.upper():
             self.predict_for_molecule_DM21(molecule=molecule, pyscf_mol=pyscf_mol, calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, **kwargs)
@@ -140,24 +146,67 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
             pyscf_method_hf = scf.HF(pyscf_mol)
             pyscf_method = cc.CCSD(pyscf_method_hf.run())
 
-        # TDSCF/TDDFT
-        # Currently TD-DFT in pyscf cannot specify nstates. By default it will give results for 3 lowest singlets and they are not saved properly.
-        # Gradients are availble in pyscf but not implemented here. Hessian is not available.
-        elif 'TD-' == self.method.upper()[:3]:
-            f = self.method.split('-', 1)[1]
-            if 'HF' == f.upper():
-                pyscf_method_hf = scf.HF(pyscf_mol).run()
-                pyscf_method = pyscf_method_hf.TDHF()
-            else:
-                from pyscf import tddft, dft
-                try:
-                    parse_xc(f)
-                except:
-                    errmsg = 'Method not supported in pyscf interface'
-                    raise ValueError(errmsg)
-                pyscf_method_dft = dft.KS(pyscf_mol)
-                pyscf_method_dft.xc = f.upper()
-                pyscf_method = tddft.TDDFT(pyscf_method_dft.run())
+        elif 'TDA' in self.method.upper():
+            from pyscf import tddft,dft
+            import re
+            try:
+                method = re.sub('tda-', '', self.method, flags=re.IGNORECASE)
+                method = method.upper()
+                parse_xc(method)
+            except:
+                errmsg = 'Method not supported in pyscf interface'
+                raise ValueError(errmsg)
+            pyscf_method = dft.KS(pyscf_mol)
+            pyscf_method.xc = method
+            pyscf_method.run()
+            pyscf_method_tda = tddft.TDA(pyscf_method.run()).run(nstates=nstates)
+            if not molecule.electronic_states:
+                 molecule.electronic_states.extend([molecule.copy() for _ in range(nstates)])
+            molecule.electronic_states[0].energy = pyscf_method.e_tot
+            for ii in range(1,nstates):
+               molecule.electronic_states[ii].energy = molecule.electronic_states[0].energy + pyscf_method_tda.e[ii-1]
+
+            if calculate_energy_gradients:
+                _state_gradients = []
+                _state_gradients.append(pyscf_method.nuc_grad_method().kernel()/constants.Bohr2Angstrom)
+                molecule.electronic_states[0].energy_gradients = _state_gradients[0]
+                tdg_tda = pyscf_method_tda.nuc_grad_method()
+                for ii in range(1,nstates):
+                   _state_gradients.append(tdg_tda.kernel(state=ii)/constants.Bohr2Angstrom) 
+                   molecule.electronic_states[ii].energy_gradients = _state_gradients[ii]
+
+            molecule.oscillator_strength = pyscf_method_tda.oscillator_strength()[:-1]
+
+        elif 'TD' in self.method.upper():
+            from pyscf import tddft,dft
+            import re
+            #from  mlatom.interfaces.TDDFT_Davidson import  eigen_solver, mod_davidson_solver
+            try:
+                method = re.sub('td-', '', self.method, flags=re.IGNORECASE)
+                method = method.upper()
+                parse_xc(method)
+            except:
+                errmsg = 'Method not supported in pyscf interface'
+                raise ValueError(errmsg)
+            pyscf_method = dft.KS(pyscf_mol)
+            pyscf_method.xc = method
+            pyscf_method_tddft = tddft.TDDFT(pyscf_method.run()).run(nstates=nstates)
+            if not molecule.electronic_states:
+                 molecule.electronic_states.extend([molecule.copy() for _ in range(nstates)])
+            molecule.electronic_states[0].energy = pyscf_method.e_tot
+            for ii in range(1,nstates):
+               molecule.electronic_states[ii].energy = molecule.electronic_states[0].energy + pyscf_method_tddft.e[ii-1]
+
+            if calculate_energy_gradients:
+                _state_gradients = []
+                _state_gradients.append(pyscf_method.nuc_grad_method().kernel()/constants.Bohr2Angstrom)
+                molecule.electronic_states[0].energy_gradients = _state_gradients[0]
+                tdg_tddft = pyscf_method_tddft.nuc_grad_method()
+                for ii in range(1,nstates):
+                   _state_gradients.append(tdg_tddft.kernel(state=ii)/constants.Bohr2Angstrom)
+                   molecule.electronic_states[ii].energy_gradients = _state_gradients[ii]
+
+            molecule.oscillator_strength = pyscf_method_tddft.oscillator_strength()[:-1]
 
         # DFT
         else:
@@ -183,6 +232,7 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
             if not calculate_energy_gradients and not calculate_hessian and self.density_fitting:
                 pyscf_method.density_fit().run()
                 pyscf_method.e_tot = sum(pyscf_method.scf_summary.values())
+                
             else:
                 pyscf_method.kernel()
 
@@ -196,7 +246,7 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
                 else:
                     print("PySCF doesn't converge and energy will not be stored in molecule")
 
-        if calculate_energy_gradients:
+        if calculate_energy_gradients and self.method.upper() not in ['TDA','TDDFT']:
             # FCI not supported 
             if 'FCI' == self.method.upper():
                 errmsg = 'Gradients in pyscf do not support FCI '
@@ -217,6 +267,8 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
                     molecule_gradients = ccsd_t_grad.Gradients(pyscf_method).kernel()
                 for ii in range(len(molecule.atoms)):
                     molecule.atoms[ii].energy_gradients = molecule_gradients[ii]
+
+
             else:
                 print("PySCF doesn't converge and gradients will not be stored in molecule")            
         if calculate_hessian:
@@ -313,14 +365,15 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
             raise ValueError(errmsg)
 
     @doc_inherit
-    def predict(self, molecule=None, molecular_database=None, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, **kwargs):
+    def predict(self, molecule=None, molecular_database=None, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, nstates = None, current_state =None, **kwargs):
         '''
             **kwargs: ``# needs to be documented``.
         '''
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
 
         for mol in molDB.molecules:
-            self.predict_for_molecule(molecule=mol, calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, **kwargs)
+            self.predict_for_molecule(molecule=mol, calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, \
+                    calculate_hessian=calculate_hessian, nstates=nstates, current_state=current_state, **kwargs)
 
 
 def thermo_calculation(molecule):
