@@ -174,7 +174,8 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
                 for ii in range(1,nstates):
                    _state_gradients.append(tdg_tda.kernel(state=ii)/constants.Bohr2Angstrom) 
                    molecule.electronic_states[ii].energy_gradients = _state_gradients[ii]
-
+                molecule.energy = molecule.electronic_states[current_state].energy
+                molecule.energy_gradients = molecule.electronic_states[current_state].energy_gradients
             molecule.oscillator_strength = pyscf_method_tda.oscillator_strength()[:-1]
 
         elif 'TD' in self.method.upper():
@@ -205,7 +206,8 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
                 for ii in range(1,nstates):
                    _state_gradients.append(tdg_tddft.kernel(state=ii)/constants.Bohr2Angstrom)
                    molecule.electronic_states[ii].energy_gradients = _state_gradients[ii]
-
+                molecule.energy = molecule.electronic_states[current_state].energy
+                molecule.energy_gradients = molecule.electronic_states[current_state].energy_gradients
             molecule.oscillator_strength = pyscf_method_tddft.oscillator_strength()[:-1]
 
         # DFT

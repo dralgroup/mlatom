@@ -65,3 +65,7 @@ def pyscf():
 def orca():
     from .orca_interface import orca_methods as interface
     return interface
+
+def dftbplus():
+    from .dftbplus_interface import dftbplus_methods as interface
+    return interface

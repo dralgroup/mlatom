@@ -1,19 +1,12 @@
 import sys
-from . import data, stats, models, optimize_geometry, freq, md, md_parallel, generate_initial_conditions
-from .al_utils import *
+from . import data, stats, models, simulations, optimize_geometry, freq, md, md_parallel, generate_initial_conditions
+from .simulations import run_in_parallel 
+from .al_utils import Sampler, ml_model_trainer, ml_model, ml_model_msani, stopper
 import numpy as np 
 import os 
-import matplotlib.pyplot as plt 
-import scipy 
-import torch
-import random 
-import joblib 
-from joblib import Parallel, delayed 
-from multiprocessing.pool import ThreadPool as Pool
-import timeit 
-import json
+import random
+import timeit
 import copy
-
 
 class al():
     '''
@@ -141,6 +134,7 @@ class al():
         elif 'nthreads' in kwargs:
             self.label_nthreads = kwargs['nthreads']
         else:
+            import joblib
             self.label_nthreads = joblib.cpu_count()
         
         if 'refmethod_kwargs' in kwargs:
@@ -186,6 +180,8 @@ class al():
         if 'device' in kwargs:
             self.device = kwargs['device']
         else:
+            # to-do: that should be done just for the models using torch, otherwise loading takes time
+            import torch
             self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         # ..property_to_learn: A list of properties to learn with ML
         #   ...Note:
@@ -233,6 +229,7 @@ class al():
             if 'nthreads' in kwargs:
                 self.sampler_kwargs['nthreads'] = kwargs['nthreads']
             elif 'nthreads' not in self.sampler_kwargs.keys():
+                import joblib
                 self.sampler_kwargs['nthreads'] = joblib.cpu_count()
             if 'initcond_sampler' in self.sampler_kwargs.keys():
                 self.sampler_kwargs['initcond_sampler'] = Sampler(sampler_function=self.sampler_kwargs['initcond_sampler'])
@@ -314,6 +311,7 @@ class al():
 
     # Dump AL info
     def dump(self):
+        import json
         jsonfile = open('al_info.json','w') 
         json.dump(self.dict_to_json_dict(self.al_info),jsonfile,indent=4)
         jsonfile.close()
@@ -321,6 +319,7 @@ class al():
     # Load AL info
     def load(self):
         if os.path.exists('al_info.json'):
+            import json
             jsonfile = open('al_info.json','r') 
             al_info = json.load(jsonfile)
         else:
@@ -472,6 +471,7 @@ class al():
                 if len(Ntrain_list) > 1 and len(Ntrain_list) >= self.minimum_number_of_fitting_points:
                     x = np.log(Ntrain_list)
                     y = np.log(eRMSE_list)
+                    import scipy
                     linreg = scipy.stats.linregress(x,y)
                     slope = linreg.slope 
                     intercept = linreg.intercept 
@@ -701,7 +701,7 @@ class al():
             return molecule
         nmols = len(moldb)
         if nthreads > 1:
-            newmols = simulations.run_in_parallel(molecular_database=moldb,
+            newmols = run_in_parallel(molecular_database=moldb,
                 task=sptask,
                 task_kwargs={'model': method, 'refmethod_kwargs': {'calculate_energy': calculate_energy, 'calculate_energy_gradients':calculate_energy_gradients, 'calculate_hessian':calculate_hessian, **model_predict_kwargs}},
                 nthreads=nthreads,
@@ -709,8 +709,10 @@ class al():
             for imol in range(len(moldb)):
                 moldb.molecules[imol] = newmols[imol]
             
+            # from multiprocessing.pool import ThreadPool as Pool
             #pool = Pool(processes=nthreads)
             #mols = pool.map(label,list(range(nmols)))
+            # from joblib import Parallel, delayed 
             # mols = Parallel(n_jobs=nthreads)(delayed(label)(i) for i in range(nmols))
         else:
             moldb2label = data.molecular_database()
