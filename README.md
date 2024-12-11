@@ -2,6 +2,7 @@
 
 # Updates
 
+- MLatom 3.16.1 (11.12.2024) - DFTB and TD-DFTB via interface to DFTB+.
 - MLatom 3.16.0 (04.12.2024) - TDDFT and TDA calculations via PySCF interface, TDDFT via Gaussian, and parsing of Gaussian output files into MLatom data format ([overview](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-16-0))
 - MLatom 3.15.0 (27.11.2024) - [fine-tuning](https://xacs.xmu.edu.cn/docs/mlatom/tutorial_tl.html#transfer-learning-from-the-universal-models) of the foundational ANI potentials ANI-1x, ANI-1ccx, ANI-1ccx-gelu, and ANI-2x.
 - MLatom 3.14.0 (20.11.2024) - [UV/vis spectra](https://xacs.xmu.edu.cn/docs/mlatom/tutorial_uvvis.html) from single-point convolution and nuclear-ensemble approach. Updated interface to MACE to support its latest 0.3.8 version.
