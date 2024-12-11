@@ -1,20 +1,9 @@
 import sys
 from . import data, stats, models, simulations, optimize_geometry, md, md_parallel, constants, generate_initial_conditions
 import numpy as np 
-import os 
-import matplotlib.pyplot as plt 
-import scipy 
-import torch
-from scipy.optimize import fsolve
+import os
 import random 
-import joblib 
-from joblib import Parallel, delayed 
-import timeit 
-import json
 from . import gap_md, namd
-from time import sleep
-
-
 
 class Sampler():
     def __init__(self,sampler_function=None):
@@ -200,6 +189,7 @@ class Sampler():
         else:
             initial_molecular_database = initcond_sampler.sample(**initcond_sampler_kwargs)
         if nthreads is None:
+            import joblib
             nthreads = joblib.cpu_count()
         if stop_function is None:
             stop_function = internal_stop_function
@@ -278,6 +268,7 @@ class Sampler():
         else:
             initial_molecular_database = initcond_sampler.sample(**initcond_sampler_kwargs)
         if nthreads is None:
+            import joblib
             nthreads = joblib.cpu_count()
         if stop_function is None:
             stop_function = internal_stop_function
@@ -356,6 +347,7 @@ class Sampler():
         else:
             initial_molecular_database = initcond_sampler.sample(**initcond_sampler_kwargs)
         if nthreads is None:
+            import joblib
             nthreads = joblib.cpu_count()
         if stop_function is None:
             stop_function = internal_stop_function
@@ -426,6 +418,7 @@ class Sampler():
                 traj = dyn.molecular_trajectory 
                 return traj 
             
+            from joblib import Parallel, delayed 
             trajs = Parallel(n_jobs=nthreads)(delayed(run_traj)(i) for i in range(len(initial_molecular_database)))
             sys.stdout.flush() 
 
@@ -598,6 +591,7 @@ class Sampler():
         if 'nthreads' in kwargs:
             nthreads = kwargs['nthreads']
         else:
+            import joblib
             nthreads = joblib.cpu_count()
         if 'uq_tresholds' in kwargs:
             uq_tresholds = kwargs['uq_tresholds']
@@ -846,7 +840,8 @@ class Sampler():
             for i in range(N_gapMD):
                 if os.path.exists("gapMD_traj{}.h5".format(i)):
                     os.system("rm gapMD_traj{}.h5".format(i))
-                
+            
+            from joblib import Parallel, delayed 
             gapMD_trajs_down = Parallel(n_jobs=nthreads)(delayed(run_gapMD)(init_cond_for_gapMD_down,i, lower_surface=lower_surface_list[i], current_surface=lower_surface_list[i]) for i in range(len(init_cond_for_gapMD_down)))
             
             sys.stdout.flush()
@@ -886,6 +881,7 @@ class Sampler():
             upper_surface_list = []
             for i in range(N_gapMD):
                 upper_surface_list.append(random.randrange(1,nstates))
+            from joblib import Parallel, delayed 
             gapMD_trajs_up = Parallel(n_jobs=nthreads)(delayed(run_gapMD)(init_cond_for_gapMD_up,i, lower_surface=upper_surface_list[i]-1, current_surface=upper_surface_list[i]) for i in range(len(init_cond_for_gapMD_up)))
             sys.stdout.flush()
             itraj=0 
@@ -959,6 +955,7 @@ class excess_energy_generator():
                 bb = 7*aa 
                 aa = min(aa,0.3)
                 return self.get_average_IEE(aa,bb,self.number_of_valence_electrons) - target 
+            from scipy.optimize import fsolve
             self.aa = fsolve(func,[0.2])[0]
             self.bb = 7*self.aa
             self.aa = min(self.aa,0.3)
@@ -1210,6 +1207,8 @@ class delta_ml_model_trainer(ml_model_trainer):
 class ml_model(models.ml_model):
     def __init__(self,al_info={},model_file=None,device=None,verbose=False,ml_model_type='ANI',**kwargs):
         if device is None:
+            # to-do: that should be done just for the models using torch, otherwise loading takes time
+            import torch
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.ml_model_type = ml_model_type
         if model_file is None:
@@ -1470,6 +1469,7 @@ class ml_model(models.ml_model):
         print(f"                Correlation coefficient = {aux_model_validate_vPCC}")
 
         # Value scatter plot of the main model
+        import matplotlib.pyplot as plt
         fig,ax = plt.subplots() 
         fig.set_size_inches(15,12)
         diagonal_line = [min([min(values),min(estimated_values)]),max([max(values),max(estimated_values)])]
@@ -1883,6 +1883,7 @@ class ml_model_msani(models.ml_model):
         print(f"                Correlation coefficient = {aux_model_validate_vPCC}")
 
         # Value scatter plot of the main model
+        import matplotlib.pyplot as plt 
         fig,ax = plt.subplots() 
         fig.set_size_inches(15,12)
         diagonal_line = [min([min(values),min(estimated_values)]),max([max(values),max(estimated_values)])]

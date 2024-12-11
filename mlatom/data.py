@@ -1647,7 +1647,7 @@ class molecular_database:
         '''
         return molecular_database([mol.proliferate(*args, **kwargs) for mol in self])
     
-    def dump(self, filename=None, format=None):
+    def dump(self, filename=None, format='json'):
         '''
         Dump the molecular database to a file.
         '''

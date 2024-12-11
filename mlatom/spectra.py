@@ -10,8 +10,6 @@
 
 import os, copy
 import numpy as np
-from scipy.interpolate import interp1d
-from scipy.stats import wasserstein_distance
 from . import constants
 from . import data
 from .stopper import stopMLatom
@@ -43,8 +41,10 @@ class spectrum():
 
     def interpolate(self, method="linear"):
         if method.casefold() == "linear".casefold():
+            from scipy.interpolate import interp1d
             interpolation_function = interp1d(self.x,self.y,kind='linear')
         elif method.casefold() == "cubic".casefold():
+            from scipy.interpolate import interp1d
             interpolation_function = interp1d(self.x,self.y,kind='cubic')
         self.interpolation_function = interpolation_function
 
@@ -736,6 +736,7 @@ class spectrum_comparison():
         wasserstein_distance_transformed
         """
         spectra_ref, spectra_pred = data.array(spectra_ref), data.array(spectra_pred)
+        from scipy.stats import wasserstein_distance
         return cls.loss2similarity(wasserstein_distance(spectra_ref, spectra_pred))
 
     @classmethod

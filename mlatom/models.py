@@ -194,6 +194,7 @@ class methods(model):
     'dftd3': ['d3zero', 'd3bj', 'd3bjm', 'd3zerom', 'd3op'],
     'dens': [],
     'ccsdtstarcbs': ['CCSD(T)*/CBS'],
+    'dftbplus': ['DFTB'],
     # in-interface method searching for a empty list
     'pyscf': [],
     'gaussian': [],
@@ -241,11 +242,11 @@ class methods(model):
             for program, methods in cls.methods_map.items():
                 if methods:
                     if method.casefold() in [m.casefold() for m in methods]:
-                        try:
-                            interfaces.__dict__[program]()()
-                            program_list.append(program)
-                        except:
-                            pass
+                        #try:
+                        interfaces.__dict__[program]()()
+                        program_list.append(program)
+                        #except:
+                        #    pass
                 else: 
                     try:
                         if interfaces.__dict__[program]().is_available_method(method):
