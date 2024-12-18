@@ -364,7 +364,15 @@ def slice(args):
     from . import sliceData
     sliceData.sliceDataCls(argsSD = args.args2pass)
 
-def geomopt(args):
+def optfreq(args):
+    molDB = geomopt(args, return_moldb=True)
+    freq(args, molDB=molDB)
+    
+def tsfreq(args):
+    molDB = ts(args, return_moldb=True)
+    freq(args, molDB=molDB)
+
+def geomopt(args, return_moldb=False):
     from . import simulations
     molDB = loading_data(XYZfile=args.XYZfile, charges=args.charges, multiplicities=args.multiplicities)
     model = loading_model(args)
@@ -419,13 +427,20 @@ def geomopt(args):
         else:
             print('\n Final energy of molecule %6d: %25.13f Hartree\n\n' % (imol+1, geomopt.optimized_molecule.energy))
     db_opt.write_file_with_xyz_coordinates(filename=fname)
+    if return_moldb:
+        return db_opt
 
-def ts(args):
-    geomopt(args)
+def ts(args, return_moldb=False):
+    if return_moldb:
+        molDB = geomopt(args, return_moldb=return_moldb)
+        return molDB
+    else:
+        geomopt(args, return_moldb=return_moldb)
 
-def freq(args):
+def freq(args, molDB=None):
     from . import simulations
-    molDB = loading_data(args.XYZfile, charges=args.charges, multiplicities=args.multiplicities)
+    if molDB is None:
+        molDB = loading_data(args.XYZfile, charges=args.charges, multiplicities=args.multiplicities)
     model = loading_model(args)
     kwargs = {}
     if args.freqProg:       kwargs['program'] = args.freqProg

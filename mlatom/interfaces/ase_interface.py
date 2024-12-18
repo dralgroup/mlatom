@@ -129,9 +129,11 @@ def dimer_method(initial_molecule, model,
     atoms.calc = MLatomCalculator(model=model,  model_predict_kwargs= model_predict_kwargs, save_optimization_trajectory=True)
 
     from ase.dimer import DimerControl, MinModeAtoms, MinModeTranslate
+    
+    random_seed = kwargs.pop('random_seed') if 'random_seed' in kwargs else None
 
     with DimerControl(**kwargs) as d_control:
-        d_atoms = MinModeAtoms(atoms, d_control, random_seed = kwargs['random_seed'] if 'random_seed' in kwargs else 0)
+        d_atoms = MinModeAtoms(atoms, d_control, random_seed = random_seed)
         d_atoms.displace()
         with MinModeTranslate(d_atoms) as dim_rlx:
             dim_rlx.run(fmax=convergence_criterion_for_forces,

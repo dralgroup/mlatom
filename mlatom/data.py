@@ -5,7 +5,7 @@
   !---------------------------------------------------------------------------! 
   ! data: Module for working with data                                        ! 
   ! Implementations by: Pavlo O. Dral, Fuchun Ge,                             !
-  !                     Shuang Zhang, Yi-Fan Hou, Yanchi Ou                   !
+  !                     Shuang Zhang, Yi-Fan Hou, Yanchi Ou, Mikołaj Martyka  !
   !---------------------------------------------------------------------------! 
 '''
 
@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any, Union, Dict, List, Optional, Iterable
 import uuid, copy, os, json
 import numpy as np
+import math
 import h5py
 import functools
 from . import constants
@@ -142,6 +143,10 @@ def load_return_molecule(filename=None, format='json'):
         jsonfile = open(filename, 'r')
         moldict = json.load(jsonfile)
         newmol = dict_to_molecule_class_instance(moldict)
+    elif format.casefold() == 'xyz'.casefold():
+        newmol = molecule.from_xyz_file(filename)
+    elif format.casefold() == 'xyzstring'.casefold():
+        newmol = molecule.from_xyz_string(filename)
     elif format.casefold() == 'gaussian'.casefold():
         from .interfaces import gaussian_interface
         newmol = gaussian_interface.parse_gaussian_output(filename=filename)
@@ -663,7 +668,78 @@ class molecule:
             new_molecule = copy.deepcopy(self)
         new_molecule.id = str(uuid.uuid4())
         return new_molecule
+    def bond_length(self, a1, a2):
+        """Return the distance between atom numbers a1 and a2.
     
+        Atoms are numbered from zero.
+    
+        """
+        diff = self.atoms[a1].xyz_coordinates - self.atoms[a2].xyz_coordinates
+        return np.linalg.norm(diff)
+        
+    def bond_angle(self, a1, a2, a3, degrees=True):
+            """Return the bond angle a1-a2-a3.
+    
+            The angle is defined by the vectors a1-a2 and a2-a3.
+            Atoms are numbered from zero.
+            based on Tom Keal MNDOtools.py, October 2007
+            degrees - if true, return angle in degrees, else radians.
+    
+            """
+            # Based on the bond angle routine from geoman.f90 by Eduardo Fabiano
+            # vector 1 = 1->2
+            v1 = self.atoms[a2].xyz_coordinates - self.atoms[a1].xyz_coordinates
+            v1 = v1/np.linalg.norm(v1)
+    
+            # vector 2 = 2->3
+            v2 = self.atoms[a3].xyz_coordinates - self.atoms[a2].xyz_coordinates
+            v2 = v2/np.linalg.norm(v2)
+    
+            # dot product
+            dotp = np.dot(v1, v2)
+            # angle in radians
+            ang = math.pi - math.acos(dotp)
+            if degrees:
+                ang *= (180.0 / math.pi)
+            return ang
+    def dihedral_angle(self, a1, a2, a3, a4, degrees=True):
+        """Return the dihedral angle a1-a2-a3-a4.
+    
+        The angle is defined between the planes a1-a2-a3 and a2-a3-a4.
+        Atoms are numbered from zero.
+        based on Tom Keal MNDOtools.py, October 2007
+    
+        degrees - if true, return angle in degrees, else radians.
+    
+        """
+        # Based on the dihedral routine from geoman.f90 by Eduardo Fabiano
+        # vector 1 = 1->2
+        v1 = self.atoms[a2].xyz_coordinates - self.atoms[a1].xyz_coordinates
+        v1 = v1/np.linalg.norm(v1)
+    
+        # vector 2 = 2->3
+        v2 = self.atoms[a3].xyz_coordinates - self.atoms[a2].xyz_coordinates
+        v2 = v2/np.linalg.norm(v2)
+    
+        # vector 3 = 3->4
+        v3 = self.atoms[a4].xyz_coordinates - self.atoms[a3].xyz_coordinates
+        v3 = v3/np.linalg.norm(v3)
+    
+        # vector product 1 = v1^v2
+        w1 = np.cross(v1,v2)
+        w1 = w1/np.linalg.norm(w1)
+    
+        # vector product 2 = v3^v2
+        w2 = np.cross(v3,v2)
+        w2 = w2/np.linalg.norm(w2)
+    
+        # dot product
+        dotp = np.dot(w1,w2)
+        # angle in radians
+        ang = math.pi - math.acos(dotp)
+        if degrees:
+            ang *= (180.0 / math.pi)
+        return ang    
     def proliferate(
             self, 
             shifts: Optional[Iterable] = None, 
@@ -1663,14 +1739,21 @@ class molecular_database:
             jsonfile = open(filename, 'r')
             data = json.load(jsonfile)
             self.molecules = []
-            for molecule in data['molecules']:
-                self.molecules.append(dict_to_molecule_class_instance(molecule))
-        if format.casefold() == 'npz'.casefold():
+            for mol in data['molecules']:
+                self.molecules.append(dict_to_molecule_class_instance(mol))
+        elif format.casefold() == 'npz'.casefold():
             with np.load(filename, allow_pickle=True) as npz:
                 data = dict(npz)
                 self.molecules = []
-                for molecule in data['molecules']:
-                    self.molecules.append(dict_to_molecule_class_instance(molecule))
+                for mol in data['molecules']:
+                    self.molecules.append(dict_to_molecule_class_instance(mol))
+        elif format.casefold() == 'gaussian'.casefold():
+            mol = molecule.load(filename, format=format)
+            if 'molecular_database' in mol.__dict__.keys():
+                for key in mol.molecular_database.__dict__.keys():
+                    self.__dict__[key] = mol.molecular_database.__dict__[key]
+            else:
+                self.molecules.append(mol)
         return self
     
     @classmethod
@@ -1887,6 +1970,14 @@ def dict_to_molecule_class_instance(dd):
                 mol.atoms.append(dict_to_atom_class_instance(aa))
         elif key == 'electronic_states':
             mol.electronic_states = [dict_to_molecule_class_instance(state_dict) for state_dict in dd[key]]
+        elif key == 'molecular_database':
+            mol.molecular_database = molecular_database()
+            mol.molecular_database.molecules = [dict_to_molecule_class_instance(state_dict) for state_dict in dd[key]['molecules']]
+        elif key == 'optimization_trajectory':
+            mol.optimization_trajectory = molecular_trajectory()
+            mol.optimization_trajectory.steps = [molecular_trajectory_step(step=state_dict['step'],
+                                                                           molecule=dict_to_molecule_class_instance(state_dict['molecule']))
+                                                 for state_dict in dd[key]['steps']]
         elif type(dd[key]) == dict:
             if 'parent' in dd[key].keys():
                 dict_to_properties_tree_node_class_instance(dd, key, mol)    
@@ -2134,6 +2225,13 @@ class molecular_trajectory():
                     if not key in ['step', 'molecule']:
                         self.steps[-1].__dict__[key] = step[key]
     
+        elif format.casefold() == 'gaussian'.casefold():
+            mol = molecule.load(filename, format=format)
+            if 'optimization_trajectory' in mol.__dict__.keys():
+                for key in mol.optimization_trajectory.__dict__.keys():
+                    self.__dict__[key] = mol.optimization_trajectory.__dict__[key]
+            else:
+                raise ValueError('No optimization trajectory could be parsed from the Gaussian output file')
    
     def get_xyz_string(self) -> str:
         '''
