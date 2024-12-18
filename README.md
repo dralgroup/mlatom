@@ -2,6 +2,7 @@
 
 # Updates
 
+- MLatom 3.16.2 (18.12.2024) - bug fixes, quality of life improvements (calculation of bond lengths, angles, RMSD, geometry optimization followed by frequency calculations in the same file, etc.).
 - MLatom 3.16.1 (11.12.2024) - DFTB and TD-DFTB via interface to DFTB+.
 - MLatom 3.16.0 (04.12.2024) - TDDFT and TDA calculations via PySCF interface, TDDFT via Gaussian, and parsing of Gaussian output files into MLatom data format ([overview](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-16-0))
 - MLatom 3.15.0 (27.11.2024) - [fine-tuning](https://xacs.xmu.edu.cn/docs/mlatom/tutorial_tl.html#transfer-learning-from-the-universal-models) of the foundational ANI potentials ANI-1x, ANI-1ccx, ANI-1ccx-gelu, and ANI-2x.
