@@ -1138,9 +1138,11 @@ class msani(models.ml_model, models.torchani_model):
                         energy_loss= median(predicted_energies,true_energies)
                     else:
                         energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
-                    auxnumber = int(len(predicted_energies)/self.nstates)
-
-                    gap_loss = (loss_function(predicted_gaps,true_gaps, 1) / num_atoms[:-auxnumber].sqrt()).nanmean()
+                    if self.hyperparameters.gap_coefficient != 0.0:
+                        gap_loss = (loss_function(predicted_gaps,true_gaps, 1) / num_atoms[0].sqrt()).nanmean()
+                    else:
+                        gap_loss = 0
+                    # true_forces[true_
                     # true_forces[true_forces.isnan()]=forces[true_forces.isnan()]
                     force_loss = (loss_function(true_forces, forces, weightings_f).sum(dim=(1, 2)) / num_atoms).nanmean()
                     loss = energy_loss + self.hyperparameters.force_coefficient * force_loss + self.hyperparameters.gap_coefficient * gap_loss
@@ -1157,9 +1159,11 @@ class msani(models.ml_model, models.torchani_model):
                     predicted_gaps = torch.FloatTensor(predicted_gap_list).to(self.device)
                     
                     energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
-                    auxnumber = int(len(predicted_energies)/self.nstates)
-
-                    gap_loss = (loss_function(predicted_gaps,true_gaps, 1) / num_atoms[:-auxnumber].sqrt()).nanmean()
+                    if self.hyperparameters.gap_coefficient != 0.0:
+                        gap_loss = (loss_function(predicted_gaps,true_gaps, 1) / num_atoms[0].sqrt()).nanmean()
+                    else:
+                        gap_loss = 0
+                    # true_forces[true_
                     loss = energy_loss + self.hyperparameters.gap_coefficient * gap_loss
                     total_mse += loss.item()
             return total_mse
@@ -1234,8 +1238,11 @@ class msani(models.ml_model, models.torchani_model):
                         energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
                    # print(predicted_gaps.shape, true_gaps.shape)
                     #print(num_atoms.sqrt())
-                    auxnumber = int(len(predicted_energies)/self.nstates)
-                    gap_loss = (loss_function(predicted_gaps,true_gaps, 1) / num_atoms[:-auxnumber].sqrt()).nanmean()
+                    if self.hyperparameters.gap_coefficient != 0.0:
+                        gap_loss = (loss_function(predicted_gaps,true_gaps, 1) / num_atoms[0].sqrt()).nanmean()
+                    else:
+                        gap_loss = 0
+                    # true_forces[true_
                     # true_forces[true_forces.isnan()]=forces[true_forces.isnan()]
                     force_loss = (loss_function(true_forces, forces, weightings_f).sum(dim=(1, 2)) / num_atoms).nanmean()
                     loss = energy_loss + self.hyperparameters.force_coefficient * force_loss + self.hyperparameters.gap_coefficient * gap_loss
@@ -1251,8 +1258,11 @@ class msani(models.ml_model, models.torchani_model):
                     #print(predicted_gaps)
 
                     energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
-                    auxnumber = int(len(predicted_energies)/self.nstates)
-                    gap_loss = (loss_function(predicted_gaps,true_gaps, 1) / num_atoms[:-auxnumber].sqrt()).nanmean()
+                    if self.hyperparameters.gap_coefficient != 0.0:
+                        gap_loss = (loss_function(predicted_gaps,true_gaps, 1) / num_atoms[0].sqrt()).nanmean()
+                    else:
+                        gap_loss = 0
+                    # true_forces[true_
                     loss = energy_loss + self.hyperparameters.gap_coefficient * gap_loss
 
                 self.AdamW.zero_grad()

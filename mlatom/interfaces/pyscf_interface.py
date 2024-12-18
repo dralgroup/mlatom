@@ -101,7 +101,7 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
         except:
             return False
             
-    def predict_for_molecule(self, molecule=None, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=False, calculate_dipole_derivatives=False, nstates=None, current_state=None, **kwargs):
+    def predict_for_molecule(self, molecule=None, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=False, calculate_dipole_derivatives=False, nstates=1, current_state=0, **kwargs):
         from pyscf import gto, scf
         from pyscf.dft.libxc import parse_xc
         pyscf_mol = gto.Mole()
@@ -367,7 +367,7 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
             raise ValueError(errmsg)
 
     @doc_inherit
-    def predict(self, molecule=None, molecular_database=None, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, nstates = None, current_state =None, **kwargs):
+    def predict(self, molecule=None, molecular_database=None, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, nstates=1, current_state=1, **kwargs):
         '''
             **kwargs: ``# needs to be documented``.
         '''

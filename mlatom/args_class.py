@@ -695,6 +695,10 @@ class mlatom_args(ArgsBase):
             elif len(tasks) > 1:
                 if self.selfCorrect:
                     self._task = 'selfCorrect'
+                elif 'geomopt' in tasks and 'freq' in tasks:
+                    self._task = 'optfreq'
+                elif 'ts' in tasks and 'freq' in tasks:
+                    self._task = 'tsfreq'
                 else:
                     if 'useMLmodel' in tasks:
                         tasks.remove('useMLmodel')

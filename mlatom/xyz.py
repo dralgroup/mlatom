@@ -3,21 +3,58 @@
 '''
   !---------------------------------------------------------------------------! 
   ! xyz: different operations on XYZ coordinates                              ! 
-  ! Implementations by: Fuchun Ge                                             ! 
-  ! To-do: implement permutation (Hungarian algorithm)                        !    
+  ! Implementations by: Fuchun Ge, Yi-Fan Hou, Pavlo O. Dral                  ! 
   !---------------------------------------------------------------------------! 
 '''
 
 import numpy as np
 
-def rmsd(xyz1, xyz2):
-    xyz1 = xyz1 - get_center_of_mass(xyz1)
-    xyz2 = xyz2 - get_center_of_mass(xyz2)
-
+def rmsd(molecule1, molecule2, reorder=False, check_reflection=False, keep_stereo=False):
+    '''
+    Calculate RMSD (root-mean-squared deviation) between two structures.
+    
+    Arguments:
+        molecule1 (required): either molecule class instance or numpy array with xyz coordinates
+        molecule2 (required): either molecule class instance or numpy array with xyz coordinates
+        reorder (bool or str, optional): whether to try to reorder atoms to get smaller RMSD (default: False; other supported options are True which is equivalent to Hungarian)
+        check_reflection (bool, optional): check reflections (default: False).
+        keep_stereo (bool, optional): (default: False).
+        
+    Example of the simple use:
+        rmsd = mlatom.xyz.rmsd(molecule1.xyz_coordinates, molecule2.xyz_coordinates)
+    Example of using Hungarian algorithm to check for homonuclear atom permutation and reflections:
+        rmsd = mlatom.xyz.rmsd(molecule1, molecule2, reorder='Hungarian', check_reflection=True)
+    '''
+    if isinstance(molecule1, np.ndarray):
+        xyz1 = molecule1
+        xyz2 = molecule2
+    else:
+        xyz1 = molecule1.xyz_coordinates
+        xyz2 = molecule2.xyz_coordinates
+        
     result = 0.0
+    
+    if not reorder and not check_reflection:
+    
+        xyz1 = xyz1 - get_center_of_mass(xyz1)
+        xyz2 = xyz2 - get_center_of_mass(xyz2)
 
-    aligned_xyz1 = align(xyz1, xyz2)
-    result = np.sqrt(3*np.mean(np.square(aligned_xyz1-xyz2)))
+
+        aligned_xyz1 = align(xyz1, xyz2)
+        result = np.sqrt(3*np.mean(np.square(aligned_xyz1-xyz2)))
+    
+    elif reorder:
+        if type(reorder) == bool: reorder = 'Hungarian'
+        atoms1 = molecule1.element_symbols
+        atoms2 = molecule2.element_symbols
+        if reorder.casefold() == 'Hungarian'.casefold() and not check_reflection:
+            result = rmsd_reorder(atoms1,atoms2,xyz1,xyz2,reorder=reorder)
+        elif reorder.casefold() == 'Hungarian'.casefold() and check_reflection:
+            result = rmsd_reorder_check_reflection(atoms1,atoms2,xyz1,xyz2,reorder=reorder,keep_stereo=keep_stereo)
+        else:
+            raise ValueError('Unsupported type of RMSD calculations')
+    else:
+        raise ValueError('Unsupported type of RMSD calculations')
     
     return result
 

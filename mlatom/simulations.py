@@ -4,7 +4,7 @@
 
   !---------------------------------------------------------------------------! 
   ! simulations: Module for simulations                                       ! 
-  ! Implementations by: Pavlo O. Dral                                         ! 
+  ! Implementations by: Pavlo O. Dral, Fuchun Ge, Yi-Fan Hou, Yuxinxin Chen   ! 
   !---------------------------------------------------------------------------! 
   
 Geomopt, freq, DMC
@@ -15,7 +15,7 @@ from .md import md as md
 from .md_parallel import md_parallel as md_parallel
 from .initial_conditions import generate_initial_conditions
 from .md2vibr import vibrational_spectrum
-import os, math
+import os, sys, math
 import numpy as np
 import warnings
 warnings.filterwarnings("ignore")
@@ -71,6 +71,7 @@ def run_in_parallel(molecular_database=None, task=None, task_kwargs={},
     
     results = Parallel(n_jobs=nthreads)(delayed(task_loc)(i) for i in range(len(molecular_database)))
     return results
+
 class optimize_geometry():
     """
     Geometry optimization.
@@ -80,7 +81,7 @@ class optimize_geometry():
         initial_molecule (:class:`mlatom.data.molecule`): the molecule object to optimize.
         ts (bool, optional): whether to do transition state search. Currently only be done with program=Gaussian, ASE and geometric.
         program (str, optional): the engine used in geometry optimization. Currently supports Gaussian, ASE, scipy and PySCF.
-        optimization_algorithm (str, optional): the optimization algorithm used in ASE. Default value: LBFGS (ts=False), dimer (ts=False).
+        optimization_algorithm (str, optional): the optimization algorithm used in ASE. Default value: LBFGS (ts=False), dimer (ts=True).
         maximum_number_of_steps (int, optional): the maximum number of steps for ASE, SciPy and geometric. Default value: 200.
         convergence_criterion_for_forces (float, optional): forces convergence criterion in ASE. Default value: 0.02 eV/Angstroms.
         working_directory (str, optional): working directory. Default value: '.', i.e., current directory.
@@ -351,26 +352,40 @@ class optimize_geometry():
         with tempfile.TemporaryDirectory() as tmpdirname:
             tmpdirname = os.path.abspath(tmpdirname)
 
-        import logging
-        loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
-        for logger in loggers:
-            if logger.name in ['geometric.nifty', 'geometric']:
-                logger.setLevel(logging.CRITICAL)
-                logger.propagate = False
-        mlatom_engine = MLatomEngine(self.initial_molecule, self.model)
-        try:
-            geometric.optimize.run_optimizer(customengine=mlatom_engine, input=tmpdirname, constraints=constraints, transition=self.ts, maxiter=self.maximum_number_of_steps, **convergence_criterion)
-            self.successful = True
-            self.converge = True
-        except Exception as ex:
-            if type(ex) == geometric.errors.GeomOptNotConvergedError:
-                print('Warning: Geometry optimization with geometric failed to converge. The last geometry will be used as the optimized geometry.')
-                self.converge = False
+            import logging
+            loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
+            for logger in loggers:
+                if logger.name in ['geometric.nifty', 'geometric']:
+                    logger.setLevel(logging.CRITICAL)
+                    logger.propagate = False
+            
+            if self.ts:
+                print('Start calculating hessian on trainsition state as first step ...')
+                sys.stdout.flush()
+                self.model.predict(molecule=self.initial_molecule, calculate_hessian=True)
+                print('Finish calculating hessian and start optimizing geometry ...')
+                sys.stdout.flush()
+                hess = self.initial_molecule.hessian
+                hessdir = f'{tmpdirname}.tmp/hessian'
+                if not os.path.exists(hessdir):
+                    os.makedirs(hessdir)
+                np.savetxt(f'{hessdir}/hessian.txt',hess)
+                self.initial_molecule.write_file_with_xyz_coordinates(f'{hessdir}/coords.xyz')
+
+            mlatom_engine = MLatomEngine(self.initial_molecule, self.model)
+            try:
+                geometric.optimize.run_optimizer(customengine=mlatom_engine, input=tmpdirname, constraints=constraints, transition=self.ts, maxiter=self.maximum_number_of_steps, **convergence_criterion)
                 self.successful = True
-            else:
-                print('Warning: Geometry optimization with geometric failed. The initial geometry will be used as the optimized geometry.')
-                self.converge = False
-                self.successful = False
+                self.converge = True
+            except Exception as ex:
+                if type(ex) == geometric.errors.GeomOptNotConvergedError:
+                    print('Warning: Geometry optimization with geometric failed to converge. The last geometry will be used as the optimized geometry.')
+                    self.converge = False
+                    self.successful = True
+                else:
+                    print('Warning: Geometry optimization with geometric failed. The initial geometry will be used as the optimized geometry.')
+                    self.converge = False
+                    self.successful = False
 
         if self.successful:
             self.optimization_trajectory.load(filename=os.path.join(self.working_directory,self.filename), format='json')

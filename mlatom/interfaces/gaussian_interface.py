@@ -381,6 +381,12 @@ def parse_gaussian_output(filename=None, molecule=None):
     es_mults = []
     es_contribs = []
     readES = False
+    i_read_input_orientation = -1
+    i_read_standard_orientation = -1
+    xyz_input_orientation = []
+    xyz_standard_orientation = []
+    scf_energies = []
+    energy_gradients = []
     # flags to check whether a property was never read before - by default overwrite everything
     read_already_freq = False
     read_already_redmass = False
@@ -422,8 +428,35 @@ def parse_gaussian_output(filename=None, molecule=None):
                 chkfilename = line.split('=')[-1].strip()
                 if not '.chk' in chkfilename:
                     chkfilename += '.chk'
+            if 'Input orientation:' in line:
+                i_read_input_orientation = 0
+                xyz_input_orientation.append([])
+                continue
+            if i_read_input_orientation > -1:
+                i_read_input_orientation += 1
+                if i_read_input_orientation >= 5:
+                    if '-------------------------' in line:
+                        i_read_input_orientation = -1
+                        continue
+                    xyz_input_orientation[-1].append([float(xx) for xx in line.split()[-3:]])
+                    continue
+            if 'Standard orientation:' in line:
+                i_read_standard_orientation = 0
+                xyz_standard_orientation.append([])
+                continue
+            if i_read_standard_orientation > -1:
+                i_read_standard_orientation += 1
+                if i_read_standard_orientation >= 5:
+                    if '-------------------------' in line:
+                        i_read_standard_orientation = -1
+                        continue
+                    xyz_standard_orientation[-1].append([float(xx) for xx in line.split()[-3:]])
+                    continue
+            if 'SCF Done:' in line:
+                scf_energies.append(float(line.split()[4]))
             if 'Forces (Hartrees/Bohr)' in line:
                 forces_iatom = -3
+                energy_gradients.append([])
                 continue
             if forces_iatom > -4:
                 forces_iatom += 1
@@ -431,9 +464,7 @@ def parse_gaussian_output(filename=None, molecule=None):
                 if '------------------' in line:
                     forces_iatom = -4
                     continue
-                if len(mol.atoms) < forces_iatom+1:
-                    mol.atoms.append(data.atom(atomic_number=int(line.split()[1])))
-                mol.atoms[forces_iatom].energy_gradients = -data.array([float(each) for each in line.split()[2:]]) / constants.Bohr2Angstrom
+                energy_gradients[-1].append(-data.array([float(each) for each in line.split()[2:]]) / constants.Bohr2Angstrom)
                 continue
             if 'The second derivative matrix:' in line:
                 i_read_hessian = 0
@@ -815,10 +846,13 @@ def parse_gaussian_output(filename=None, molecule=None):
                 break
         if '\\\\@' in archiveText:
             break
+    optjob = False
     if archiveText != r'':
         method_names = ['HF', 'MP2', 'MP3', 'MP4D', 'MP4DQ', 'MP4SDQ', 'MP4SDTQ', 'MP5', 'CISD', 'QCISD', 'QCISD(T)', 'CCSD', 'CCSD(T)']
         method_energies = []
         archiveTextSplit = archiveText.split('\\\\') # here it splits with '\\' as a delimiter
+        if 'opt'.casefold() in archiveTextSplit[0].casefold():
+            optjob = True
         if 'freq'.casefold() in archiveTextSplit[1].casefold() and chkfilename is not None:
             dir_path = os.path.dirname(os.path.realpath(filename))
             if os.path.exists(f'{dir_path}/{chkfilename}'):
@@ -931,10 +965,76 @@ def parse_gaussian_output(filename=None, molecule=None):
     if 'infrared_intensities' in mol.__dict__.keys():
         if np.all(mol.infrared_intensities == 0):
             del mol.__dict__['infrared_intensities']
-        
-    # to-do: check whether gradients for electronic states are read correctly
-    # to-do: check whether the infrared_intensities have the correct length after anharmonic frequencies calculation
     
+    # delete the last geom if there were fewer SCF energies than geometries
+    # (can be due to failed SCF calculations or duplicated printing after successful geom opt)
+    if len(scf_energies) < len(xyz_input_orientation) and len(xyz_input_orientation) > 1:
+        if np.max(np.abs(data.array(xyz_input_orientation[-1]) - data.array(xyz_input_orientation[-2]))) < 1e-6:
+            del xyz_input_orientation[-1]
+    if len(scf_energies) < len(xyz_standard_orientation) and len(xyz_standard_orientation) > 1:
+        if np.max(np.abs(data.array(xyz_standard_orientation[-1]) - data.array(xyz_standard_orientation[-2]))) < 1e-6:
+            del xyz_standard_orientation[-1]
+    # if it was opt freq job, then geometries and scf energies are duplicated at the end too
+    if len(scf_energies) > 1:
+        if len(scf_energies) == len(xyz_input_orientation) and len(scf_energies) == len(xyz_standard_orientation):
+            if abs(scf_energies[-2] - scf_energies[-1]) < 1e-6 and np.max(np.abs(data.array(xyz_input_orientation[-1]) - data.array(xyz_input_orientation[-2]))) < 1e-6:
+                del scf_energies[-1]
+                del xyz_input_orientation[-1]
+                del xyz_standard_orientation[-1]
+            if len(energy_gradients) > len(scf_energies):
+                if np.max(np.abs(data.array(energy_gradients[-1]) - data.array(energy_gradients[-2]))) < 1e-6:
+                    del energy_gradients[-1]
+        elif len(scf_energies) == len(xyz_input_orientation):
+            if abs(scf_energies[-2] - scf_energies[-1]) < 1e-6 and np.max(np.abs(data.array(xyz_input_orientation[-1]) - data.array(xyz_input_orientation[-2]))) < 1e-6:
+                del scf_energies[-1]
+                del xyz_input_orientation[-1]
+            if len(energy_gradients) > len(scf_energies):
+                if np.max(np.abs(data.array(energy_gradients[-1]) - data.array(energy_gradients[-2]))) < 1e-6:
+                    del energy_gradients[-1]
+        elif len(scf_energies) == len(xyz_standard_orientation):
+            if abs(scf_energies[-2] - scf_energies[-1]) < 1e-6 and np.max(np.abs(data.array(xyz_standard_orientation[-1]) - data.array(xyz_standard_orientation[-2]))) < 1e-6:
+                del scf_energies[-1]
+                del xyz_standard_orientation[-1]
+            if len(energy_gradients) > len(scf_energies):
+                if np.max(np.abs(data.array(energy_gradients[-1]) - data.array(energy_gradients[-2]))) < 1e-6:
+                    del energy_gradients[-1]
+
+    # get molecular database for multiple single-point calculations in the output file
+    if len(scf_energies) > 1:
+        db = data.molecular_database()
+        db.molecules = [mol.copy(atomic_labels=[], molecular_labels=[]) for ii in range(len(scf_energies))]
+        for iscf in range(len(scf_energies)):
+            db.molecules[iscf].energy = scf_energies[iscf]
+        if len(scf_energies) == len(xyz_input_orientation):
+            for iscf in range(len(scf_energies)):
+                db.molecules[iscf].xyz_coordinates = data.array(xyz_input_orientation[iscf])
+        # to-do: reorient to input orientation using mol.xyz_coordinates which are already in input orientation for the last geometry
+        #elif len(scf_energies) == len(xyz_standard_orientation)
+        #    for iscf in range(len(scf_energies)):
+        #            db.molecules[iscf].xyz_coordinates = data.array(xyz_standard_orientation[iscf])
+        if len(scf_energies) == len(energy_gradients):
+            for iscf in range(len(scf_energies)):
+                db.molecules[iscf].energy_gradients = data.array(energy_gradients[iscf])
+        mol.molecular_database = db
+        if optjob:
+            moltraj = data.molecular_trajectory()
+            for istep, mol_step in enumerate(db):
+                moltraj.steps.append(data.molecular_trajectory_step(step=istep, molecule=mol_step))
+            mol.optimization_trajectory = moltraj
+
+    # get energy gradients from the last place they are calculated
+    if len(energy_gradients) > 0:
+        mol.energy_gradients = data.array(energy_gradients[-1])
+    
+    if 'molecular_database' in mol.__dict__.keys():
+        if np.max(np.abs(db[-1].xyz_coordinates - mol.xyz_coordinates)) < 1e-6:
+            tmpmol = mol.copy()
+            del tmpmol.__dict__['molecular_database']
+            mol.molecular_database.molecules[-1] = tmpmol
+            if 'optimization_trajectory' in tmpmol.__dict__.keys():
+                del tmpmol.__dict__['optimization_trajectory']
+                mol.optimization_trajectory.steps[-1].molecule = tmpmol
+                
     if molecule is None:
         return mol
 
