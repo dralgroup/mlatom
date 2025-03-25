@@ -414,10 +414,11 @@ class molecule:
             energy_property_name (str, optional): the name assign to the energy property.
             gradient_property_name (str, optional): the name assign to the gradient property.
 
-        Note:
+        .. note::
             gradient in BDF output file(.egrad1 file) use Hartree/Bohr unit but in MLatom it use Hartree/Angstrom unit, unit conversion is performed here.
 
-        .egrad1 file looks like:
+        **Example .egrad1 file format**::
+
             ENERGY=        -232.108204353561
             GRADIENT
                          1           0.0042475274         0.0060127667        -0.0000039839
@@ -436,7 +437,7 @@ class molecule:
         with open(filename, 'r') as f:
             string_lst = f.readlines()
             energy = float(string_lst[0].upper().replace(' ', '').removeprefix('ENERGY='))
-            vectors = [array(s.strip().split()[-3:]).astype(float) / constants.Bohr2Angstrom for s in string_lst[2:]]  # unit conversion
+            vectors = [array(s.strip().split()[-3:]).astype(float) / constants.Bohr2Angstrom for s in string_lst[2:] if s.strip() != ""]  # unit conversion
 
         self.__dict__[energy_property_name] = energy
         assert len(vectors) == len(self.atoms), 'the number of atom does not match'
@@ -1072,7 +1073,7 @@ class molecular_database:
         All the files should be contained in one folder.
 
         Arguments:
-            folder (str): the folder which contains all the ``.xyz`` and ``.egrad1`` files.
+            folder (str): the folder which contains all the ``.xyz`` and ``.egrad1`` files with the same name.
             energy_property_name (str, optional): the name assign to the energy property.
             gradient_property_name (str, optional): the name assign to the gradient property.
         '''
