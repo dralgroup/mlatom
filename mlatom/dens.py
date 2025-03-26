@@ -1,7 +1,7 @@
-from . import data, models, constants
-from multiprocessing import cpu_count
+from . import data, constants
+from .model_cls import method_model, model_tree_node
 
-class dens(models.model, metaclass=models.meta_method):
+class dens(method_model):
 
     """ 
     DFT ensemble methods. Preprint on ChemRxiv: https://doi.org/10.26434/chemrxiv-2024-2g7zr
@@ -16,7 +16,7 @@ class dens(models.model, metaclass=models.meta_method):
         mol = ml.data.molecule()
         mol.read_from_xyz_file(filename='ethanol.xyz')
         # Run DENS calculation
-        dens = ml.models.methods(method='dens24px3/6-31g*')
+        dens = ml.methods(method='dens24px3/6-31g*')
         dens.predict(molecule=mol, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=True) 
         energy = mol.energy
         gradient = mol.get_energy_gradients()
@@ -35,25 +35,27 @@ class dens(models.model, metaclass=models.meta_method):
         self.nfunctional = int(method.replace('dens24px','').split('/')[0]) if self.program=='pyscf' else int(method.replace('dens24ox','').split('/')[0])
         self.basis = method.split('/')[-1] 
         
+        from multiprocessing import cpu_count
         if nthreads is None:
                 self.nthreads = cpu_count()
         else:
             self.nthreads = nthreads
 
     @classmethod
-    def is_available_method(cls, method):
+    def is_method_supported(cls, method):
         # methods can be used without `method` keywords:
         # DFT, HF, MP2, FCI, CISD, CCSD, CCSD(T) / [basis set]
         method = method.split('/')[0]
-        available_methods_pyscf = [f'dens24px{ii}' for ii in range(2,55)]
-        available_methods_orca = [f'dens24ox{ii}' for ii in range(2,29)] 
-        available_methods = available_methods_pyscf + available_methods_orca
-        cls.available_methods = available_methods
-        if method.lower() in cls.available_methods:
+        supported_methods_pyscf = [f'dens24px{ii}' for ii in range(2,55)]
+        supported_methods_orca = [f'dens24ox{ii}' for ii in range(2,29)] 
+        supported_methods = supported_methods_pyscf + supported_methods_orca
+        cls.supported_methods = supported_methods
+        if method.lower() in cls.supported_methods:
             return True
         return False
 
     def load(self):
+        from .models import methods
         if self.program == 'pyscf':
             functional_dict = {pyscf_functionals[ii]:pyscf_weights[self.nfunctional-2][ii] for ii in range(self.nfunctional)}
         else:
@@ -62,9 +64,9 @@ class dens(models.model, metaclass=models.meta_method):
         functional_nodes = []
         dispersion_nodes = []
         for ff, ww in functional_dict.items():
-            functional_node = models.model_tree_node(
+            functional_node = model_tree_node(
                     name=ff,
-                    model=models.methods(method=f'{ff}/{self.basis}', program=self.program, nthreads=self.nthreads),
+                    model=methods(method=f'{ff}/{self.basis}', program=self.program, nthreads=self.nthreads),
                     operator='predict')
             functional_node.weight = ww 
             functional_nodes.append(functional_node)
@@ -74,14 +76,14 @@ class dens(models.model, metaclass=models.meta_method):
                 disp = ff.split('-')[1]
                 if disp.lower() in ['v', 'd3']:
                     continue
-            dispersion_node = models.model_tree_node(
+            dispersion_node = model_tree_node(
                     name=f'{f}_d3',
-                    model=models.methods(method=f'd3bj', functional=f),
+                    model=methods(method=f'd3bj', functional=f),
                     operator='predict') 
             dispersion_node.weight = ww 
             dispersion_nodes.append(dispersion_node)
 
-        self.ensemble = models.model_tree_node(
+        self.ensemble = model_tree_node(
             name=self.method,
             children=functional_nodes+dispersion_nodes,
             operator='weighted_sum'

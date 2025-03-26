@@ -504,16 +504,20 @@ class molecule:
                 fw.writelines('$end\n')
 
 
-    def get_xyz_string(self) -> str:
+    def get_xyz_string(self, only_coordinates=False) -> str:
         '''
         Return the molecular geometry in a string of XYZ format.
+        
+        Arguments:
+            only_coordinates (bool, optional): print only coordinates, otherwise print number of atoms and comment line, default: False.
         '''
         xyz_string = ''
-        xyz_string += '%d\n' % len(self.atoms)
-        if 'comment' in self.__dict__.keys():
-                xyz_string += f'{self.comment}\n'
-        else:
-            xyz_string += '\n'
+        if not only_coordinates:
+            xyz_string += '%d\n' % len(self.atoms)
+            if 'comment' in self.__dict__.keys():
+                    xyz_string += f'{self.comment}\n'
+            else:
+                xyz_string += '\n'
         for atom in self.atoms:
             xyz_string += '%-3s %25.13f %25.13f %25.13f\n' % (atom.element_symbol,
                 atom.xyz_coordinates[0], atom.xyz_coordinates[1], atom.xyz_coordinates[2])
@@ -652,6 +656,8 @@ class molecule:
             new_molecule = molecule()
             new_molecule.multiplicity = self.multiplicity
             new_molecule.charge = self.charge
+            new_molecule.pbc = self.pbc 
+            new_molecule.cell = self.cell
             if type(molecular_labels) != type(None):
                 for each_label in molecular_labels:
                     if each_label in self.__dict__:
@@ -1207,64 +1213,76 @@ class molecular_database:
         self.read_from_xyz_string(xyz_string)
         return self
         
-    def read_from_h5_file(self, 
-        h5_file: str = '', 
+    def read_from_h5_file(self,
+        filename: str = '', 
         properties: list = None, 
+        xyz_derivative_properties: list = None,
         parallel: Union[bool,int,tuple] = False, 
         verbose:bool = False) -> molecular_database:
-        '''
-        Generate molecular database from formatted h5 file. The first level should be configurations (or ensemble of molecules with same number of atoms) and the second level should be conformations and their properties. 'species' and 'coordinates' are required to construct molecule. An example format of h5 file:
+        ''' 
+        Generate molecular database from formatted h5 file. 
+
+        The standard h5 format file should at least contains 'species' and 'coordinates'. An example for h5 file with energies and gradients inside, as well as additional scalar values 'scalar1' and vectors 'vector1'
+        
+        ```
+        >>> ddls example.h5
+        /002                       dict
+        /002/_id                   array (204,) [bytes192]
+        /002/coordinates           array (204, 2, 3) [float64]
+        /002/species               array (204, 2) [int64]
+        /002/energy                array (204,) [float64]
+        /002/gradients             array (204, 2, 3) [float64]
+        /002/scalar1               array (204,) [int64]
+        /002/vector1               array (204, 2) [int64]
 
         ```
-        /003                  dict
-        /003/species          array (624, 3) [int8]
-        /003/coordinates      array (624, 3, 3) [float32]
-        /003/energies         array (624,) [float64]
-        /003/property1        ['wb97x/def2tzvpp']
-        /003/property2        array (624, 2) [int8]
-        ```
-        
-        If the first two dimensions of the size of the value equals (number_of_configurations, number_of_atoms), the remaining dimension of the value will be assigned to each atom as xyz derivative properties. If the first dimensions of the size of the value equals to number of configurations, corresponging value will be assigned to each molecule. If only one value is provided for the property, it will be copied into each molecule.  
-        For example, in the above case, the properties stored in each `molecule` object would be: {'energies': `float`, 'property1':'wb97x/def2tzvpp', 'property2': `numpy.ndarray` of size (2,0)}
 
         Arguments:
-            h5file (str): path to h5 file. 
-            properties (list): the properties to be stored in molecular database. By default all the properties presented in h5 file will be stored.
-            parallel (int or tuple or bool): 
+            `h5file (str)`: 
+                path to h5 file. 
+            `properties (optional, list)`: 
+                the properties to be stored in molecular database. By default all the properties presented in h5 file will be stored.
+            `xyz_derivative_properties (optional, list)`: 
+                the xyz derivative properties to be stored. If None, the derivative properties will not be stored in atom object.
+            `parallel (optional, int or tuple or bool)`: 
                 - If `int` is provided, the value will be assigned to the number of workers, Batch size will be calculated automatically.
                 - If `tuple` is provided, the first value will be assigned to the number of workers and the second value will be assigned to the batch size. 
                 - If `bool` is provided, `True` means all the CPUs available will be used and batch size will be adjusted accordingly. 
-            verbose (bool): whether to print the loading message.
-
+            `verbose (optional, bool)`: whether to print the loading message.
         ''' 
         
         import sys
         import joblib 
         
-        h5data = h5dataloader(h5_file)
+        h5data = h5dataloader(filename)
 
         def configurations():
             for cc in h5data:
                 yield cc
 
-        def conformations():
+        def conformations(properties):
             for m in configurations():
-                species = m['species']
+                if not properties:
+                    properties = [*m]
+                else:
+                    properties = list(set(properties)|{'coordinates','species'})
+                
                 coordinates = m['coordinates']
                 (nc, na, _) = coordinates.shape
-                for i in range(coordinates.shape[0]):
-                    ret = {'species': species[i], 'coordinates': coordinates[i]}
-                    for k in properties:
-                        if k in m:
-                            if len(m[k]) == nc:
-                                ret[k] = m[k][i]
-                            else:
-                                ret[k] = m[k]
+                for i in range(nc):
+                    ret = {}
+                    for prop in properties:
+                        ret[prop] = m[prop][i]
                     yield ret
         
-        def pool(batch):
+        def pool(batch, properties, xyz_derivative_properties):
             empty_pool = []
-            for cc in conformations():  
+            prop = []
+            if properties: prop += properties
+            if xyz_derivative_properties: prop += xyz_derivative_properties
+            if not properties and not xyz_derivative_properties:
+                prop = None
+            for cc in conformations(prop):  
                 empty_pool.append(cc)
                 if len(empty_pool) >= batch:
                     yield empty_pool
@@ -1272,56 +1290,121 @@ class molecular_database:
             yield empty_pool
 
         def batch_load(b, properties):
+            prop, xyz_derivative_properties = properties
             mols = []
             for cc in b:
                 mol = molecule.from_numpy(species=cc['species'],coordinates=cc['coordinates'])
                 na = cc['coordinates'].shape[0]
-                if not properties:
-                    properties = [*cc]
-                    properties.remove('species')
-                    properties.remove('coordinates')
+                if not prop and not xyz_derivative_properties:
+                    prop = [*cc]
+                    prop.remove('species')
+                    prop.remove('coordinates')
 
-                for prop in properties:
-                    if type(cc[prop]) == np.ndarray and cc[prop].shape == (na, 3):
-                        mol.add_xyz_derivative_property(cc[prop],prop,prop)
-                    elif type(cc[prop]) in {list, np.ndarray} and len(cc[prop]) == 1:
-                        mol.add_scalar_property(cc[prop][0],prop)
-                    else:
-                        mol.add_scalar_property(cc[prop],prop)
+                for pp in prop:
+                    prop_value = cc[pp]
+                    if type(prop_value) != str and prop_value.shape == (1,):
+                        prop_value = prop_value[0]
+                      
+                    mol.add_scalar_property(prop_value,pp)
+                if xyz_derivative_properties:
+                    for pp in xyz_derivative_properties:
+                        prop_value = cc[pp]
+                        mol.add_xyz_vectorial_property(prop_value,pp)
                 mols.append(mol)
             return mols
-                
+        
+        counts = h5data.size()
         if parallel:
             if type(parallel) == int:
                 njobs = parallel
-                counts = h5data.size()
                 batch = counts//njobs
 
             elif type(parallel) == tuple:
                 njobs, batch = (parallel)
             else:
                 njobs = -1
-                counts = h5data.size()
                 import multiprocessing as mp 
                 ncpu = mp.cpu_count() 
                 batch = counts//ncpu
         else:
             njobs = 1
-            counts = h5data.size()
             batch = counts
 
         if verbose:
+            print(f'Total number of datapoints: {counts}')
             print(f'{njobs} workers will be used and {batch} tasks are assigned to each worker.')
             if batch < 100 and njobs > 1:
                 print('WARNING: batch size less than 100 is not recommended to use parallel loading.') # need to benchmark to set the threshold.
             sys.stdout.flush()
 
-        mols = joblib.Parallel(n_jobs=njobs, verbose=10 if verbose else 0)(joblib.delayed(batch_load)(b, properties) for b in pool(batch))
+        mols = joblib.Parallel(n_jobs=njobs, verbose=10 if verbose else 0)(joblib.delayed(batch_load)(b, (properties, xyz_derivative_properties)) for b in pool(batch, properties, xyz_derivative_properties))
 
         for mm in mols:
             self.molecules += mm
 
         return self 
+
+    def dump_h5_file(
+        self,
+        filename: str = '',
+        properties: list = [],
+    ):
+        '''
+        Dump molecular database as h5 format. The first level is the number of atoms and the second level contains properties stored in each molecule. Standard format of the generated file:
+
+        ```
+        >>> ddls example.h5
+        /2                    dict
+        /2/coordinates        array (204, 2, 3) [float64]
+        /2/id                 array (204, 1) [bytes288]
+        /2/species            array (204, 2) [int64]
+        ```
+
+        Arguments:
+            filename (str): the file name.
+            properties (list): List of properties that will be stored in the h5 file.
+
+        '''
+        import h5py
+
+        def update_h5file(h5file, na, h5key, updated_value):
+            updated_value = updated_value[None,:]
+            if h5key == 'atomic_numbers':
+                h5key = 'species'
+            elif h5key == 'xyz_coordinates':
+                h5key = 'coordinates'
+
+            if na not in h5file.keys():
+                g = h5file.create_group(na)
+                g.create_dataset(h5key, data=updated_value)
+            else:
+                g = h5file[na]
+                if h5key not in g.keys():
+                    g.create_dataset(h5key, data=updated_value)
+                else:
+                    value_old = g[h5key][:]
+                    value_updated = np.append(value_old, updated_value, axis=0)
+                    del g[h5key]
+                    g[h5key] = value_updated
+
+        h5file = h5py.File(filename, 'w')
+        initial_properties = ['xyz_coordinates', 'atomic_numbers', 'id']
+        properties = list(set(properties)|set(initial_properties))
+        for mol in self.molecules:
+            na = len(mol.atoms)
+            for prop in properties:
+                prop_value = mol.get_property(prop)
+                if type(prop_value) == list:
+                    prop_value = np.array(prop_value)
+                elif type(prop_value) == str:
+                    prop_value = np.array([prop_value.encode()])
+                elif type(prop_value) == np.ndarray:
+                    pass
+                else:
+                    prop_value = np.array([prop_value])
+
+                update_h5file(h5file, str(na), prop, prop_value)
+        h5file.close() 
 
 
     @classmethod
@@ -1885,6 +1968,114 @@ class molecular_database:
         viewer.zoomTo()
         viewer.animate({'loop': 'forward'})
         viewer.show()
+
+    def groupby(self, property_name):
+        '''
+        group molecular database according to the values of the property
+        '''
+        property_values = self.get_properties(property_name)
+        unique_property_values = np.unique(property_values)
+        groups = []
+        for vv in unique_property_values:
+            _ids = np.argwhere(property_values==vv).reshape((-1,))
+            groups.append(self[_ids])
+        return groups
+
+class reaction_step():
+    def __init__(self, **kwargs):
+        if 'coefficients' in kwargs:
+            self.coefficients = kwargs['coefficients']
+        else:
+            self.coefficients = []
+
+        if 'molecules' in kwargs:
+            self.molecules = kwargs['molecules']
+        else:
+            self.molecules = []
+
+        if 'chemical_label' in kwargs:
+            self.chemical_label = kwargs['chemical_label']
+        else:
+            self.chemical_label = ''
+
+    def get_chemical_label(self, **kwargs):
+        if 'chemical_label' in self.molecules[0].__dict__.keys():
+            for imol in range(0,len(self.molecules)):
+                self.chemical_label = self.chemical_label + " + " + f'{int(self.coefficients[imol])}*{self.molecules[imol].chemical_label}'
+        else:
+            print('no chemical label for molecules')
+
+
+    def copy(self, **kwargs):
+        molecule_list = []
+        for mol in self.molecules:
+            mol_new = mol.copy()
+            molecule_list.append(mol_new) 
+        reaction_copy = reaction_step(molecules=molecule_list)
+        if self.chemical_label != '':
+            reaction_copy.chemical_label = self.chemical_label
+        if self.coefficients != []:
+            reaction_copy.coefficients = self.coefficients
+        if 'properties' in kwargs.keys():
+            for prop in kwargs['properties']:
+                if prop in self.__dict__:
+                    reaction_copy.__dict__[prop] = self.__dict__[prop]
+        return reaction_copy 
+
+            
+    def absolute_energy(self, **kwargs) -> float:
+        if 'method' in kwargs:
+            self.method = kwargs['method']
+        else:
+            self.method = 'energy'
+        self.energy = 0.0
+        for ii in range(len(self.molecules)):
+            self.energy += self.coefficients[ii] * \
+                self.molecules[ii].__dict__[self.method]
+        return self.energy
+
+
+class reaction():
+    def __init__(self, **kwargs):
+        if 'steps' in kwargs:
+            self.steps = kwargs['steps']
+        else:
+            self.steps = []
+
+    def calculate_relative_energies(self, **kwargs):
+        if 'reference_step' in kwargs:
+            self.reference_step = kwargs['reference_step']
+        else:
+            self.reference_step = 0
+        if 'method' in kwargs:
+            self.method = kwargs['method']
+        else:
+            self.method = 'energy'
+        reference_absolute_energy = self.steps[self.reference_step].absolute_energy(
+            method=self.method)
+        for step in self.steps:
+            step.relative_energy = step.absolute_energy(
+                method=self.method) - reference_absolute_energy
+
+
+class reactions_database():
+    def __init__(self):
+        self.reactions = []  # list of reaction class instances
+
+    def dump(self, filename=None, format='json'):
+        if format.casefold() == 'json'.casefold():
+            jsonfile = open(filename, 'w')
+            json.dump(class_instance_to_dict(self), jsonfile, indent=4)
+            jsonfile.close()
+        
+    def load(self, filename=None, format='json'):
+        if format.casefold() == 'json'.casefold():
+            jsonfile = open(filename, 'r')
+            reactionsdict = json.load(jsonfile)['reactions']
+            for reactiondict in reactionsdict:
+                newreaction = dict_to_reaction_step_class_instance(reactiondict)
+                self.reactions.append(newreaction)
+
 
 def class_instance_to_dict(inst):
     dd = copy.deepcopy(inst.__dict__)

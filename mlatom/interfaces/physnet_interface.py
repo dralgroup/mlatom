@@ -41,7 +41,7 @@ import random
 
 from .. import constants
 from .. import data
-from .. import models
+from ..model_cls import ml_model, tensorflow_model, hyperparameters, hyperparameter
 from .. import stopper
 from ..decorators import doc_inherit
 
@@ -59,7 +59,7 @@ def molDB2PhysNetData(molDB,
         dataset['E'] = molDB.get_properties(property_to_learn)
     return _DataContainer(dataset)
 
-class physnet(models.ml_model, models.tensorflow_model):
+class physnet(ml_model, tensorflow_model):
     '''
     Create an `PhysNet <https://doi.org/10.1021/acs.jctc.9b00181>`_ model object. 
     
@@ -67,45 +67,45 @@ class physnet(models.ml_model, models.tensorflow_model):
 
     Arguments:
         model_file (str, optional): The filename that the model to be saved with or loaded from.
-        hyperparameters (Dict[str, Any] | :class:`mlatom.models.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
+        hyperparameters (Dict[str, Any] | :class:`mlatom.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
         verbose (int, optional): 0 for silence, 1 for verbosity.
     '''
-    hyperparameters = models.hyperparameters({
-        'earlystopping':                models.hyperparameter(value=1, choices=[0, 1], optimization_space='choices', dtype=int),
-        'threshold':                    models.hyperparameter(value=0.0000, minval=-0.0001, maxval=0.0001, optimization_space='linear', dtype=float),
-        'patience':                     models.hyperparameter(value=60, minval=0, maxval=1, optimization_space='linear', dtype=int),
-        'restart':                      models.hyperparameter(value=0, choices=[0, 1], optimization_space='choices', dtype=int),
-        'num_features':                 models.hyperparameter(value=128, minval=1, maxval=256, optimization_space='linear', dtype=int),
-        'num_basis':                    models.hyperparameter(value=64, minval=1, maxval=256, optimization_space='linear', dtype=int),
-        'num_blocks':                   models.hyperparameter(value=5, minval=1, maxval=16, optimization_space='linear', dtype=int),
-        'num_residual_atomic':          models.hyperparameter(value=2, minval=1, maxval=16, optimization_space='linear', dtype=int),
-        'num_residual_interaction':     models.hyperparameter(value=3, minval=1, maxval=16, optimization_space='linear', dtype=int),
-        'num_residual_output':          models.hyperparameter(value=1, minval=1, maxval=4, optimization_space='linear', dtype=int),
-        'cutoff':                       models.hyperparameter(value=10.0, minval=1, maxval=16, optimization_space='linear', dtype=float),
-        'use_electrostatic':            models.hyperparameter(value=0, choices=[0, 1], optimization_space='choices', dtype=int),
-        'use_dispersion':               models.hyperparameter(value=0, choices=[0, 1], optimization_space='choices', dtype=int),
-        'grimme_s6':                    models.hyperparameter(value=0.5, minval=0, maxval=1, optimization_space='linear', dtype=float),
-        'grimme_s8':                    models.hyperparameter(value=0.2130, minval=0, maxval=1, optimization_space='linear', dtype=float),
-        'grimme_a1':                    models.hyperparameter(value=0.0, minval=0, maxval=1, optimization_space='linear', dtype=float),
-        'grimme_a2':                    models.hyperparameter(value=6.0519, minval=0, maxval=1, optimization_space='linear', dtype=float),
-        'seed':                         models.hyperparameter(value=42, minval=0, maxval=1, optimization_space='linear', dtype=int),
-        'max_steps':                    models.hyperparameter(value=1024, minval=0, maxval=1, optimization_space='linear', dtype=int),
-        'learning_rate':                models.hyperparameter(value=0.0008, minval=0.0001, maxval=0.01, optimization_space='linear', dtype=float),
-        'max_norm':                     models.hyperparameter(value=1000.0, minval=1, maxval=10000, optimization_space='linear', dtype=float),
-        'ema_decay':                    models.hyperparameter(value=0.999, minval=0, maxval=1, optimization_space='linear', dtype=float),
-        'keep_prob':                    models.hyperparameter(value=1.0, minval=0, maxval=1, optimization_space='linear', dtype=float),
-        'l2lambda':                     models.hyperparameter(value=0.0, minval=0, maxval=1, optimization_space='linear', dtype=float),
-        'nhlambda':                     models.hyperparameter(value=0.01, minval=0, maxval=1, optimization_space='linear', dtype=float),
-        'decay_steps':                  models.hyperparameter(value=10000000, minval=10, maxval=10000000, optimization_space='linear', dtype=int),
-        'decay_rate':                   models.hyperparameter(value=0.1, minval=0, maxval=1, optimization_space='linear', dtype=float),
-        'batch_size':                   models.hyperparameter(value=12, minval=0, maxval=1, optimization_space='linear', dtype=int),
-        'valid_batch_size':             models.hyperparameter(value=2, minval=0, maxval=1, optimization_space='linear', dtype=int),
-        'force_weight':                 models.hyperparameter(value=52.91772105638412, minval=0, maxval=100, optimization_space='linear', dtype=float),
-        'charge_weight':                models.hyperparameter(value=0, minval=0, maxval=1, optimization_space='linear', dtype=float),
-        'dipole_weight':                models.hyperparameter(value=0, minval=0, maxval=1, optimization_space='linear', dtype=float),
-        'summary_interval':             models.hyperparameter(value=0, minval=1, maxval=1000, optimization_space='linear', dtype=int),
-        'validation_interval':          models.hyperparameter(value=0, minval=1, maxval=1000, optimization_space='linear', dtype=int),
-        'save_interval':                models.hyperparameter(value=0, minval=1, maxval=1000, optimization_space='linear', dtype=int),
+    hyperparameters = hyperparameters({
+        'earlystopping':                hyperparameter(value=1, choices=[0, 1], optimization_space='choices', dtype=int),
+        'threshold':                    hyperparameter(value=0.0000, minval=-0.0001, maxval=0.0001, optimization_space='linear', dtype=float),
+        'patience':                     hyperparameter(value=60, minval=0, maxval=1, optimization_space='linear', dtype=int),
+        'restart':                      hyperparameter(value=0, choices=[0, 1], optimization_space='choices', dtype=int),
+        'num_features':                 hyperparameter(value=128, minval=1, maxval=256, optimization_space='linear', dtype=int),
+        'num_basis':                    hyperparameter(value=64, minval=1, maxval=256, optimization_space='linear', dtype=int),
+        'num_blocks':                   hyperparameter(value=5, minval=1, maxval=16, optimization_space='linear', dtype=int),
+        'num_residual_atomic':          hyperparameter(value=2, minval=1, maxval=16, optimization_space='linear', dtype=int),
+        'num_residual_interaction':     hyperparameter(value=3, minval=1, maxval=16, optimization_space='linear', dtype=int),
+        'num_residual_output':          hyperparameter(value=1, minval=1, maxval=4, optimization_space='linear', dtype=int),
+        'cutoff':                       hyperparameter(value=10.0, minval=1, maxval=16, optimization_space='linear', dtype=float),
+        'use_electrostatic':            hyperparameter(value=0, choices=[0, 1], optimization_space='choices', dtype=int),
+        'use_dispersion':               hyperparameter(value=0, choices=[0, 1], optimization_space='choices', dtype=int),
+        'grimme_s6':                    hyperparameter(value=0.5, minval=0, maxval=1, optimization_space='linear', dtype=float),
+        'grimme_s8':                    hyperparameter(value=0.2130, minval=0, maxval=1, optimization_space='linear', dtype=float),
+        'grimme_a1':                    hyperparameter(value=0.0, minval=0, maxval=1, optimization_space='linear', dtype=float),
+        'grimme_a2':                    hyperparameter(value=6.0519, minval=0, maxval=1, optimization_space='linear', dtype=float),
+        'seed':                         hyperparameter(value=42, minval=0, maxval=1, optimization_space='linear', dtype=int),
+        'max_steps':                    hyperparameter(value=1024, minval=0, maxval=1, optimization_space='linear', dtype=int),
+        'learning_rate':                hyperparameter(value=0.0008, minval=0.0001, maxval=0.01, optimization_space='linear', dtype=float),
+        'max_norm':                     hyperparameter(value=1000.0, minval=1, maxval=10000, optimization_space='linear', dtype=float),
+        'ema_decay':                    hyperparameter(value=0.999, minval=0, maxval=1, optimization_space='linear', dtype=float),
+        'keep_prob':                    hyperparameter(value=1.0, minval=0, maxval=1, optimization_space='linear', dtype=float),
+        'l2lambda':                     hyperparameter(value=0.0, minval=0, maxval=1, optimization_space='linear', dtype=float),
+        'nhlambda':                     hyperparameter(value=0.01, minval=0, maxval=1, optimization_space='linear', dtype=float),
+        'decay_steps':                  hyperparameter(value=10000000, minval=10, maxval=10000000, optimization_space='linear', dtype=int),
+        'decay_rate':                   hyperparameter(value=0.1, minval=0, maxval=1, optimization_space='linear', dtype=float),
+        'batch_size':                   hyperparameter(value=12, minval=0, maxval=1, optimization_space='linear', dtype=int),
+        'valid_batch_size':             hyperparameter(value=2, minval=0, maxval=1, optimization_space='linear', dtype=int),
+        'force_weight':                 hyperparameter(value=52.91772105638412, minval=0, maxval=100, optimization_space='linear', dtype=float),
+        'charge_weight':                hyperparameter(value=0, minval=0, maxval=1, optimization_space='linear', dtype=float),
+        'dipole_weight':                hyperparameter(value=0, minval=0, maxval=1, optimization_space='linear', dtype=float),
+        'summary_interval':             hyperparameter(value=0, minval=1, maxval=1000, optimization_space='linear', dtype=int),
+        'validation_interval':          hyperparameter(value=0, minval=1, maxval=1000, optimization_space='linear', dtype=int),
+        'save_interval':                hyperparameter(value=0, minval=1, maxval=1000, optimization_space='linear', dtype=int),
     })
 
     property_name = 'y'
@@ -224,7 +224,7 @@ class physnet(models.ml_model, models.tensorflow_model):
         property_to_learn: str = 'energy',
         xyz_derivative_property_to_learn: str = None,
         validation_molecular_database: Union[data.molecular_database, str, None] = 'sample_from_molecular_database',
-        hyperparameters: Union[Dict[str,Any], models.hyperparameters] = {},
+        hyperparameters: Union[Dict[str,Any], hyperparameters] = {},
         spliting_ratio=0.8,
         save_model=True,
         log=True,

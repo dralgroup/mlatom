@@ -12,10 +12,11 @@ import os
 import numpy as np
 import math
 import tempfile, subprocess
-from .. import constants, models
+from .. import constants
+from ..model_cls import model, method_model
 from ..decorators import doc_inherit
 
-class orca_methods(models.model, metaclass=models.meta_method):
+class orca_methods(method_model):
     '''
     ORCA interface
 
@@ -38,11 +39,12 @@ class orca_methods(models.model, metaclass=models.meta_method):
     
     '''
     
+    bin_env_name = 'orcabin'
+    
     def __init__(self, method='wb97x/6-31G*', **kwargs):
-        if not "orcabin" in os.environ:
-            raise ValueError('enviromental variable orcabin is not set')
-        else:
-            self.orcabin = os.environ['orcabin']
+        self.orcabin = self.get_bin_env_var()
+        if self.orcabin is None:
+            raise ValueError('Cannot find the Orca program, please set the environment variable: export orcabin=...')
         
         self.method = method
         self.orca_successful = True
@@ -53,6 +55,10 @@ class orca_methods(models.model, metaclass=models.meta_method):
             self.nthreads = kwargs['nthreads']
         else:
             self.nthreads = 1 
+        if 'maxcore' in kwargs:
+            self.maxcore = kwargs['maxcore']
+        else:
+            self.maxcore = 1000
         
         if 'additional_keywords' in kwargs:
             self.additional_keywords = kwargs['additional_keywords']
@@ -112,7 +118,11 @@ class orca_methods(models.model, metaclass=models.meta_method):
                     proc = subprocess.Popen(' '.join(orcaargs), stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=tmpdirname, universal_newlines=True, shell=True)
                     proc.communicate()
                     # read output
-                    self.parse_orca_output(molecule=imolecule)
+                    try:
+                        self.parse_orca_output(molecule=imolecule)
+                    except:
+                        self.error_handle()
+                        
 
     def parse_orca_output(self, molecule):
         natom = len(molecule.atoms)
@@ -193,7 +203,7 @@ class orca_methods(models.model, metaclass=models.meta_method):
                 forca.writelines(f'! {calculation_type}\n')
             
             forca.writelines(f'%pal nprocs {self.nthreads} end\n')
-            forca.writelines(f'%maxcore 1000\n')
+            forca.writelines(f'%maxcore {self.maxcore}\n')
             #structure
             forca.writelines(f'* xyz {molecule.charge} {molecule.multiplicity}\n')
             for atom in molecule.atoms:
@@ -205,7 +215,23 @@ class orca_methods(models.model, metaclass=models.meta_method):
                 forca.writelines(line)
             forca.writelines('*')
 
-class ccsdtstarcbs(models.model):
+    def error_handle(self):
+        output_file = f'{self.inpfile}.out'
+        error = open(output_file,'r').read()
+        error = error.split('\n')
+        msg = ''
+        for ii, ll in enumerate(error):
+            if 'error termination' in ll: # most types of termination error
+                msg = ll 
+                break
+            elif 'INPUT ERROR' in ll: # input error
+                for jj in range(ii, len(error)):
+                    if '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!' in error[jj]:
+                        break
+                    msg += error[jj]+'\n'
+        raise ValueError(f'\n{msg}\nPlease check the end of orca output file {output_file} for more details.') from None
+
+class ccsdtstarcbs(model):
 
     def __init__(self, **kwargs):
 

@@ -11,10 +11,11 @@
 import os
 import numpy as np
 from requests.structures import CaseInsensitiveDict
-from .. import stopper, simulations, models
+from .. import constants
+from ..model_cls import method_model
 from ..decorators import doc_inherit
 
-class mndo_methods(models.model, metaclass=models.meta_method):
+class mndo_methods(method_model):
     '''
     MNDO interface
 
@@ -24,6 +25,7 @@ class mndo_methods(models.model, metaclass=models.meta_method):
         save_files_in_current_directory (bool): whether to keep input and output files, default ``'True'``
         working_directory (str): path to the directory where the program output files and other tempory files are saved, default ``'None'``
     '''
+    bin_env_name = 'mndobin'
     method_keywords = {'ODM2*': 'iop=-22 immdp=-1',
                     'ODM2': 'iop=-22',
                     'ODM3': 'iop=-23',
@@ -42,23 +44,22 @@ class mndo_methods(models.model, metaclass=models.meta_method):
                     'MNDO/H': 'iop=-3',
                     'MNDO/dH': 'iop=-13'
                     }
-
+    supported_methods = list(method_keywords.keys())
     heats_scf_methods = [mm.casefold() for mm in ['OM1', 'OM2', 'OM3',
                         'PM3', 'AM1', 'MNDO/d', 'MNDOC', 'MNDO',
                         'MINDO/3', 'CNDO/2', 'SCC-DFTB', 'SCC-DFTB-heats',
                         'MNDO/H', 'MNDO/dH']]
     
-    def __init__(self, method='ODM2*', read_keywords_from_file='', save_files_in_current_directory=True, working_directory=None, **kwargs):
+    def __init__(self, method='ODM2*', read_keywords_from_file='', save_files_in_current_directory=True, working_directory=None):
         self.method = method
         self.read_keywords_from_file = read_keywords_from_file
         if self.read_keywords_from_file != '':
             self.read_keywords_from_file = os.path.abspath(read_keywords_from_file)
         self.save_files_in_current_directory = save_files_in_current_directory
         self.working_directory = working_directory
-        try: self.mndobin = os.environ['mndobin']
-        except:
-            errmsg = 'Cannot find the MNDO program, please set the environment variable: export mndobin=...'
-            raise ValueError(errmsg)
+        self.mndobin = self.get_bin_env_var()
+        if self.mndobin is None:
+            raise ValueError('Cannot find the MNDO program, please set the environment variable: export mndobin=...')
 
     @doc_inherit
     def predict(self, 
@@ -74,10 +75,6 @@ class mndo_methods(models.model, metaclass=models.meta_method):
                 read_density_matrix=False):
         
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
-        
-        try: from .. import constants, data, stopper
-        except:
-            import constants, data, stopper
             
         if self.method.casefold() in self.heats_scf_methods:
             energy_label = 'energy'
@@ -98,7 +95,6 @@ class mndo_methods(models.model, metaclass=models.meta_method):
             else:
                 calculate_hessian = [False] * nstates
 
-        #if calculate_hessian: import struct
         if any(calculate_hessian):
             import struct
 
@@ -132,10 +128,8 @@ class mndo_methods(models.model, metaclass=models.meta_method):
                     if 'mndo_keywords' in mol.__dict__.keys(): 
                         fmndo.writelines(mol.mndo_keywords + '\n\n\n')
                     else:
-                        #if calculate_hessian:
                         if any(calculate_hessian):
                             fmndo.writelines('jop=2 +\n')
-                        #elif calculate_energy_gradients:
                         elif any(calculate_energy_gradients):
                             fmndo.writelines('jop=-2 +\n')
                         else:
@@ -191,7 +185,6 @@ class mndo_methods(models.model, metaclass=models.meta_method):
                 cmd = ' '.join(mndoargs)
                 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=tmpdirname, universal_newlines=True, shell=True)
                 proc.communicate()
-                # proc.wait()
                 mndo_scf_successful = True
                 outputs = []
                 with open(mndooutfilename, 'r') as fout:
@@ -386,10 +379,10 @@ class mndo_methods(models.model, metaclass=models.meta_method):
                                 fhess = open(f'{tmpdirname}/fort.4', 'rb')
                             else:
                                 print(f"File '{hess_file}' does not exist.")
-                            data = fhess.read()
+                            hessdata = fhess.read()
                             dt = f'id{lhess}d'
                             dat_size = struct.calcsize(dt)
-                            temp = struct.unpack(dt, data[:dat_size])
+                            temp = struct.unpack(dt, hessdata[:dat_size])
                             hess = np.array(temp[2:]).astype(float) / (constants.Bohr2Angstrom**2)
                             mol.hessian = hess.reshape(natoms*3,natoms*3)
                     elif nstates > 1:

@@ -112,12 +112,17 @@ class optimize_geometry():
 
     """
 
-    def __init__(self, model=None,  model_predict_kwargs={}, initial_molecule=None, molecule=None, ts=False, program=None, optimization_algorithm=None, maximum_number_of_steps=None, convergence_criterion_for_forces=None,working_directory=None, 
+    def __init__(self,
+                 model=None,  model_predict_kwargs={},
+                 initial_molecule=None, molecule=None,
+                 ts=False, reactants=None, products=None,
+                 program=None, program_kwargs={},
+                 optimization_algorithm=None, maximum_number_of_steps=None, convergence_criterion_for_forces=None,working_directory=None, 
     print_properties=None,
     dump_trajectory_interval=None, # Only None and 1 are supported at the moment
-    filename=None, format='json',   
-    **kwargs): # Delete the kwargs!
-        self.kwargs = kwargs
+    filename=None, format='json',
+    constraints=None,
+    ):
         if model != None:
             self.model = model
         self.print_properties = print_properties
@@ -131,8 +136,12 @@ class optimize_geometry():
         if not molecule is None:
             overwrite = True
             self.initial_molecule = molecule.copy()
+        if initial_molecule is None and molecule is None:
+            self.initial_molecule = None
         
         self.ts = ts
+        self.reactants = reactants
+        self.products = products
         if program != None:
             self.program = program
         else:
@@ -150,7 +159,13 @@ class optimize_geometry():
                         self.program = 'scipy'
                     except: raise ValueError('please set $GAUSS_EXEDIR or install geometric or install scipy')
         
+        self.program_kwargs = program_kwargs
         self.optimization_algorithm = optimization_algorithm
+        if self.optimization_algorithm is not None:
+            if self.optimization_algorithm.casefold() in ['dimer', 'neb']:
+                self.program='ase'
+            elif self.optimization_algorithm.casefold() in ['qst2', 'qst3']:
+                self.program='gaussian'
         
         # START of block with parameters which are not used in scipy & Gaussian but only in ASE optimization
         if maximum_number_of_steps != None: self.maximum_number_of_steps = maximum_number_of_steps
@@ -159,6 +174,9 @@ class optimize_geometry():
         if convergence_criterion_for_forces != None: self.convergence_criterion_for_forces = convergence_criterion_for_forces
         else: self.convergence_criterion_for_forces = 0.02 # Forces convergence criterion in ASE: 0.02 eV/A
         # END   of block with parameters which are not used in scipy & Gaussian but only in ASE optimization
+
+        if constraints is not None:
+            self.program_kwargs['constraints'] = constraints
 
         if working_directory != None:
             self.working_directory = working_directory
@@ -187,6 +205,12 @@ class optimize_geometry():
             msg = 'Transition state geometry optmization can currently only be done with optimization_program=Gaussian, ASE or geometric'
             raise ValueError(msg)
         
+        # Add essential kwargs to the model kwargs if they are not present:
+        if 'calculate_energy' not in model_predict_kwargs.keys():
+            model_predict_kwargs['calculate_energy'] = True
+        if 'calculate_energy_gradients' not in model_predict_kwargs.keys():
+            model_predict_kwargs['calculate_energy_gradients'] = True
+            
         # Pack the required geomopt-related kwargs into the model kwargs
         self.model_predict_kwargs['return_string'] = False
         self.model_predict_kwargs['dump_trajectory_interval'] = self.dump_trajectory_interval
@@ -209,21 +233,39 @@ class optimize_geometry():
     def opt_geom_gaussian(self):
         self.successful = False
         from .interfaces import gaussian_interface
-        if 'number' in self.initial_molecule.__dict__.keys(): suffix = f'{self.initial_molecule.number}'
-        else: suffix = ''
+        if self.initial_molecule is None:
+            suffix = ''
+        elif 'number' in self.initial_molecule.__dict__.keys():
+            suffix = f'{self.initial_molecule.number}'
+        else:
+            suffix = ''
         #print('debug', suffix, self.initial_molecule.number)
         filename = os.path.join(self.working_directory,f'gaussian{suffix}')
         self.model.dump(filename=os.path.join(self.working_directory,'model.json'), format='json')
         
         # Run Gaussian
-        external_task='opt'
-        if self.ts: external_task = 'ts'
         if self.print_properties is not None:
             print(f' Optimization with Gaussian started.\n Check Gaussian output file "gaussian{suffix}.log" for the progress of optimization.\n')
             filename_json = self.model_predict_kwargs['filename']
             if os.path.exists(f'{filename_json}_tmp_out.out'): os.remove(f'{filename_json}_tmp_out.out')
             self.model_predict_kwargs['return_string'] = True
-        gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.initial_molecule, external_task=external_task, cwd=self.working_directory, model_predict_kwargs=self.model_predict_kwargs)
+        if self.ts:
+            self.program_kwargs['external_task'] = 'ts'
+        else:
+            self.program_kwargs['external_task'] = 'opt'
+        self.program_kwargs['filename'] = f'gaussian{suffix}.com'
+        if self.optimization_algorithm is not None:
+            if self.optimization_algorithm.casefold() in ['qst2', 'qst3']:
+                self.program_kwargs['external_task'] = self.optimization_algorithm
+                self.program_kwargs['reactants'] = self.reactants
+                self.program_kwargs['products'] = self.products
+            if not self.optimization_algorithm.casefold() == 'qst2':
+                self.program_kwargs['molecule'] = self.initial_molecule
+        else:
+            self.program_kwargs['molecule'] = self.initial_molecule
+        self.program_kwargs['working_directory'] = self.working_directory
+        self.program_kwargs['model_predict_kwargs'] = self.model_predict_kwargs
+        gaussian_interface.run_gaussian_job(**self.program_kwargs)
         # Get results
         outputfile = f'{filename}.log'
         if not os.path.exists(outputfile): outputfile = f'{filename}.out'
@@ -251,12 +293,13 @@ class optimize_geometry():
 
         if self.ts:
             self.optimization_trajectory = ase_interface.transition_state(initial_molecule=self.initial_molecule,
+                                            reactants=self.reactants, products=self.products,
                                             model=self.model,
                                             model_predict_kwargs=self.model_predict_kwargs,
                                             convergence_criterion_for_forces=self.convergence_criterion_for_forces,
                                             maximum_number_of_steps=self.maximum_number_of_steps,
                                             optimization_algorithm=self.optimization_algorithm,
-                                            **self.kwargs
+                                            ase_kwargs = self.program_kwargs
                                             )
         else:
             self.optimization_trajectory = ase_interface.optimize_geometry(initial_molecule=self.initial_molecule,
@@ -265,7 +308,7 @@ class optimize_geometry():
                                             convergence_criterion_for_forces=self.convergence_criterion_for_forces,
                                             maximum_number_of_steps=self.maximum_number_of_steps,
                                             optimization_algorithm=self.optimization_algorithm,
-                                            **self.kwargs)
+                                            ase_kwargs = self.program_kwargs)
         #self.optimization_trajectory.dump(filename=os.path.join(self.working_directory,self.filename), format=self.format)
         moldb = data.molecular_database()
         moldb.molecules = [each.molecule for each in self.optimization_trajectory.steps]
@@ -284,7 +327,7 @@ class optimize_geometry():
             istep += 1
             current_molecule = self.initial_molecule.copy()
             current_molecule.xyz_coordinates = coordinates.reshape(len(current_molecule.atoms),3)
-            self.model._predict_geomopt(molecule=current_molecule, calculate_energy=True, calculate_energy_gradients=True, **self.model_predict_kwargs)
+            self.model._predict_geomopt(molecule=current_molecule, **self.model_predict_kwargs)
             if not 'energy' in current_molecule.__dict__:
                 raise ValueError('model did not return any energy')
             molecular_energy = current_molecule.energy
@@ -306,24 +349,6 @@ class optimize_geometry():
         import geometric
         import geometric.molecule
 
-        if 'constraints' in self.kwargs:
-            constraints = self.kwargs['constraints']
-        else:
-            constraints = None 
-
-        convergence_criterion = {}
-
-        if 'convergence_energy' in self.kwargs:
-            convergence_criterion['convergence_energy'] = self.kwargs['convergence_energy']        # default 1e-6 Eh
-        if 'convergence_gradient_rms' in self.kwargs:
-            convergence_criterion['convergence_grms'] = self.kwargs['convergence_gradient_rms']    # default 3e-4 Eh/Bohr
-        if 'convergence_gradient_max' in self.kwargs:
-            convergence_criterion['convergence_gmax'] = self.kwargs['convergence_gradient_max']    # default 4.5e-4 Eh/Bohr
-        if 'convergence_step_rms' in self.kwargs:
-            convergence_criterion['convergence_drms'] = self.kwargs['convergence_step_rms']        # default 1.2e-3 Angstrom
-        if 'convergence_step_max' in self.kwargs:
-            convergence_criterion['convergence_dmax'] = self.kwargs['convergence_step_max']        # default 1.8e-3 Angstrom
-
         maximum_number_of_steps = self.maximum_number_of_steps
         model_predict_kwargs = self.model_predict_kwargs
         class MLatomEngine(geometric.engine.Engine):
@@ -340,9 +365,10 @@ class optimize_geometry():
                 self.maxsteps = maximum_number_of_steps
 
             def calc_new(self, coords, dirname):
-                mol = self.mol
-                mol.xyz_coordinates = coords.reshape(-1,3)*constants.Bohr2Angstrom
-                self.model._predict_geomopt(molecule=mol, calculate_energy=True, calculate_energy_gradients=True, **model_predict_kwargs)
+                mol = self.mol.copy(atomic_labels=[],molecular_labels=[])
+                updated_coord = coords.reshape(-1,3)*constants.Bohr2Angstrom
+                mol.update_xyz_vectorial_properties('xyz_coordinates', updated_coord)
+                self.model._predict_geomopt(molecule=mol, **model_predict_kwargs)
                 energy = mol.energy
                 gradients = mol.get_energy_gradients()/constants.Angstrom2Bohr
                 self.cycle += 1
@@ -374,7 +400,7 @@ class optimize_geometry():
 
             mlatom_engine = MLatomEngine(self.initial_molecule, self.model)
             try:
-                geometric.optimize.run_optimizer(customengine=mlatom_engine, input=tmpdirname, constraints=constraints, transition=self.ts, maxiter=self.maximum_number_of_steps, **convergence_criterion)
+                geometric.optimize.run_optimizer(customengine=mlatom_engine, input=tmpdirname, transition=self.ts, maxiter=self.maximum_number_of_steps, **self.program_kwargs)
                 self.successful = True
                 self.converge = True
             except Exception as ex:
@@ -446,8 +472,7 @@ class freq():
 
     """
     def __init__(self, model=None, model_predict_kwargs={}, molecule=None, program=None, ir=False, raman=False, normal_mode_normalization='mass deweighted normalized', anharmonic=False, anharmonic_kwargs={}, working_directory=None):
-        if model != None:
-            self.model = model
+        self.model = model
         self.model_predict_kwargs = model_predict_kwargs
         self.molecule = molecule
         self.ir = ir
@@ -505,14 +530,13 @@ class freq():
         else: suffix = ''
         filename = os.path.join(self.working_directory,f'gaussian{suffix}')
         self.model.dump(filename=os.path.join(self.working_directory,'model.json'), format='json')
-        self.optimization_trajectory = data.molecular_trajectory()
         self.molecule.dump(filename=os.path.join(self.working_directory,'gaussian_freq_mol.json'), format='json')
         
         # Run Gaussian
         if anharmonic:
-            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq(anharmonic)',cwd=self.working_directory,**self.anharmonic_kwargs, model_predict_kwargs=self.model_predict_kwargs)
+            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq(anharmonic)',working_directory=self.working_directory,freq_keywords=self.anharmonic_kwargs, model_predict_kwargs=self.model_predict_kwargs)
         else:
-            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq',cwd=self.working_directory, model_predict_kwargs=self.model_predict_kwargs)
+            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq',working_directory=self.working_directory, model_predict_kwargs=self.model_predict_kwargs)
         
         # Get results
         outputfile = f'{filename}.log'
@@ -524,7 +548,8 @@ class freq():
 
     def freq_pyscf(self):
         self.successful = False
-        self.model.predict(molecule=self.molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=True, **self.model_predict_kwargs)
+        if self.model is not None:
+            self.model.predict(molecule=self.molecule, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=True, **self.model_predict_kwargs)
         from .interfaces import pyscf_interface
         self.successful = pyscf_interface.thermo_calculation(molecule=self.molecule)
 
@@ -947,10 +972,16 @@ def numerical_gradients(molecule, model, displacement=1e-5, model_kwargs={}, ret
     if nthreads == 1:
         energies = np.array([get_energy(each) for each in coordinates_list])
     else:
-        from multiprocessing.pool import ThreadPool as Pool
+        import joblib
+        from joblib import Parallel, delayed
+        nthreads_saved = model.nthreads
         model.set_num_threads(1)
-        pool = Pool(processes=nthreads)
-        energies = np.array(pool.map(get_energy, coordinates_list))
+        energies = Parallel(n_jobs=nthreads)(delayed(get_energy)(coord) for coord in coordinates_list)
+        try:
+            energies = np.array(energies)
+        except:
+            raise ValueError('Some of the single-point calculations in numerical gradient calculations failed.')
+        model.set_num_threads(nthreads_saved)
     relenergy = energies[-1]
     gradients = (energies[:-1]-relenergy)/displacement
     molecule.energy_gradients = gradients.reshape(natoms,3)

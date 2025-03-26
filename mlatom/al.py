@@ -452,7 +452,7 @@ class al():
             self.label_points_moldb(method=self.reference_method,model_predict_kwargs=self.model_predict_kwargs,moldb=init_cond_db,nthreads=self.label_nthreads)
             fail_count = 0
             for init_mol in init_cond_db:
-                if (not 'failed' in init_mol.__dict__ and 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__) or not init_mol.failed:
+                if (not 'failed' in init_mol.__dict__ and 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__) or ('failed' in init_mol.__dict__ and not init_mol.failed):
                 # if 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__:
                     self.init_cond_db += init_mol
                 else:
@@ -568,7 +568,7 @@ class al():
         fail_count = 0
         init_cond_db.dump('debug.json',format='json')
         for init_mol in init_cond_db:
-            if (not 'failed' in init_mol.__dict__ and 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__) or not init_mol.failed:
+            if (not 'failed' in init_mol.__dict__ and 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__) or ('failed' in init_mol.__dict__ and not init_mol.failed):
             #if not 'failed' in init_mol.__dict__ or not init_mol.failed:
             # if 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__:
                 self.init_cond_db += init_mol
@@ -594,7 +594,7 @@ class al():
         if nmols > 0:
             self.label_points_moldb(method=self.reference_method,model_predict_kwargs=self.model_predict_kwargs,moldb=self.molecular_pool_to_label,nthreads=self.label_nthreads)
             for mol in self.molecular_pool_to_label:
-                if (not 'failed' in mol.__dict__ and 'energy' in mol.__dict__ and 'energy_gradients' in mol.atoms[0].__dict__) or not mol.failed:
+                if (not 'failed' in mol.__dict__ and 'energy' in mol.__dict__ and 'energy_gradients' in mol.atoms[0].__dict__) or ('failed' in mol.__dict__ and not mol.failed):
                 #if not 'failed' in mol.__dict__ or not mol.failed:
                 # if 'energy' in mol.__dict__ and 'energy_gradients' in mol.atoms[0].__dict__:
                     self.labeled_database.molecules.append(mol)

@@ -15,7 +15,7 @@ from copy import copy
 import re
 from . import stopper
 from .doc import Doc
-from .models import methods
+from . import models
 
 default_MLprog={
     'kreg': 'mlatomf',
@@ -441,7 +441,7 @@ class mlatom_args(ArgsBase):
         #     'AIQM1', 'AIQM1DFT', 'AIQM1DFTstar',
         #     'ani1x', 'ani2x', 'ani1ccx', 'ani1xd4', 'ani2xd4', 
         # ]
-        self._method_list = list(methods.known_methods())
+        self._method_list = list(models.known_methods())
         # task aliases
         self.set_keyword_alias('crossSection', ['ML-NEA', 'ML_NEA', 'crossSection', 'cross-section', 'cross_section','MLNEA'])
         # self.set_keyword_alias('AIQM1DFTstar', ['AIQM1@DFT*'])
@@ -627,7 +627,15 @@ class mlatom_args(ArgsBase):
                 'dumpopttrajs'             # whether to dump optimization trajectory
             ], ''
         )
-    
+        # uaiqm control
+        self.add_default_dict_args(
+            [
+                'uaiqm',                   # request automatic selection of UAIQM methods
+                'time_budget',             # time budget used for UAIQM methods
+                'ncpus',                   # number of CPUs used for UAIQM methods
+                'uversion',                # version of UAIQM methods
+            ], ''
+        )
         self.defualt_args2pass = self.args_string_list(['', None])
 
     @property
@@ -707,6 +715,9 @@ class mlatom_args(ArgsBase):
                     for task in tasks:
                         self.data[task] = False
                     print(f' multiple tasks detected in the input. the first one ({self._task}) will be used')
+        if self.uaiqm:
+            if not self._task:
+                self._task = 'useMLmodel'
         if self.method:
             if self.method in self._method_list:
                 self.data[self.method] = True
@@ -718,11 +729,6 @@ class mlatom_args(ArgsBase):
             for key in self.data.keys():
                 if '/' in key and key not in self._method_list:
                     self.method = key
-        if self.method:
-            if 'AIQM' in self.method.upper() and not self.QMprog:
-                self.QMprog = None
-            else:
-                self.QMprog = methods._get_program(self.method, self.QMprog)
         if not self._task:
             if not self.method:
                 Doc.printDoc({})

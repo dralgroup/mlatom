@@ -13,11 +13,11 @@ import numpy as np
 import sys
 import os 
 from .. import data, constants
-from .. import models
+from ..model_cls import method_model
 from .. import stopper
 from ..decorators import doc_inherit
 
-class dftd3_methods(models.model, metaclass=models.meta_method):
+class dftd3_methods(method_model):
     '''
     DFT-D3 interface
 
@@ -29,7 +29,7 @@ class dftd3_methods(models.model, metaclass=models.meta_method):
             - "d3bjm": Modified damping parameters for the rational damping function
             - "d3zerom": Modified version of the zero damping function
             - "d3op": Optimized power damping function
-        dumping_function_params (list, optional): custom damping parameters in correct order. 
+        damping_function_params (list, optional): custom damping parameters in correct order. 
             - 'd3bj': [s6, s8, a1, a2]
             - 'd3zero': [s6, s8, rs6]
             - 'd3bjm': [s6, s8, a1, a2]
@@ -42,25 +42,25 @@ class dftd3_methods(models.model, metaclass=models.meta_method):
 
     '''
 
-    available_methods = ['d3zero', 'd3bj', 'd3bjm', 'd3zerom', 'd3op']
+    bin_env_name = 'dftd3bin'
+    supported_methods = ['d3zero', 'd3bj', 'd3bjm', 'd3zerom', 'd3op']
 
-    def __init__(self, functional='wb97x', method='d3bj', dumping_function_params=None, save_files_in_current_directory=True, working_directory=None):
+    def __init__(self, functional='wb97x', method='d3bj', damping_function_params=None, save_files_in_current_directory=True, working_directory=None):
         self.functional = functional
-        self.method = method
+        self.method = method.casefold()
         self.save_files_in_current_directory = save_files_in_current_directory
         self.working_directory = working_directory 
-        self.dumping_function_params = dumping_function_params
+        self.damping_function_params = damping_function_params
+        if self.damping_function_params:
+            self.damping_function_params = [str(ii) for ii in self.damping_function_params]
+        self.dftd3bin = self.get_bin_env_var()
+        if self.dftd3bin is None:
+            raise ValueError('Cannot find the dftd3 program, please set the environment variable: export dftd3bin=...')
 
     @doc_inherit
     def predict(self, molecular_database=None, molecule=None,
                 calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, nstates=1, **kwargs):
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
-
-        import os
-        try: dftd3bin = os.environ['dftd3bin']
-        except:
-            raise ValueError('Cannot find the dftd3bin program, please set the environment variable: export dftd3bin=...')
-        
         import tempfile, subprocess        
         ii = 0
         for mol in molDB.molecules:
@@ -75,10 +75,10 @@ class dftd3_methods(models.model, metaclass=models.meta_method):
                 xyzfilename = f'{tmpdirname}/predict{ii}.xyz'
                 mol.write_file_with_xyz_coordinates(filename = xyzfilename)
                 
-                dftd3args = [dftd3bin, f"--{self.method.replace('d3','')}", '%s' % self.functional, '--noedisp']
-                if self.dumping_function_params:
+                dftd3args = [self.dftd3bin, f"--{self.method.replace('d3','')}", '%s' % self.functional, '--noedisp']
+                if self.damping_function_params:
                     dftd3args += [f"--{self.method.replace('d3','')}-param"]
-                    dftd3args += self.dumping_function_params
+                    dftd3args += self.damping_function_params
                 if calculate_energy_gradients or calculate_hessian:
                     dftd3args += ['--json', 'dftd3.json', '--grad', 'grad.txt']
                 elif calculate_energy:

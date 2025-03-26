@@ -23,7 +23,7 @@ class CLItasks(object):
     def __init__(self, args):
         self.args = args
     def run(self):
-        if self.args.MLprog.lower() == 'mlatomf' and self.args.task in self.MLatomF_tasks and not self.args.method and not self.args.hyperparameter_optimization['hyperparameters']:
+        if self.args.MLprog.lower() == 'mlatomf' and self.args.task in self.MLatomF_tasks and not self.args.method and not self.args.hyperparameter_optimization['hyperparameters'] and not self.args.uaiqm:
             return run_with_mlatomF(self.args)
         else: 
             return globals()[self.args.task](self.args)
@@ -39,10 +39,12 @@ def run_with_mlatomF(args):
         post_delta_learning(args)
     return results
     
-# Functions for tasks bleow. Name with corresponding task name in args_class.mLatom_args._task_list
+# Functions for tasks below. Name with corresponding task name in args_class.mLatom_args._task_list
 def useMLmodel(args):
     if args.deltaLearn:
         pre_delta_learning(args)
+    if args.uaiqm:
+        get_uaiqm_args(args)
     model = loading_model(args)
     molecular_database = loading_data(args.XYZfile, args.Yfile, args.YgradXYZfile, charges=args.charges, multiplicities=args.multiplicities)
     t_predict = predicting(model=model, molecular_database=molecular_database, value=bool(args.YestFile), gradient=bool(args.YgradXYZestFile), hessian=bool(args.hessianEstFile), ismethod=args.method)
@@ -60,6 +62,13 @@ def useMLmodel(args):
                     printing_aiqm2_results(molecule=mol)
                 elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4 or args.ani1ccxgelu or args.ani1xgelu or args.ani1ccxgelud4 or args.ani1xgelud4:
                     printing_animethod_results(methodname=model.method, molecule=mol)
+        elif 'uaiqm' in args.method:
+            nmol = 0
+            for mol in molecular_database:
+                nmol += 1
+                print('\n\n Properties of molecule %d\n' % nmol)
+                uversion = None if not args.uversion else args.uversion
+                printing_uaiqm_results(molecule=mol, method=args.method, uversion=args.uversion)
         else:
             for imol in range(len(molecular_database.molecules)): print(' Energy of molecule %6d: %25.13f Hartree' % (imol+1, molecular_database.molecules[imol].energy))
         print('')
@@ -374,6 +383,8 @@ def tsfreq(args):
 
 def geomopt(args, return_moldb=False):
     from . import simulations
+    if args.uaiqm:
+        get_uaiqm_args(args)
     molDB = loading_data(XYZfile=args.XYZfile, charges=args.charges, multiplicities=args.multiplicities)
     model = loading_model(args)
     fname = args.optXYZ
@@ -420,6 +431,11 @@ def geomopt(args, return_moldb=False):
             print('\n\n Final properties of molecule %d\n' % (imol+1))
             printing_aiqm2_results(molecule=geomopt.optimized_molecule)
             print('\n')
+        elif args.method and 'uaiqm' in args.method:
+            print('\n\n Final properties of molecule %d\n' % (imol+1))
+            uversion = None if not args.uversion else args.uversion
+            printing_uaiqm_results(molecule=geomopt.optimized_molecule, method=args.method, uversion=uversion)
+            print('\n')
         elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4 or args.ani1ccxgelu or args.ani1xgelu or args.ani1ccxgelud4 or args.ani1xgelud4:
             print('\n\n Final properties of molecule %d\n' % (imol+1))
             printing_animethod_results(methodname=model.method, molecule=geomopt.optimized_molecule)
@@ -441,6 +457,8 @@ def freq(args, molDB=None):
     from . import simulations
     if molDB is None:
         molDB = loading_data(args.XYZfile, charges=args.charges, multiplicities=args.multiplicities)
+    if args.uaiqm:
+        get_uaiqm_args(args)
     model = loading_model(args)
     kwargs = {}
     if args.freqProg:       kwargs['program'] = args.freqProg
@@ -518,6 +536,9 @@ def freq(args, molDB=None):
                 #     scaling_factor = 0.962
                 
             if scaling:
+                mol_copy = mol.copy()
+                mol_copy.frequencies = np.array(mol_copy.frequencies) * scaling_factor
+                mol_copy.dump(f'scaled_freq_gaussian{mol.number}.log',format='gaussian')
                 print(' Scale frequencies linearly')
                 print(f' Scaling factor: {scaling_factor}')
                 print('   Mode     Frequencies     Reduced masses     Force Constants       IR intensities')
@@ -535,6 +556,10 @@ def freq(args, molDB=None):
             print('')
         if args.AIQM2 or args.AIQM2DFT:
             printing_aiqm2_results(molecule=mol)
+            print('')
+        elif args.method and 'uaiqm' in args.method:
+            uversion = None if not args.uversion else args.uversion
+            printing_uaiqm_results(molecule=mol, method=args.method, uversion=args.uversion)
             print('')
         elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4 or args.ani1ccxgelu or args.ani1xgelu or args.ani1ccxgelud4 or args.ani1xgelud4:
             printing_animethod_results(methodname=model.method, molecule=mol)
@@ -657,6 +682,10 @@ def loading_method(args):
             kwargs['qm_program'] = args.qmprog
         else:
             kwargs['program'] = args.qmprog 
+    if args.uversion:
+        kwargs['version'] = args.uversion
+    if 'uwarning' in args.args_dict:
+        kwargs['warning'] = args.uwarning
     method = models.methods(**kwargs)
     method.set_num_threads(args.nthreads)
     return method
@@ -1050,6 +1079,21 @@ def post_delta_learning(args):
                         strtmp += '%25.13f   ' % (ygradxyzb[imol][iatom][idim] + corr[imol][iatom][idim])
                     fyestt.writelines('%s\n' % strtmp)
 
+def get_uaiqm_args(args):
+    molecular_database = loading_data(args.XYZfile, args.Yfile, args.YgradXYZfile, charges=args.charges, multiplicities=args.multiplicities)
+    model = models.uaiqm(method='uaiqm_optimal')
+    if not args.ncpus:
+        args.ncpus = 8
+    if not args.time_budget:
+        args.time_budget = None
+    model.select_optimal(
+        molecule=molecular_database[0],
+        nCPUs=args.ncpus,
+        time_budget=args.time_budget
+    )
+    args.method = model.method
+    args.uversion = model.version  
+
 def printing_aiqm1_results(aiqm1=True, molecule=None):
     fmt = ' %-41s: %15.8f Hartree'
     # find aiqm1 keyword
@@ -1077,6 +1121,22 @@ def printing_aiqm2_results(molecule=None):
     print(fmt % ('NN contribution', molecule.__dict__[aiqm2method+'_nn'].energy))
     print(fmt % ('GFN2-xTB* contribution', molecule.gfn2xtbstar.energy), file=sys.stdout)
     print(fmt % ('D4 contribution', molecule.d4wb97x.energy))
+    print(fmt % ('Total energy', molecule.energy))
+
+def printing_uaiqm_results(molecule=None, method=None, uversion=None):
+    print(f' Selected UAIQM method: {method}')
+    if uversion:
+        print(f' Selected version: {uversion}\n')
+    else:
+        print(f' Selected version: latest\n')
+    fmt = ' %-41s: %15.8f Hartree'
+    print(fmt % ('Standard deviation of ML contribution', molecule.energy_standard_deviation), end='')
+    print(' %15.5f kcal/mol' % (molecule.energy_standard_deviation * constants.Hartree2kcalpermol))
+    if molecule.baseline_energy:
+        print(fmt % ('Baseline contribution', molecule.baseline_energy))
+    print(fmt % ('NN contribution', molecule.MLs_energy))
+    if molecule.dispersion_energy:
+        print(fmt % ('D4 contribution', molecule.dispersion_energy), file=sys.stdout)
     print(fmt % ('Total energy', molecule.energy))
     
 def printing_animethod_results(methodname=None, molecule=None):
