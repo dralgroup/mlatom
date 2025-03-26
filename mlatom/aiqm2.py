@@ -1,9 +1,8 @@
+import os
 from . import data, models, constants
-from multiprocessing import cpu_count
-from .interfaces.torchani_interface import ani
-import os 
+from .model_cls import method_model, model_tree_node
 
-class aiqm2(models.model, metaclass=models.meta_method):
+class aiqm2(method_model):
 
     """ 
     GFN2-xTB based artificial intelligence quantum-mechanical method 2 (AIQM2)
@@ -20,7 +19,7 @@ class aiqm2(models.model, metaclass=models.meta_method):
         mol = ml.data.molecule()
         mol.read_from_xyz_file(filename='ethanol.xyz')
         # Run AIQM2 calculation
-        aiqm2 = ml.models.methods(method='aiqm2')
+        aiqm2 = ml.methods(method='aiqm2')
         aiqm2.predict(molecule=mol, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=True)
         # Get energy, gradient, and uncertainty of AIQM2 
         energy = mol.energy
@@ -29,7 +28,8 @@ class aiqm2(models.model, metaclass=models.meta_method):
         std = mol.aiqm2_model.energy_standard_deviation
 
     """ 
-
+    
+    supported_methods = ['AIQM2', 'AIQM2@DFT', 'AIQM2@DFT*']
     mlatomdir=os.path.dirname(__file__)
     dirname = os.path.join(mlatomdir, 'aiqm2_model')
 
@@ -37,7 +37,8 @@ class aiqm2(models.model, metaclass=models.meta_method):
         self,
         method: str = 'AIQM2',
         working_directory: str = '.',
-        qm_program_kwargs: dict = {}
+        qm_program_kwargs: dict = {},
+        nthreads: int = 1
     ):
 
         self.method = method.lower()
@@ -45,6 +46,16 @@ class aiqm2(models.model, metaclass=models.meta_method):
         self.working_directory = working_directory
         self.qm_program_kwargs = qm_program_kwargs
         self.load()
+        self.nthreads = nthreads
+
+    @property
+    def nthreads(self):
+        return self._nthreads
+
+    @nthreads.setter
+    def nthreads(self, value):
+        self._nthreads = value
+        self.aiqm2_model.nthreads = self._nthreads
 
     def predict(
         self, 
@@ -85,27 +96,37 @@ class aiqm2(models.model, metaclass=models.meta_method):
         molecule.__dict__[f'{self.model_name}_nn'].standard_deviation(properties=['energy'])
 
     def load(self):
+        from .models import methods
         if not os.path.exists(os.path.join(self.dirname, f'{self.model_name}_cv0.pt')):
             self.download_models()
         
         model_paths = [os.path.join(self.dirname, f'{self.model_name}_cv{ii}.pt') for ii in range(8)]
 
-        baseline = models.model_tree_node(
+        baseline = model_tree_node(
             name='gfn2xtbstar',
-            model=models.methods(method='GFN2-xTB*', **self.qm_program_kwargs),
+            model=methods(method='GFN2-xTB*', **self.qm_program_kwargs),
             operator='predict'
         )
-        d4 = models.model_tree_node(
+        d4 = model_tree_node(
             name='d4wb97x',
-            model=models.methods(method='D4', functional='wb97x', working_directory=self.working_directory),
+            model=methods(method='D4', functional='wb97x', working_directory=self.working_directory),
             operator='predict'
         )
-        nn = models.model_tree_node(
+        from .interfaces.torchani_interface import ani
+        class ani_wrapper(ani):
+            def __init__(self,**kwargs):
+                super().__init__(**kwargs)
+
+            def predict(self,**kwargs):
+                if 'calculate_dipole_derivatives' in kwargs.keys():
+                    del kwargs['calculate_dipole_derivatives']
+                super().predict(**kwargs)
+        nn = model_tree_node(
             name=f'{self.model_name}_nn',
             children=[
-                models.model_tree_node(
+                model_tree_node(
                     name=f'{self.model_name}_nn_{ii}',
-                    # model=models.ani(
+                    # model=ani(
                     #     model_file=model_paths[ii],
                     #     verbose=0),
                     model=ani_wrapper(
@@ -117,7 +138,7 @@ class aiqm2(models.model, metaclass=models.meta_method):
             operator='average'
         )
 
-        self.aiqm2_model = models.model_tree_node(
+        self.aiqm2_model = model_tree_node(
             name=self.model_name,
             children=[baseline, nn, d4],
             operator='sum'
@@ -134,11 +155,4 @@ class aiqm2(models.model, metaclass=models.meta_method):
             with open(f'{self.dirname}/{self.model_name}_cv{ii}.pt','wb') as f:
                 f.write(resource_res.content)
 
-class ani_wrapper(ani):
-    def __init__(self,**kwargs):
-        super().__init__(**kwargs)
 
-    def predict(self,**kwargs):
-        if 'calculate_dipole_derivatives' in kwargs.keys():
-            del kwargs['calculate_dipole_derivatives']
-        super().predict(**kwargs)

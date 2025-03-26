@@ -2,7 +2,7 @@
 import sys
 import os
 import time
-from mlatom.MLatom import run
+from MLatom import run
 
 def mlatom():
     run()

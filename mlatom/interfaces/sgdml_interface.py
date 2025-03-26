@@ -23,7 +23,7 @@ from functools import partial
 
 from .. import constants
 from .. import data
-from .. import models
+from ..model_cls import ml_model, hyperparameter, hyperparameters
 from .. import stopper
 from ..decorators import doc_inherit
 
@@ -62,7 +62,7 @@ def molDB2sGDMLdata(molDB,
 def _dictTransform(d):
     return {k: np.array(v) for k, v in d.items()}
 
-class sgdml(models.ml_model):
+class sgdml(ml_model):
     '''
     Create an `sGDML <https://doi.org/10.1038/s41467-018-06169-2>`__ model object. 
     
@@ -70,29 +70,29 @@ class sgdml(models.ml_model):
 
     Arguments:
         model_file (str, optional): The filename that the model to be saved with or loaded from.
-        hyperparameters (Dict[str, Any] | :class:`mlatom.models.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
+        hyperparameters (Dict[str, Any] | :class:`mlatom.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
         verbose (int, optional): 0 for silence, 1 for verbosity.
 
     Hyperparameters:
 
         Please refer to the sgdml manual
 
-        no_E:       mlatom.models.hyperparameter(value=False)
-        gdml:       mlatom.models.hyperparameter(value=False)
-        perms:      mlatom.models.hyperparameter(value=None)
-        sigma:      mlatom.models.hyperparameter(value=None)
-        E_cstr:     mlatom.models.hyperparameter(value=False)
-        cprsn:      mlatom.models.hyperparameter(value=False)
+        no_E:       mlatom.hyperparameter(value=False)
+        gdml:       mlatom.hyperparameter(value=False)
+        perms:      mlatom.hyperparameter(value=None)
+        sigma:      mlatom.hyperparameter(value=None)
+        E_cstr:     mlatom.hyperparameter(value=False)
+        cprsn:      mlatom.hyperparameter(value=False)
 
     '''
 
-    hyperparameters = models.hyperparameters({
-        'no_E':     models.hyperparameter(value=False),
-        'gdml':     models.hyperparameter(value=False),
-        'perms':    models.hyperparameter(value=None),
-        'sigma':    models.hyperparameter(value=None),
-        'E_cstr':   models.hyperparameter(value=False),
-        'cprsn':    models.hyperparameter(value=False),
+    hyperparameters = hyperparameters({
+        'no_E':     hyperparameter(value=False),
+        'gdml':     hyperparameter(value=False),
+        'perms':    hyperparameter(value=None),
+        'sigma':    hyperparameter(value=None),
+        'E_cstr':   hyperparameter(value=False),
+        'cprsn':    hyperparameter(value=False),
     })
 
     property_name = 'y'
@@ -154,7 +154,7 @@ class sgdml(models.ml_model):
         property_to_learn: str = 'energy',
         xyz_derivative_property_to_learn: str = None,
         validation_molecular_database: Union[data.molecular_database, str, None] = None,
-        hyperparameters: Union[Dict[str,Any], models.hyperparameters] = {},
+        hyperparameters: Union[Dict[str,Any], hyperparameters] = {},
         spliting_ratio=0.8,
         save_model=True,
         task_dir=None,

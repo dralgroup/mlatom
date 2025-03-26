@@ -3,27 +3,31 @@
 .. code-block::
 
   !---------------------------------------------------------------------------! 
-  ! gaussian: interface to the Gaussian program                               ! 
+  ! gaussian_interface: interface to the Gaussian program                     ! 
   ! Implementations by: Pavlo O. Dral, Peikun Zheng, Yi-Fan Hou               !
   !---------------------------------------------------------------------------! 
 '''
 
 import os, sys, subprocess
 import numpy as np
-from mlatom import constants
-from mlatom import data
-from mlatom import models
-from mlatom.decorators import doc_inherit
 
-class gaussian_methods(models.model, metaclass=models.meta_method):
+from .. import constants, data
+from ..model_cls import method_model
+from ..decorators import doc_inherit
+
+class gaussian_methods(method_model):
     '''
     Gaussian interface
 
     Arguments:
         method (str): Method to use
-        nthreads (int): equivalent to %proc in Gaussian input file
-        save_files_in_current_directory (bool): whether to keep input and output files, default ``'False'``
-        working_directory (str): path to the directory where the program output files and other tempory files are saved, default ``'None'``
+        chkfilename (bool, str): request to create chk file defined by %chk in Gaussian (default: None). If True, assignes default filename.
+        memory (str): equivalent to %mem in Gaussian input file, e.g., memory=16Gb (default: None).
+        nthreads (int): equivalent to %proc in Gaussian input file.
+        gaussian_keywords (str): any gaussian keywords in addition to method.
+        additional_input (str): any additional input to be appended to the Gaussian input file.
+        save_files_in_current_directory (bool): whether to keep input and output files, default ``'False'``.
+        working_directory (str): path to the directory where the program output files and other tempory files are saved, default ``'None'``.
 
     .. note::
 
@@ -31,22 +35,37 @@ class gaussian_methods(models.model, metaclass=models.meta_method):
         
     '''
     
-    def __init__(self,method='B3LYP/6-31G*',additional_input='',nthreads=None,save_files_in_current_directory=False, working_directory=None, **kwargs):
+    def __init__(self,
+                 method='B3LYP/6-31G*',
+                 gaussian_keywords=None, additional_input='',
+                 chkfilename=None,
+                 memory=None,
+                 nthreads=None,save_files_in_current_directory=False,
+                 working_directory=None,
+                 ):
         if not "GAUSS_EXEDIR" in os.environ:
             raise ValueError('enviromental variable GAUSS_EXEDIR is not set')
         self.method = method
+        self.gaussian_keywords = gaussian_keywords
         self.additional_input = additional_input
+        self.chkfilename = chkfilename
         if nthreads is None:
             from multiprocessing import cpu_count
             self.nthreads = cpu_count()
         else:
             self.nthreads = nthreads
+        self.memory = memory
         self.save_files_in_current_directory = save_files_in_current_directory
         self.working_directory = working_directory
-        if 'writechk' in kwargs:
-            self.writechk = kwargs['writechk']
-        else:
-            self.writechk = False
+        _, _ = check_gaussian()
+
+    @classmethod
+    def is_program_found(cls):
+        try:
+            _, _ = check_gaussian()
+            return True
+        except:
+            return False
 
     @doc_inherit
     def predict(self,molecular_database=None,molecule=None,
@@ -56,11 +75,11 @@ class gaussian_methods(models.model, metaclass=models.meta_method):
                 calculate_energy_gradients=False,
                 calculate_hessian=False,
                 calculate_dipole_derivatives=False,
-                gaussian_keywords=None,):
+                gaussian_keywords='',):
         '''
             nstates (int):                 number of electronic structure states (default: 1, ground state)
             current_state (int):           default is the ground state (for nstates=1) or the first excited state (nstates > 1)
-            gaussian_keywords (some type): ``# needs to be documented``.
+            gaussian_keywords (str): any gaussian keywords.
         '''
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)           
         method = self.method
@@ -69,11 +88,7 @@ class gaussian_methods(models.model, metaclass=models.meta_method):
         self.calculate_energy = calculate_energy
         self.calculate_hessian = calculate_hessian
         self.calculate_dipole_derivatives = calculate_dipole_derivatives
-        # self.writechk = False
-        if gaussian_keywords == None:
-            self.gaussian_keywords = ''
-        else:
-            self.gaussian_keywords = gaussian_keywords
+        self.gaussian_keywords = gaussian_keywords
         if nstates > 1:
             if 'TD-'.casefold() in method.casefold():
                 import re
@@ -87,7 +102,7 @@ class gaussian_methods(models.model, metaclass=models.meta_method):
                 else:
                     method += ' force(nostep)'
         if calculate_hessian:
-            self.writechk = True
+            self.chkfilename = True
             if 'freq'.casefold() in method.casefold():
                 pass 
             else:
@@ -95,7 +110,7 @@ class gaussian_methods(models.model, metaclass=models.meta_method):
             if calculate_dipole_derivatives:
                 method += ' IOp(7/33=1)'
 
-        import tempfile, subprocess
+        import tempfile
         with tempfile.TemporaryDirectory() as tmpdirname:
             if self.save_files_in_current_directory: tmpdirname = '.'
             if self.working_directory is not None:
@@ -105,93 +120,122 @@ class gaussian_methods(models.model, metaclass=models.meta_method):
                 tmpdirname = os.path.abspath(tmpdirname)
             for imol in range(len(molDB.molecules)):
                 imolecule = molDB.molecules[imol]
-                # Run Gaussian job
-                if self.gaussian_keywords != '':
-                    run_gaussian_job(filename='molecule'+str(imol)+'.com',molecule=imolecule,gaussian_keywords=self.gaussian_keywords,nthreads=self.nthreads,method=method,cwd=tmpdirname,writechk=self.writechk,additional_input=self.additional_input)
+                filename_wo_extension = 'molecule'+str(imol)
+                if self.chkfilename == True:
+                    chkfilename=f'{filename_wo_extension}.chk'
+                elif type(self.chkfilename) == str:
+                    chkfilename = self.chkfilename
                 else:
-                    run_gaussian_job(filename='molecule'+str(imol)+'.com',molecule=imolecule,nthreads=self.nthreads,method=method,cwd=tmpdirname,writechk=self.writechk,additional_input=self.additional_input)
+                    chkfilename=None
+                # Run Gaussian job
+                run_gaussian_job(filename=f'{filename_wo_extension}.com',molecule=imolecule,
+                                 method=method,
+                                 gaussian_keywords=self.gaussian_keywords,additional_input=self.additional_input,
+                                 chkfilename=chkfilename,
+                                 memory=self.memory,
+                                 nthreads=self.nthreads,
+                                 working_directory=tmpdirname,
+                                 )
 
                 # Read Gaussian output file
-                parse_gaussian_output(filename=os.path.join(tmpdirname,'molecule'+str(imol)+'.log'),molecule=imolecule)
+                parse_gaussian_output(filename=os.path.join(tmpdirname,f'{filename_wo_extension}.log'),molecule=imolecule)
             
-def run_gaussian_job(**kwargs):
-    if 'filename' in kwargs:
-        filename = kwargs['filename']
-    if 'molecule' in kwargs: molecule = kwargs['molecule']
-    gaussian_keywords = ''
-    if 'gaussian_keywords' in kwargs:
-        gaussian_keywords = kwargs['gaussian_keywords']
-    if 'nthreads' in kwargs:
-        nthreads = kwargs['nthreads']
-    else:
-        nthreads = 1
-    memory = ''
-    if 'memory' in kwargs:
-        memory = f"%mem={kwargs['memory']}\n"
-    gaussian_keywords = f'{memory}%nproc={nthreads}\n' + gaussian_keywords 
-    
-    if 'cwd' in kwargs:
-        cwd = kwargs['cwd']
-    else:
-        cwd='.'
+def run_gaussian_job(filename=None,
+                     molecule=None, reactants=None, products=None,
+                     gaussian_keywords='',
+                     nthreads=1, memory=None,
+                     working_directory='.',
+                     # The block below is for using Gaussian for SP calculations
+                     method=None,
+                     chkfilename=None,
+                     # The block below is for using Gaussian as engine for jobs with external potential
+                     external_task=None,
+                     model_predict_kwargs={},
+                     extra_keywords='', # string with extra keywords
+                     additional_input='',
+                     opt_keywords = ['nomicro'],
+                     freq_keywords=[], # list with additional arguments such as ['NoRaman',] etc.
+                     irc_keywords=['CalcFC']
+                     ):
         
-    if 'model_predict_kwargs' in kwargs:
-        model_predict_kwargs_str = str(kwargs['model_predict_kwargs'])
-    else:
-        model_predict_kwargs_str = "{}"
-    
-    model_predict_kwargs_str_file = 'model_predict_kwargs'
-    with open(os.path.join(cwd, model_predict_kwargs_str_file), 'w') as f:
-        f.write(model_predict_kwargs_str)
-    
-    if 'external_task' in kwargs:
+    if external_task is not None:
         pythonbin = sys.executable
         path_to_this_file=os.path.abspath(__file__)
-        external_task = kwargs['external_task']
-        if 'gaussian_keywords' in kwargs:
-            gaussian_keywords += "\nexternal='%s %s'\n" % (pythonbin, path_to_this_file)
-        elif external_task.lower() == 'opt':
-            gaussian_keywords += "#p opt(nomicro) external='%s %s %s'\n" % (pythonbin, path_to_this_file, model_predict_kwargs_str_file)
-        elif external_task.lower() == 'freq':
-            gaussian_keywords += "#p freq external='%s %s %s'\n" % (pythonbin, path_to_this_file, model_predict_kwargs_str_file)
-        elif external_task.lower() == 'freq(anharmonic)':
-            if 'frequency_keywords' in kwargs:
-                if len(kwargs['frequency_keywords']) !=0:
-                    extra_keywords = ','.join(kwargs['frequency_keywords'])
-                    extra_keywords = ','+extra_keywords
-                else:
-                    extra_keywords = ''
+        path_to_gaussian_external = os.path.join(os.path.dirname(path_to_this_file), 'gaussian_external.py')
+        
+        model_predict_kwargs_str = str(model_predict_kwargs)
+        model_predict_kwargs_str_file = 'model_predict_kwargs'
+        with open(os.path.join(working_directory, model_predict_kwargs_str_file), 'w') as f:
+            f.write(model_predict_kwargs_str)
+        external_command = f"external='{pythonbin} {path_to_gaussian_external} {model_predict_kwargs_str_file}'"
+        if external_task.casefold() == 'opt':
+            if len(opt_keywords) > 0:
+                opt_str = ','.join(opt_keywords)
+                if not 'nomicro' in opt_str.casefold():
+                    print("Warning: please specify opt_keywords=['nomicro'] unless you know what you are doing.")
+                gaussian_keywords = f"opt({opt_str})"
             else:
-                extra_keywords = ''
-            gaussian_keywords += f"#p freq(anharmonic{extra_keywords}) external='%s %s %s'\n" % (pythonbin, path_to_this_file, model_predict_kwargs_str_file)
-        elif external_task.lower() == 'ts':
-            gaussian_keywords += "#p opt(ts,calcfc,noeigen,nomicro) external='%s %s %s'\n" % (pythonbin, path_to_this_file, model_predict_kwargs_str_file)
-        elif external_task.lower() == 'irc':
-            gaussian_keywords += "#p irc(calcfc) external='%s %s %s'\n" % (pythonbin, path_to_this_file, model_predict_kwargs_str_file)
+                gaussian_keywords = "opt"
+        elif 'freq' in external_task.casefold():
+            if len(freq_keywords) != 0:
+                freq_str = ','.join(freq_keywords)
+                if external_task.casefold() == 'freq(anharmonic)':
+                    freq_str = f',{freq_str}'
+                    gaussian_keywords = f"freq(anharmonic{freq_str})"
+                elif external_task.casefold() == 'freq':
+                    gaussian_keywords = f"freq({freq_str})"
+            else:
+                if external_task.casefold() == 'freq(anharmonic)':
+                    gaussian_keywords = f"Freq(anharmonic)"
+                elif external_task.casefold() == 'freq':
+                    gaussian_keywords = f"Freq"
+                else:
+                    gaussian_keywords = f"{external_task}"
+        elif external_task.casefold() in ['ts', 'qst2', 'qst3']:
+            if len(opt_keywords) > 0:
+                if not 'nomicro' in [kwd.casefold() for kwd in opt_keywords]:
+                    print("Warning: please specify opt_keywords=['nomicro'] unless you know what you are doing.")
+                if len(opt_keywords) == 1 and opt_keywords[0].casefold() == 'nomicro':
+                    if external_task.casefold() == 'ts':
+                        opt_keywords = ['CalcFC', 'noeigen', 'nomicro']
+                    else:
+                        opt_keywords = ['CalcFC', 'nomicro']
+                if not external_task.casefold() in [kwd.casefold() for kwd in opt_keywords]:
+                    opt_keywords = [external_task] + opt_keywords
+            else:
+                opt_keywords = ['TS', 'CalcFC', 'noeigen', 'nomicro']
+            opt_str = ','.join(opt_keywords)
+            gaussian_keywords = f"Opt({opt_str})"
+        elif external_task.casefold() == 'irc':
+            if len(irc_keywords) > 0:
+                irc_str = ','.join(irc_keywords)
+                gaussian_keywords = f"irc({irc_str})"
+            else:
+                gaussian_keywords = "irc"
+        if len(extra_keywords) > 0:
+            gaussian_keywords += f' {extra_keywords}'
+        gaussian_keywords += f'\n{external_command}'
     else:
-        if 'gaussian_keywords' in kwargs:
-            gaussian_keywords += '\n'
-        if 'method' in kwargs:
-            if 'freq' in kwargs['method']:
-                kwargs['method'] = 'p ' + kwargs['method']
-            gaussian_keywords += '# '+kwargs['method']+'\n'
+        if method is not None:
+            gaussian_keywords += f'{method}'
+     
+    if not gaussian_keywords.strip()[:1] == '#':
+        if external_task is not None or 'freq' in gaussian_keywords:
+            gaussian_keywords = f'#p {gaussian_keywords}'
+        else:
+                gaussian_keywords = f'# {gaussian_keywords}'
 
-    if 'writechk' in kwargs:
-        writechk = kwargs['writechk']
-    else:
-        writechk = False
-
-    if writechk:
-        gaussian_keywords = f'%chk={filename[:-4]}.chk\n'+gaussian_keywords
-
-    if 'additional_input' in kwargs:
-        additional_input = kwargs['additional_input']
-    else:
-        additional_input = ''
+    if memory is not None:
+        gaussian_keywords = f"%mem={memory}\n" + gaussian_keywords
+    gaussian_keywords = f'%nproc={nthreads}\n' + gaussian_keywords 
+    if chkfilename is not None:
+        gaussian_keywords = f'%chk={chkfilename}\n' + gaussian_keywords
     
-    write_gaussian_input_file(filename=os.path.join(cwd,filename), molecule=molecule, gaussian_keywords=gaussian_keywords,additional_input=additional_input)
+    write_gaussian_input_file(filename=os.path.join(working_directory,filename),
+                              molecule=molecule, reactants=reactants, products=products,
+                              gaussian_keywords=gaussian_keywords,additional_input=additional_input)
     Gaussianbin, _ = check_gaussian()
-    proc = subprocess.Popen([Gaussianbin, filename], stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, universal_newlines=True)
+    proc = subprocess.Popen([Gaussianbin, filename], stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=working_directory, universal_newlines=True)
     proc.communicate()
     
 def check_gaussian():
@@ -208,123 +252,42 @@ def check_gaussian():
     version = version.replace('g', '')
     return Gaussianbin, version
 
-def write_gaussian_input_file(**kwargs):
-    if 'filename' in kwargs: filename = kwargs['filename']
-    if 'molecule' in kwargs: molecule = kwargs['molecule']
-    if 'gaussian_keywords' in kwargs: gaussian_keywords = kwargs['gaussian_keywords']
-    if 'additional_input' in kwargs: 
-        additional_input = kwargs['additional_input']
-    else:
-        additional_input = ''
-        
-    if 'comment' in molecule.__dict__:
-        if molecule.comment != '':
-            title = molecule.comment
-    elif molecule.id != '':
-        title = molecule.id
-    else:
-        title = 'Gaussian calculations from MLatom interface'
+def write_gaussian_input_file(filename=None,
+                              molecule=None, reactants=None, products=None,
+                              gaussian_keywords='', additional_input=''):
     
+    input_string = f'{gaussian_keywords}\n'
+    
+    def mol_str(molecule, title='molecule'):
+        value = ''
+        if 'comment' in molecule.__dict__:
+            if molecule.comment != '':
+                title = molecule.comment
+        elif molecule.id != '':
+            title = molecule.id
+        value += f'\n{title}\n'
+        value += f'\n{molecule.charge} {molecule.multiplicity}\n'
+        value += molecule.get_xyz_string(only_coordinates=True)
+        return value
+    
+    if reactants is not None:
+        input_string += mol_str(reactants, title='reactants')
+    if products is not None:
+        input_string += mol_str(products, title='products')
+    if molecule is not None:
+        input_string += mol_str(molecule)
+    
+    if len(additional_input) > 0:
+        input_string += f'\n{additional_input}'
+    input_string += '\n\n'
+    if filename is None:
+        return input_string
     with open(filename, 'w') as f:
-        f.writelines(gaussian_keywords)
-        f.writelines(f'\n{title}\n')
-        f.writelines(f'\n{molecule.charge} {molecule.multiplicity}\n')
-        for atom in molecule.atoms:
-            f.writelines('%-3s %25.13f %25.13f %25.13f\n' % (atom.element_symbol,
-                              atom.xyz_coordinates[0], atom.xyz_coordinates[1], atom.xyz_coordinates[2]))
-        f.writelines('\n') 
-        f.writelines(additional_input)
-        f.writelines('\n\n')
-
-def gaussian_external(EIn_file, EOu_file, model_predict_kwargs):
-    # write new coordinate into 'xyz_temp.dat'
-    derivs, molecule = read_gaussian_EIn(EIn_file)
-    # calculate energy, gradients, hessian for new coordinates
-    # import json
-    # with open('model.json', 'r') as fjson:
-    #     model_dict = json.load(fjson)
-    # if 'method' in model_dict:
-    #     kwargs = {}
-    #     if 'kwargs' in model_dict:
-    #         kwargs = model_dict['kwargs']
-    #         del model_dict['kwargs']
-    #     model = models.methods(**model_dict, **kwargs)
-    model = models.load('model.json')
-    calc_hessian = False
-    if derivs == 2: calc_hessian = True
-    if 'filename' in model_predict_kwargs:
-        if model_predict_kwargs['print_properties'] is not None:
-            printstrs = model._predict_geomopt(molecule=molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=calc_hessian, **model_predict_kwargs)
-            filename=model_predict_kwargs['filename']
-            with open(f'{filename}_tmp_out.out', 'a') as ff:
-                ff.writelines(printstrs)
-        else:
-            model._predict_geomopt(molecule=molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=calc_hessian, **model_predict_kwargs)
-    else:
-        model.predict(molecule=molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=calc_hessian, **model_predict_kwargs)
-    if not 'energy' in molecule.__dict__:
-        raise ValueError('model did not return any energy')
-    write_gaussian_EOu(EOu_file, derivs, molecule)
-    
-    if os.path.exists('gaussian_freq_mol.json'):
-        molecule.dump(filename='gaussian_freq_mol.json', format='json')
-
-def read_gaussian_EIn(EIn_file):
-    molecule = data.molecule()
-    with open(EIn_file, 'r') as fEIn:
-        lines = fEIn.readlines()
-        line0 = lines[0].strip().split()
-        natoms = int(line0[0]); derivs = int(line0[1])
-        molecule.charge = int(line0[2]); molecule.multiplicity = int(line0[3])
-        
-        for i in range(1, natoms+1):
-            xx = lines[i].strip().split()
-            atom = data.atom(atomic_number=int(xx[0]),
-                             xyz_coordinates=np.array(xx[1:-1]).astype('float')*constants.Bohr2Angstrom)
-            molecule.atoms.append(atom)
-    
-    return derivs, molecule
-
-def write_gaussian_EOu(EOu_file, derivs, molecule):
-    import fortranformat
-    with open(EOu_file, 'w') as fEOu:
-        # energy, dipole-moment (xyz)   E, Dip(I), I=1,3
-        if 'dipole_moment' in molecule.__dict__.keys():
-            dp = molecule.dipole_moment
-        else:
-            dp = [0.0,0.0,0.0]
-        writer = fortranformat.FortranRecordWriter('(4D20.12)')
-        output = writer.write([molecule.energy, dp[0], dp[1], dp[2]])
-        fEOu.write(output)
-        fEOu.write('\n')
-        
-        writer = fortranformat.FortranRecordWriter('(3D20.12)')
-        # gradient on atom (xyz)        FX(J,I), J=1,3; I=1,NAtoms
-        output = writer.write(molecule.get_energy_gradients().flatten()*constants.Bohr2Angstrom)
-        fEOu.write(output)
-        fEOu.write('\n')
-        if derivs == 2:
-            natoms = len(molecule.atoms)
-            # polarizability                Polar(I), I=1,6
-            polor = np.zeros(6)
-            output = writer.write(polor)
-            fEOu.write(output)
-            fEOu.write('\n')
-            # dipole derivatives            DDip(I), I=1,9*NAtoms
-            ddip = np.zeros(9*natoms)
-            if 'dipole_derivatives' in molecule.__dict__.keys():
-                ddip = molecule.dipole_derivatives * constants.Bohr2Angstrom * constants.Debye2au 
-            output = writer.write(ddip)
-            fEOu.write(output)
-            fEOu.write('\n')
-            # force constants               FFX(I), I=1,(3*NAtoms*(3*NAtoms+1))/2
-            output = writer.write(molecule.hessian[np.tril_indices(natoms*3)]*constants.Bohr2Angstrom**2)
-            fEOu.write(output)
+        f.writelines(input_string)
 
 def read_Hessian_matrix_from_Gaussian_chkfile(filename,molecule):
     natoms = len(molecule.atoms)
     hessian = np.zeros((3*natoms,3*natoms))
-    cmdargs = ['chkchk','-p',filename]
     cmd = f'chkchk -p {filename}'
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, shell=True)
     outs,errs = proc.communicate()
@@ -387,6 +350,10 @@ def parse_gaussian_output(filename=None, molecule=None):
     xyz_standard_orientation = []
     scf_energies = []
     energy_gradients = []
+    Ucase = False
+    readAlpha = False
+    readOcc = False
+    nOMOs = {'all': 0, 'A': 0, 'B': 0}
     # flags to check whether a property was never read before - by default overwrite everything
     read_already_freq = False
     read_already_redmass = False
@@ -590,6 +557,30 @@ def parse_gaussian_output(filename=None, molecule=None):
                     mol.S = float(line.split()[-1]) * constants.kcalpermol2Hartree / 1000.0
                     ireadS = -1
                     continue
+            
+            if 'Alpha Orbitals:' in line:
+                Ucase = True
+            if ' Occupied ' in line:
+                readOcc = True
+                nOMOs = {'all': 0, 'A': 0, 'B': 0}
+            if readOcc:
+                if ' Virtual ' in line:
+                    readOcc = False
+                    if Ucase and not readAlpha:
+                        readAlpha = True
+                        #continue
+                    # to-do
+                    #else:
+                    #    break
+                    continue
+                if Ucase and not readAlpha:
+                    nOMOs['A'] += len(line[17:].split())
+                elif Ucase and readAlpha:
+                    nOMOs['B'] += len(line[17:].split())
+                else:
+                    nOMOs['all'] += len(line[17:].split())
+                continue
+            
             if 'Excited State' in line:                
                 xx = line.split()
                 excitation_energy = float(xx[4]) * constants.eV2hartree
@@ -900,6 +891,8 @@ def parse_gaussian_output(filename=None, molecule=None):
     elif len(method_energies) == 1:
         mol.energy = method_energies[0][1]
     
+    if nOMOs['all'] > 0:
+        mol.n_occ_mos = nOMOs['all']
     if len(mol.excitation_energies) > 0:
         mol.excitation_energies = data.array(mol.excitation_energies)
         mol.electronic_states = [mol.copy(atomic_labels=[], molecular_labels=[]) for ii in range(mol.nstates)]
@@ -1039,7 +1032,4 @@ def parse_gaussian_output(filename=None, molecule=None):
         return mol
 
 if __name__ == '__main__': 
-    model_predict_kwargs_str_file, _, EIn_file, EOu_file, _, _, _ = sys.argv[1:]
-    with open(model_predict_kwargs_str_file) as f:
-        model_predict_kwargs =  eval(f.read())
-    gaussian_external(EIn_file, EOu_file, model_predict_kwargs)
+    pass

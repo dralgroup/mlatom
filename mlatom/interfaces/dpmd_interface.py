@@ -7,13 +7,11 @@
   !---------------------------------------------------------------------------! 
 '''
 from __future__ import annotations
-from typing import Any, Union, Dict, Callable
-import os, sys, uuid, time, tempfile, subprocess, json
+from typing import Any, Union, Dict
+import os, sys, uuid, tempfile, subprocess, json
 import numpy as np
-from .. import constants
 from .. import data
-from .. import models
-from .. import stopper
+from ..model_cls import ml_model, tensorflow_model, hyperparameter, hyperparameters
 from ..decorators import doc_inherit
 
 if 'DeePMDkit' in os.environ:
@@ -65,7 +63,7 @@ def molDB2DPdata(dir_name, molecular_database, validation_molecular_database, ty
         np.save(f'{dir_name}/set.000/force.npy', -1 * molecular_database.get_xyz_vectorial_properties(xyz_derivative_property_to_learn).reshape(len(molecular_database), -1))
         np.save(f'{dir_name}/set.001/force.npy', -1 * validation_molecular_database.get_xyz_vectorial_properties(xyz_derivative_property_to_learn).reshape(len(validation_molecular_database), -1))
 
-class dpmd(models.ml_model, models.tensorflow_model):
+class dpmd(ml_model, tensorflow_model):
     '''
     Create an `DeepPot-SE <https://proceedings.neurips.cc/paper_files/paper/2018/hash/e2ad76f2326fbc6b56a45a56c59fafdb-Abstract.html>`_ model object. 
     
@@ -73,30 +71,30 @@ class dpmd(models.ml_model, models.tensorflow_model):
 
     Arguments:
         model_file (str, optional): The filename that the model to be saved with or loaded from.
-        hyperparameters (Dict[str, Any] | :class:`mlatom.models.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
+        hyperparameters (Dict[str, Any] | :class:`mlatom.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
         verbose (int, optional): 0 for silence, 1 for verbosity.
     '''
 
-    hyperparameters = models.hyperparameters({
-        'early_stopping':           models.hyperparameter(value=True, choices=[True, False], optimization_space='choices', dtype=bool),
-        'early_stopping_paticence': models.hyperparameter(value=60, minval=16, maxval=256, optimization_space='linear', dtype=int),
-        'early_stopping_threshold': models.hyperparameter(value=0.0000, minval=-0.0001, maxval=0.0001, optimization_space='linear', dtype=float),
-        'batch_size':               models.hyperparameter(value=4, minval=1, maxval=1024, optimization_space='linear', dtype=int),
-        'disp_freq':                models.hyperparameter(value=100, minval=10, maxval=10000, optimization_space='linear', dtype=int),
-        'stop_batch':               models.hyperparameter(value=400000, minval=100, maxval=1000000, optimization_space='linear', dtype=int),
-        "start_lr":                 models.hyperparameter(value=0.005, minval=0.0001, maxval=0.01, optimization_space='log', dtype=float),
-        "decay_steps":              models.hyperparameter(value=2000, minval=100, maxval=10000, optimization_space='log', dtype=int),
-        "decay_rate":               models.hyperparameter(value=0.95, minval=0.5, maxval=1, optimization_space='log', dtype=float),
-        "start_pref_e":             models.hyperparameter(value=0.02, minval=0, maxval=100, optimization_space='log', dtype=float),
-        "limit_pref_e":             models.hyperparameter(value=2, minval=0, maxval=1000, optimization_space='log', dtype=float),
-        "start_pref_f":             models.hyperparameter(value=1000, minval=0, maxval=1000, optimization_space='log', dtype=float),
-        "limit_pref_f":             models.hyperparameter(value=1, minval=0, maxval=1000, optimization_space='log', dtype=float),
-        "start_pref_v":             models.hyperparameter(value=0, minval=0, maxval=1000, optimization_space='log', dtype=float),
-        "limit_pref_v":             models.hyperparameter(value=0, minval=0, maxval=1000, optimization_space='log', dtype=float),
-        'rcut':                     models.hyperparameter(value=6.0, minval=1.0, maxval=10.0, optimization_space='linear', dtype=float),
-        'neuron':                   models.hyperparameter('30,60'),
-        'n_neuron':                 models.hyperparameter('80,80,80'),
-        'sel':                      models.hyperparameter(value=16, minval=1, maxval=32, optimization_space='linear', dtype=str),
+    hyperparameters = hyperparameters({
+        'early_stopping':           hyperparameter(value=True, choices=[True, False], optimization_space='choices', dtype=bool),
+        'early_stopping_paticence': hyperparameter(value=60, minval=16, maxval=256, optimization_space='linear', dtype=int),
+        'early_stopping_threshold': hyperparameter(value=0.0000, minval=-0.0001, maxval=0.0001, optimization_space='linear', dtype=float),
+        'batch_size':               hyperparameter(value=4, minval=1, maxval=1024, optimization_space='linear', dtype=int),
+        'disp_freq':                hyperparameter(value=100, minval=10, maxval=10000, optimization_space='linear', dtype=int),
+        'stop_batch':               hyperparameter(value=400000, minval=100, maxval=1000000, optimization_space='linear', dtype=int),
+        "start_lr":                 hyperparameter(value=0.005, minval=0.0001, maxval=0.01, optimization_space='log', dtype=float),
+        "decay_steps":              hyperparameter(value=2000, minval=100, maxval=10000, optimization_space='log', dtype=int),
+        "decay_rate":               hyperparameter(value=0.95, minval=0.5, maxval=1, optimization_space='log', dtype=float),
+        "start_pref_e":             hyperparameter(value=0.02, minval=0, maxval=100, optimization_space='log', dtype=float),
+        "limit_pref_e":             hyperparameter(value=2, minval=0, maxval=1000, optimization_space='log', dtype=float),
+        "start_pref_f":             hyperparameter(value=1000, minval=0, maxval=1000, optimization_space='log', dtype=float),
+        "limit_pref_f":             hyperparameter(value=1, minval=0, maxval=1000, optimization_space='log', dtype=float),
+        "start_pref_v":             hyperparameter(value=0, minval=0, maxval=1000, optimization_space='log', dtype=float),
+        "limit_pref_v":             hyperparameter(value=0, minval=0, maxval=1000, optimization_space='log', dtype=float),
+        'rcut':                     hyperparameter(value=6.0, minval=1.0, maxval=10.0, optimization_space='linear', dtype=float),
+        'neuron':                   hyperparameter('30,60'),
+        'n_neuron':                 hyperparameter('80,80,80'),
+        'sel':                      hyperparameter(value=16, minval=1, maxval=32, optimization_space='linear', dtype=str),
     })
 
     json = {
@@ -255,7 +253,7 @@ class dpmd(models.ml_model, models.tensorflow_model):
         property_to_learn: str = 'energy',
         xyz_derivative_property_to_learn: str = None,
         validation_molecular_database: Union[data.molecular_database, str, None] = 'sample_from_molecular_database',
-        hyperparameters: Union[Dict[str,Any], models.hyperparameters] = {},
+        hyperparameters: Union[Dict[str,Any], hyperparameters] = {},
         spliting_ratio=0.8,
         stdout=None,
         stderr=None,

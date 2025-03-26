@@ -13,22 +13,14 @@
 import os
 import numpy as np
 
-import pyscf
-from pyscf import gto, scf
-from pyscf.dft.libxc import *
-from pyscf import hessian
-from pyscf.hessian import thermo
-from pyscf.hessian.thermo import *
-from pyscf.hessian.thermo import _get_rotor_type, _get_TR
-import tempfile
-import timeit
 from multiprocessing import cpu_count
 import sys
 
-from .. import constants, stopper, models
+from .. import constants, stopper
+from ..model_cls import model
 from ..decorators import doc_inherit
 
-class OMP_pyscf(models.model):
+class OMP_pyscf(model):
     def set_num_threads(self, nthreads=0):
         super().set_num_threads(nthreads)
         if self.nthreads:
@@ -36,7 +28,7 @@ class OMP_pyscf(models.model):
             # os.environ["OMP_NUM_THREADS"] = str(self.nthreads)
             pyscf.lib.misc.num_threads(n=self.nthreads)
 
-class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=["HF", 'MP2', "FCI", "CISD" "CCSD", "CCSD(T)"]):
+class pyscf_methods(OMP_pyscf):
     '''
     PySCF interface
 
@@ -55,8 +47,10 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
         Hessian: HF, DFT
         
     '''
-
-    def __init__(self, method='B3LYP/6-31g', nthreads=None, **kwargs):
+    supported_methods=["HF", 'MP2', "FCI", "CISD" "CCSD", "CCSD(T)", "DM21", "DM21m", "DM21mu", "DM21mc"]
+    
+    def __init__(self, method='B3LYP/6-31g', nthreads=None, density_fitting=False):
+        self.init_kwargs = {'method': method, 'nthreads': nthreads, 'density_fitting': density_fitting}
         
         self.method = method.split('/')[0]
         if not 'DM21' in self.method.upper():
@@ -69,17 +63,10 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
             self.nthreads = cpu_count()
         else:
             self.nthreads = nthreads
-        if 'infrared' in kwargs:
-            self.infrared = kwargs['infrared']
-        else:
-            self.infrared = False
-        if 'density_fitting' in kwargs:
-            self.density_fitting = kwargs['density_fitting']
-        else:
-            self.density_fitting = False
+        self.density_fitting = density_fitting
             
     @classmethod
-    def is_available_method(cls, method):
+    def is_method_supported(cls, method):
         # methods can be used without `method` keywords:
         # DFT, HF, MP2, FCI, CISD, CCSD, CCSD(T) / [basis set]
         if not 'DM21' in method.upper():
@@ -87,7 +74,7 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
                 sys.path.insert(0,os.environ['PYSCF_PATH'])
         from pyscf.dft.libxc import parse_xc
         method = method.split('/')[0]
-        if method.casefold() in [m.casefold() for m in cls.available_methods]:
+        if method.casefold() in [m.casefold() for m in cls.supported_methods]:
             return True
         try:
             if 'TDA'.casefold() in method.casefold():
@@ -176,7 +163,7 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
                    molecule.electronic_states[ii].energy_gradients = _state_gradients[ii]
                 molecule.energy = molecule.electronic_states[current_state].energy
                 molecule.energy_gradients = molecule.electronic_states[current_state].energy_gradients
-            molecule.oscillator_strength = pyscf_method_tda.oscillator_strength()[:-1]
+            molecule.oscillator_strengths = pyscf_method_tda.oscillator_strength()[:-1]
 
         elif 'TD' in self.method.upper():
             from pyscf import tddft,dft
@@ -208,7 +195,7 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
                    molecule.electronic_states[ii].energy_gradients = _state_gradients[ii]
                 molecule.energy = molecule.electronic_states[current_state].energy
                 molecule.energy_gradients = molecule.electronic_states[current_state].energy_gradients
-            molecule.oscillator_strength = pyscf_method_tddft.oscillator_strength()[:-1]
+            molecule.oscillator_strengths = pyscf_method_tddft.oscillator_strength()[:-1]
 
         # DFT
         else:
@@ -319,9 +306,6 @@ class pyscf_methods(OMP_pyscf, metaclass=models.meta_method, available_methods=[
                     calc_dipole_derivatives(pyscf_method,molecule,method_type)
             else:
                 print("PySCF doesn't converge and hessian will not be stored in molecule")
-
-            if calculate_dipole_derivatives:
-                calc_dipole_derivatives(pyscf_method,molecule,method_type)
 
     def predict_for_molecule_DM21(self, molecule=None, pyscf_mol=None, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, **kwargs):
         # reference: https://github.com/google-deepmind/deepmind-research/tree/f5de0ede8430809180254ee957abf36ed62579ef/density_functional_approximation_dm21

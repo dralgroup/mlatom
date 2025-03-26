@@ -446,6 +446,7 @@ class uvvis(spectrum):
         new_spectrum.cross_section = data.array(c_cross_section)   # absorption cross-section in A^2/molecule
         new_spectrum.molar_absorbance = new_spectrum.cross_section / 3.82353e-5 # extinction coefficients in M^-1 cm^-1
         new_spectrum.y = new_spectrum.molar_absorbance
+        new_spectrum.set_data(x=new_spectrum.x, y=new_spectrum.y)
         return new_spectrum
 
 class ir(spectrum):
@@ -998,19 +999,27 @@ def plot_spectra(spectra=None, linespectra=None,
         for ii in range(len(spectra)):
             ymax = max(spectra[ii].y)
             spectra[ii].y = [zz / ymax for zz in spectra[ii].y]
+    if plotstart is None:
+        plotstart = min([np.min(spec.x) for spec in spectra])
+    if plotend is None:
+        plotend = max([np.max(spec.x) for spec in spectra])
             
     if shift:
         # Superimposes global maxima
         ix1m = np.argmax(spectra[0].y)
-        ix2m = np.argmax(spectra[1].y)
-        
-        #cls.delta = cls.xxs[0][ix1m] - cls.x2ys[0][ix2m]
-        if not shiftby:
-            shiftby = spectra[0].x[ix1m] - spectra[1].x[ix2m]
-        print('Theoretical spectrum is shifted by %.2f nm' % shiftby)
-        spectra[1].x += shiftby
-        if linespectra is not None:
-            linespectra[0].x += shiftby
+        for ispec in range(1,len(spectra)):
+            
+            if not shiftby:
+                ix2m = np.argmax(spectra[ispec].y)
+                delta = spectra[0].x[ix1m] - spectra[ispec].x[ix2m]
+            elif type(shiftby) == list:
+                delta = shiftby[ispec-1]
+            else:
+                delta = shiftby
+            print(f'Theoretical spectrum {ispec} is shifted by {delta:.2f} nm')
+            spectra[ispec].x += delta
+            if linespectra is not None:
+                linespectra[ispec-1].x += delta
     
     for ii in range(len(spectra)):
         if ii < len(labels): label=labels[ii]
@@ -1032,29 +1041,30 @@ def plot_spectra(spectra=None, linespectra=None,
     if linespectra is not None:
         ax2 = ax.twinx()
         ax2.set_ylabel(y2axis_caption,
-                        fontsize=18, color='red')
-        if normalize:
-            y2max = 1.0
-        else:
-            y2max = max(linespectra[0].y) * 1.1
-        ax2.set_ylim(ymin=-0.05, ymax=y2max)
-        ax2.tick_params(axis='both', colors='red')
-        for ii in range(len(linespectra[0].x)):
-            ax2.plot((linespectra[0].x[ii], linespectra[0].x[ii]),
-                        (-0.05, linespectra[0].y[ii]), 'r', linewidth=1)
+                        fontsize=18, color='k')
+        ymin = min([min([spec.y[ii] for ii in range(len(spec.y)) if spec.x[ii] >= plotstart and spec.x[ii] <= plotend]) for spec in linespectra])
+        ymax = max([max([spec.y[ii] for ii in range(len(spec.y)) if spec.x[ii] >= plotstart and spec.x[ii] <= plotend]) for spec in linespectra])
+        ax2.set_ylim(bottom=ymin - 0.05 * (ymax - ymin) )
+        ax2.set_ylim(top   =ymax + 0.05 * (ymax - ymin) )
+        ax2.tick_params(axis='both', colors='k')
+        for ispec, linespec in enumerate(linespectra):
+            for ii in range(len(linespec.x)):
+                ax2.plot((linespec.x[ii], linespec.x[ii]),
+                            (-0.05, linespec.y[ii]), lines[len(lines) - len(linespectra) + ispec].get_color(), linewidth=1)
         zed = [tick.set_fontsize(18)
                 for tick in ax2.yaxis.get_ticklabels()]
 
-    if plotstart:
-        plt.xlim(left=plotstart)
-    if plotend:
-        plt.xlim(right=plotend)
+    plt.xlim(left=plotstart)
+    plt.xlim(right=plotend)
+    ymin = min([min([spec.y[ii] for ii in range(len(spec.y)) if spec.x[ii] >= plotstart and spec.x[ii] <= plotend]) for spec in spectra])
+    ymax = max([max([spec.y[ii] for ii in range(len(spec.y)) if spec.x[ii] >= plotstart and spec.x[ii] <= plotend]) for spec in spectra])
+    ax.set_ylim(bottom=ymin - 0.05 * (ymax - ymin) )
+    ax.set_ylim(top   =ymax + 0.05 * (ymax - ymin) )
 
     if not all(label == None for label in labels):
         plt.legend(lines, [ll.get_label() for ll in lines],
                     frameon=False, fontsize=18, loc='best')
 
-    ax.set_ylim(bottom=-0.05)
     if filename:
         plt.savefig('%s' % filename, dpi=300, bbox_inches='tight')
     plt.show()
@@ -1062,7 +1072,7 @@ def plot_spectra(spectra=None, linespectra=None,
 
 def plot_uvvis( spectra=None,
                 linespectra=None,
-                molecule=None, oscillator_strength=True,
+                molecule=None, molecular_database=None, oscillator_strength=True,
                 spc=False, band_width=0.3, band_width_slider=False,
                 filename=None, 
                 title='UV-Vis spectrum',
@@ -1076,10 +1086,19 @@ def plot_uvvis( spectra=None,
         spectra = []
     else:
         spectra = copy.deepcopy(spectra)
+    if type(spectra) != list:
+        spectra = [spectra]
     linespectra = copy.deepcopy(linespectra)
-    if molecule is not None and oscillator_strength:
-        if 'oscillator_strengths' in molecule.__dict__:
-            linespectra = copy.deepcopy([spectrum(x=constants.hartree2nm(molecule.excitation_energies), y=molecule.oscillator_strengths)])
+    molDB = None
+    if molecule is not None and molecular_database is None:
+        molDB = data.molecular_database(molecules=[molecule])
+    elif molecular_database is not None:
+        molDB = molecular_database
+    if molDB is not None and oscillator_strength:
+        if linespectra is None: linespectra = []
+        for mol in molDB:
+            if 'oscillator_strengths' in mol.__dict__:
+                linespectra.append(copy.deepcopy(spectrum(x=constants.hartree2nm(mol.excitation_energies), y=mol.oscillator_strengths)))
     
     normalize = normalize
     if normalize and yaxis_caption == 'Extinction coefficient (M$^{-1}$ cm$^{-1}$)':
@@ -1102,13 +1121,13 @@ def plot_uvvis( spectra=None,
     def spc_broaden(band_width):
         if spc:
             spc_calls.append(1)
-            spc_spectrum = uvvis.spc(molecule=molecule,
-                        #wavelengths_nm=np.arange(plotstart, plotend),
-                        band_width=band_width)
-            if len(spc_calls) > 1:
-                spectra[-1] = spc_spectrum
-            else:
-                spectra.append(spc_spectrum)
+            for imol, mol in enumerate(molDB.molecules):
+                spc_spectrum = uvvis.spc(molecule=mol,
+                            band_width=band_width)
+                if len(spc_calls) > 1:
+                    spectra[-(len(molDB)-imol)] = spc_spectrum
+                else:
+                    spectra.append(spc_spectrum)
         plot_spectra(spectra=spectra, linespectra=linespectra,
                     filename=filename, 
                     title=title,
