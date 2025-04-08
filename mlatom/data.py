@@ -417,7 +417,7 @@ class molecule:
         .. note::
             gradient in BDF output file(.egrad1 file) use Hartree/Bohr unit but in MLatom it use Hartree/Angstrom unit, unit conversion is performed here.
 
-        **Example .egrad1 file format**::
+        **Example ``.egrad1`` file format**::
 
             ENERGY=        -232.108204353561
             GRADIENT
@@ -1066,9 +1066,9 @@ class molecular_database:
         '''
         Generate molecules from BDF software, geometries will be read from ``xxx.xyz`` files, energy and gradient will be read from BDF output ``xxx.egrad1`` files.
 
-        Each ``.xyz`` file should only contain one molecule geometry info, and the ``.egrad1`` file with same name should contain its energy and gradient. (If there are more than one molecules' geometries in the ``.xyz`` file, according to the ``molecule().read_from_xyz_string`` method, only the first one will be used.)
+        Each ``.xyz`` file should only contain one molecule geometry info, and the ``.egrad1`` file with same name should contain its energy and gradient. (If there are more than one molecules' geometries in the ``.xyz`` file, according to the :meth:`molecule().read_from_xyz_string` method, only the first one will be used.)
 
-        To see an example of ``.egrad1`` file, see ``molecule().add_property_from_BDF_egrad1_file`` method.
+        To see an example of ``.egrad1`` file, see :meth:`molecule().add_property_from_BDF_egrad1_file` method.
 
         All the files should be contained in one folder.
 
