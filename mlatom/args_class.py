@@ -15,7 +15,7 @@ from copy import copy
 import re
 from . import stopper
 from .doc import Doc
-from .models import methods
+from . import models
 
 default_MLprog={
     'kreg': 'mlatomf',
@@ -420,7 +420,7 @@ class mlatom_args(ArgsBase):
                 'sample', 'sampleFromSlices', 'mergeSlices','slice',
             # Simulation tasks 
                 # PES tasks
-                'geomopt', 'ts', 'freq', 'irc',
+                'geomopt', 'ts', 'freq', 'irc', 'ir','raman',
                 # Dynamics
                 'MD', 
                 # Vibrational spectra
@@ -441,7 +441,7 @@ class mlatom_args(ArgsBase):
         #     'AIQM1', 'AIQM1DFT', 'AIQM1DFTstar',
         #     'ani1x', 'ani2x', 'ani1ccx', 'ani1xd4', 'ani2xd4', 
         # ]
-        self._method_list = list(methods.known_methods())
+        self._method_list = list(models.known_methods())
         # task aliases
         self.set_keyword_alias('crossSection', ['ML-NEA', 'ML_NEA', 'crossSection', 'cross-section', 'cross_section','MLNEA'])
         # self.set_keyword_alias('AIQM1DFTstar', ['AIQM1@DFT*'])
@@ -456,6 +456,7 @@ class mlatom_args(ArgsBase):
         # self.set_keyword_alias('gfn2xtb', ['GFN2-xTB'])
         self.set_keyword_alias('AIQM1@DFT*', ['AIQM1DFTstar'])
         self.set_keyword_alias('AIQM1@DFT', ['AIQM1DFT'])
+        self.set_keyword_alias('AIQM2@DFT', ['AIQM2DFT'])
         self.set_keyword_alias('ODM2*', ['ODM2star'])
         self.set_keyword_alias('ODM3*', ['ODM3star'])
         self.set_keyword_alias('CCSD(T)*/CBS', ['CCSDTstarCBS'])
@@ -465,9 +466,14 @@ class mlatom_args(ArgsBase):
         self.set_keyword_alias('ANI-1x-D4', ['ani1xd4'])
         self.set_keyword_alias('ANI-2x-D4', ['ani2xd4'])
         self.set_keyword_alias('ANI-1xnr', ['ani1xnr'])
+        self.set_keyword_alias('ANI-1ccx-gelu', ['ani1ccxgelu'])
+        self.set_keyword_alias('ANI-1ccx-gelu-d4', ['ani1ccxgelud4'])
+        self.set_keyword_alias('ANI-1x-gelu', ['ani1xgelu'])
+        self.set_keyword_alias('ANI-1x-gelu-d4', ['ani1xgelud4'])
         self.set_keyword_alias('AIMNet2@B973c', ['aimnet2atb973c'])
         self.set_keyword_alias('AIMNet2@wb97M-D3', ['aimnet2atwb97md3'])
         self.set_keyword_alias('GFN2-xTB', ['gfn2xtb'])
+        self.set_keyword_alias('GFN2-xTB*',['gfn2xtbstar'])
         self.set_keyword_alias('MNDO/dH', ['mndodh'])
         self.set_keyword_alias('MNDO/H', ['mndoh'])
         self.set_keyword_alias('MNDO/d', ['mndod'])
@@ -511,7 +517,7 @@ class mlatom_args(ArgsBase):
                 'YgradFile', 'YgradEstFile', 'YgradB', 'YgradT', 'YgradEstT',
                 'YgradXYZfile', 'YgradXYZestFile', 'YgradXYZb', 'YgradXYZt', 'YgradXYZestT',
                 'MLprog', "MLmodelType",            
-                'qmprog',
+                'QMprog',
                 'mndokeywords', 'QMprogramKeywords', 'charges', 'multiplicities',
                 'optProg',
                 'freqProg',
@@ -553,6 +559,12 @@ class mlatom_args(ArgsBase):
         # geomopt/ts/freq/irc
         self.add_dict_args({
             'optXYZ': "optgeoms.xyz",
+            # 'raman':False,
+            # 'ir': False,
+        })
+        # ir
+        self.add_dict_args({
+            'scaling': 0.0
         })
         # ASE
         self.parse_input_content([
@@ -615,7 +627,15 @@ class mlatom_args(ArgsBase):
                 'dumpopttrajs'             # whether to dump optimization trajectory
             ], ''
         )
-    
+        # uaiqm control
+        self.add_default_dict_args(
+            [
+                'uaiqm',                   # request automatic selection of UAIQM methods
+                'time_budget',             # time budget used for UAIQM methods
+                'ncpus',                   # number of CPUs used for UAIQM methods
+                'uversion',                # version of UAIQM methods
+            ], ''
+        )
         self.defualt_args2pass = self.args_string_list(['', None])
 
     @property
@@ -683,6 +703,10 @@ class mlatom_args(ArgsBase):
             elif len(tasks) > 1:
                 if self.selfCorrect:
                     self._task = 'selfCorrect'
+                elif 'geomopt' in tasks and 'freq' in tasks:
+                    self._task = 'optfreq'
+                elif 'ts' in tasks and 'freq' in tasks:
+                    self._task = 'tsfreq'
                 else:
                     if 'useMLmodel' in tasks:
                         tasks.remove('useMLmodel')
@@ -691,6 +715,9 @@ class mlatom_args(ArgsBase):
                     for task in tasks:
                         self.data[task] = False
                     print(f' multiple tasks detected in the input. the first one ({self._task}) will be used')
+        if self.uaiqm:
+            if not self._task:
+                self._task = 'useMLmodel'
         if self.method:
             if self.method in self._method_list:
                 self.data[self.method] = True
@@ -699,6 +726,9 @@ class mlatom_args(ArgsBase):
                 if self.data[method]:
                     self.method = method
                     break
+            for key in self.data.keys():
+                if '/' in key and key not in self._method_list:
+                    self.method = key
         if not self._task:
             if not self.method:
                 Doc.printDoc({})

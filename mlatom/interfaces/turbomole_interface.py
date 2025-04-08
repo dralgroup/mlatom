@@ -13,10 +13,12 @@ import subprocess
 import re
 import time
 import shutil
-from .. import constants, data, models
+from .. import constants, data
+from ..model_cls import method_model
 from .. import utils as file_utils
 
-class turbomole_methods(models.model):
+class turbomole_methods(method_model):
+    
     def __init__(self, save_files_in_current_directory=True, working_directory=None, directory_with_input_files='', **kwargs):
         super().__init__()
         self.save_files_in_current_directory = save_files_in_current_directory

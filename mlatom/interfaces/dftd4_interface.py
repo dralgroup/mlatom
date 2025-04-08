@@ -9,13 +9,13 @@
 '''
 import json
 import numpy as np
-import sys
+import sys, os
 from .. import data
-from .. import models
+from ..model_cls import OMP_model, method_model
 from .. import stopper
 from ..decorators import doc_inherit
 
-class dftd4_methods(models.model):
+class dftd4_methods(OMP_model, method_model):
     '''
     DFT-D4 interface
 
@@ -31,31 +31,33 @@ class dftd4_methods(models.model):
         For more discussion, please refer to  https://github.com/dftd4/dftd4/issues/20.
 
     '''
-    def __init__(self, functional=None, save_files_in_current_directory=True, working_directory=None, **kwargs):
+    
+    bin_env_name = 'dftd4bin'
+    supported_methods = ['d4']
+    
+    def __init__(self, 
+                 method: str = 'D4',
+                 functional: str = 'wb97x', 
+                 save_files_in_current_directory: bool = True, 
+                 working_directory: str = None, 
+                 nthreads: int = 1):
+        self.method = method.casefold()
         self.functional = functional
         self.save_files_in_current_directory = save_files_in_current_directory
         self.working_directory = working_directory
-        if 'nthreads' in kwargs:
-            self.nthreads = kwargs['nthreads']
-    
+        self.nthreads = nthreads
+        self.dftd4bin = self.get_bin_env_var()
+        if self.dftd4bin is None:
+            raise ValueError('Cannot find the dftd4 program, please set the environment variable: export dftd4bin=...')
+
     @doc_inherit
     def predict(self, molecular_database=None, molecule=None,
                 calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, nstates=1, **kwargs):
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
-
-        import os
-        try: dftd4bin = os.environ['dftd4bin']
-        except:
-            raise ValueError('Cannot find the dftd4bin program, please set the environment variable: export dftd4bin=...')
         
         if calculate_energy_gradients or calculate_hessian:
             from .. import constants
         
-        if os.environ.get("OMP_NUM_THREADS"):
-            old_OMP_NUM_THREADS = os.environ["OMP_NUM_THREADS"]
-            os.unsetenv("OMP_NUM_THREADS")
-        else:
-            old_OMP_NUM_THREADS = None
         import tempfile, subprocess        
         ii = 0
         for mol in molDB.molecules:
@@ -80,7 +82,7 @@ class dftd4_methods(models.model):
                     xyzfilename = f'{tmpdirname}/predict{ii}.xyz'
                     mol.write_file_with_xyz_coordinates(filename = xyzfilename)
                     
-                    dftd4args = [dftd4bin, xyzfilename, '-f', '%s' % self.functional, '-c', '%d' % mol.charge, '-s', '-s', '--noedisp']
+                    dftd4args = [self.dftd4bin, xyzfilename, '-f', '%s' % self.functional, '-c', '%d' % mol.charge, '-s', '-s', '--noedisp']
                     if calculate_hessian:
                         dftd4args += ['--json', '--grad', '--hessian']
                     elif calculate_energy_gradients:
@@ -120,8 +122,6 @@ class dftd4_methods(models.model):
                         natoms = len(mol.atoms)
                         hess = np.array(d4_results['hessian']) / (constants.Bohr2Angstrom**2)
                         mol.hessian = hess.reshape(natoms*3,natoms*3)
-        if old_OMP_NUM_THREADS:
-            os.environ['OMP_NUM_THREADS'] = old_OMP_NUM_THREADS
 
 if __name__ == '__main__':
     pass

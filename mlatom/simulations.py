@@ -4,7 +4,7 @@
 
   !---------------------------------------------------------------------------! 
   ! simulations: Module for simulations                                       ! 
-  ! Implementations by: Pavlo O. Dral                                         ! 
+  ! Implementations by: Pavlo O. Dral, Fuchun Ge, Yi-Fan Hou, Yuxinxin Chen   ! 
   !---------------------------------------------------------------------------! 
   
 Geomopt, freq, DMC
@@ -15,7 +15,7 @@ from .md import md as md
 from .md_parallel import md_parallel as md_parallel
 from .initial_conditions import generate_initial_conditions
 from .md2vibr import vibrational_spectrum
-import os, math
+import os, sys, math
 import numpy as np
 import warnings
 warnings.filterwarnings("ignore")
@@ -71,6 +71,7 @@ def run_in_parallel(molecular_database=None, task=None, task_kwargs={},
     
     results = Parallel(n_jobs=nthreads)(delayed(task_loc)(i) for i in range(len(molecular_database)))
     return results
+
 class optimize_geometry():
     """
     Geometry optimization.
@@ -80,7 +81,7 @@ class optimize_geometry():
         initial_molecule (:class:`mlatom.data.molecule`): the molecule object to optimize.
         ts (bool, optional): whether to do transition state search. Currently only be done with program=Gaussian, ASE and geometric.
         program (str, optional): the engine used in geometry optimization. Currently supports Gaussian, ASE, scipy and PySCF.
-        optimization_algorithm (str, optional): the optimization algorithm used in ASE. Default value: LBFGS (ts=False), dimer (ts=False).
+        optimization_algorithm (str, optional): the optimization algorithm used in ASE. Default value: LBFGS (ts=False), dimer (ts=True).
         maximum_number_of_steps (int, optional): the maximum number of steps for ASE, SciPy and geometric. Default value: 200.
         convergence_criterion_for_forces (float, optional): forces convergence criterion in ASE. Default value: 0.02 eV/Angstroms.
         working_directory (str, optional): working directory. Default value: '.', i.e., current directory.
@@ -111,12 +112,17 @@ class optimize_geometry():
 
     """
 
-    def __init__(self, model=None,  model_predict_kwargs={}, initial_molecule=None, molecule=None, ts=False, program=None, optimization_algorithm=None, maximum_number_of_steps=None, convergence_criterion_for_forces=None,working_directory=None, 
+    def __init__(self,
+                 model=None,  model_predict_kwargs={},
+                 initial_molecule=None, molecule=None,
+                 ts=False, reactants=None, products=None,
+                 program=None, program_kwargs={},
+                 optimization_algorithm=None, maximum_number_of_steps=None, convergence_criterion_for_forces=None,working_directory=None, 
     print_properties=None,
     dump_trajectory_interval=None, # Only None and 1 are supported at the moment
-    filename=None, format='json',   
-    **kwargs): # Delete the kwargs!
-        self.kwargs = kwargs
+    filename=None, format='json',
+    constraints=None,
+    ):
         if model != None:
             self.model = model
         self.print_properties = print_properties
@@ -130,21 +136,36 @@ class optimize_geometry():
         if not molecule is None:
             overwrite = True
             self.initial_molecule = molecule.copy()
+        if initial_molecule is None and molecule is None:
+            self.initial_molecule = None
         
         self.ts = ts
+        self.reactants = reactants
+        self.products = products
         if program != None:
             self.program = program
         else:
             if "GAUSS_EXEDIR" in os.environ: self.program = 'Gaussian'
             else:
                 try:
-                    import ase
-                    self.program = 'ASE'
+                    import geometric
+                    self.program = 'geometric'
+                # try:
+                #     import ase
+                #     self.program = 'ASE'
                 except:
-                    try: import scipy.optimize
-                    except: raise ValueError('please set $GAUSS_EXEDIR or install ase or install scipy')
+                    try:
+                        import scipy.optimize
+                        self.program = 'scipy'
+                    except: raise ValueError('please set $GAUSS_EXEDIR or install geometric or install scipy')
         
+        self.program_kwargs = program_kwargs
         self.optimization_algorithm = optimization_algorithm
+        if self.optimization_algorithm is not None:
+            if self.optimization_algorithm.casefold() in ['dimer', 'neb']:
+                self.program='ase'
+            elif self.optimization_algorithm.casefold() in ['qst2', 'qst3']:
+                self.program='gaussian'
         
         # START of block with parameters which are not used in scipy & Gaussian but only in ASE optimization
         if maximum_number_of_steps != None: self.maximum_number_of_steps = maximum_number_of_steps
@@ -153,6 +174,9 @@ class optimize_geometry():
         if convergence_criterion_for_forces != None: self.convergence_criterion_for_forces = convergence_criterion_for_forces
         else: self.convergence_criterion_for_forces = 0.02 # Forces convergence criterion in ASE: 0.02 eV/A
         # END   of block with parameters which are not used in scipy & Gaussian but only in ASE optimization
+
+        if constraints is not None:
+            self.program_kwargs['constraints'] = constraints
 
         if working_directory != None:
             self.working_directory = working_directory
@@ -181,6 +205,12 @@ class optimize_geometry():
             msg = 'Transition state geometry optmization can currently only be done with optimization_program=Gaussian, ASE or geometric'
             raise ValueError(msg)
         
+        # Add essential kwargs to the model kwargs if they are not present:
+        if 'calculate_energy' not in model_predict_kwargs.keys():
+            model_predict_kwargs['calculate_energy'] = True
+        if 'calculate_energy_gradients' not in model_predict_kwargs.keys():
+            model_predict_kwargs['calculate_energy_gradients'] = True
+            
         # Pack the required geomopt-related kwargs into the model kwargs
         self.model_predict_kwargs['return_string'] = False
         self.model_predict_kwargs['dump_trajectory_interval'] = self.dump_trajectory_interval
@@ -203,21 +233,39 @@ class optimize_geometry():
     def opt_geom_gaussian(self):
         self.successful = False
         from .interfaces import gaussian_interface
-        if 'number' in self.initial_molecule.__dict__.keys(): suffix = f'{self.initial_molecule.number}'
-        else: suffix = ''
+        if self.initial_molecule is None:
+            suffix = ''
+        elif 'number' in self.initial_molecule.__dict__.keys():
+            suffix = f'{self.initial_molecule.number}'
+        else:
+            suffix = ''
         #print('debug', suffix, self.initial_molecule.number)
         filename = os.path.join(self.working_directory,f'gaussian{suffix}')
         self.model.dump(filename=os.path.join(self.working_directory,'model.json'), format='json')
         
         # Run Gaussian
-        external_task='opt'
-        if self.ts: external_task = 'ts'
         if self.print_properties is not None:
             print(f' Optimization with Gaussian started.\n Check Gaussian output file "gaussian{suffix}.log" for the progress of optimization.\n')
             filename_json = self.model_predict_kwargs['filename']
             if os.path.exists(f'{filename_json}_tmp_out.out'): os.remove(f'{filename_json}_tmp_out.out')
             self.model_predict_kwargs['return_string'] = True
-        gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.initial_molecule, external_task=external_task, cwd=self.working_directory, model_predict_kwargs=self.model_predict_kwargs)
+        if self.ts:
+            self.program_kwargs['external_task'] = 'ts'
+        else:
+            self.program_kwargs['external_task'] = 'opt'
+        self.program_kwargs['filename'] = f'gaussian{suffix}.com'
+        if self.optimization_algorithm is not None:
+            if self.optimization_algorithm.casefold() in ['qst2', 'qst3']:
+                self.program_kwargs['external_task'] = self.optimization_algorithm
+                self.program_kwargs['reactants'] = self.reactants
+                self.program_kwargs['products'] = self.products
+            if not self.optimization_algorithm.casefold() == 'qst2':
+                self.program_kwargs['molecule'] = self.initial_molecule
+        else:
+            self.program_kwargs['molecule'] = self.initial_molecule
+        self.program_kwargs['working_directory'] = self.working_directory
+        self.program_kwargs['model_predict_kwargs'] = self.model_predict_kwargs
+        gaussian_interface.run_gaussian_job(**self.program_kwargs)
         # Get results
         outputfile = f'{filename}.log'
         if not os.path.exists(outputfile): outputfile = f'{filename}.out'
@@ -245,12 +293,13 @@ class optimize_geometry():
 
         if self.ts:
             self.optimization_trajectory = ase_interface.transition_state(initial_molecule=self.initial_molecule,
+                                            reactants=self.reactants, products=self.products,
                                             model=self.model,
                                             model_predict_kwargs=self.model_predict_kwargs,
                                             convergence_criterion_for_forces=self.convergence_criterion_for_forces,
                                             maximum_number_of_steps=self.maximum_number_of_steps,
                                             optimization_algorithm=self.optimization_algorithm,
-                                            **self.kwargs
+                                            ase_kwargs = self.program_kwargs
                                             )
         else:
             self.optimization_trajectory = ase_interface.optimize_geometry(initial_molecule=self.initial_molecule,
@@ -259,7 +308,7 @@ class optimize_geometry():
                                             convergence_criterion_for_forces=self.convergence_criterion_for_forces,
                                             maximum_number_of_steps=self.maximum_number_of_steps,
                                             optimization_algorithm=self.optimization_algorithm,
-                                            **self.kwargs)
+                                            ase_kwargs = self.program_kwargs)
         #self.optimization_trajectory.dump(filename=os.path.join(self.working_directory,self.filename), format=self.format)
         moldb = data.molecular_database()
         moldb.molecules = [each.molecule for each in self.optimization_trajectory.steps]
@@ -278,7 +327,7 @@ class optimize_geometry():
             istep += 1
             current_molecule = self.initial_molecule.copy()
             current_molecule.xyz_coordinates = coordinates.reshape(len(current_molecule.atoms),3)
-            self.model._predict_geomopt(molecule=current_molecule, calculate_energy=True, calculate_energy_gradients=True, **self.model_predict_kwargs)
+            self.model._predict_geomopt(molecule=current_molecule, **self.model_predict_kwargs)
             if not 'energy' in current_molecule.__dict__:
                 raise ValueError('model did not return any energy')
             molecular_energy = current_molecule.energy
@@ -300,24 +349,6 @@ class optimize_geometry():
         import geometric
         import geometric.molecule
 
-        if 'constraints' in self.kwargs:
-            constraints = self.kwargs['constraints']
-        else:
-            constraints = None 
-
-        convergence_criterion = {}
-
-        if 'convergence_energy' in self.kwargs:
-            convergence_criterion['convergence_energy'] = self.kwargs['convergence_energy']        # default 1e-6 Eh
-        if 'convergence_gradient_rms' in self.kwargs:
-            convergence_criterion['convergence_grms'] = self.kwargs['convergence_gradient_rms']    # default 3e-4 Eh/Bohr
-        if 'convergence_gradient_max' in self.kwargs:
-            convergence_criterion['convergence_gmax'] = self.kwargs['convergence_gradient_max']    # default 4.5e-4 Eh/Bohr
-        if 'convergence_step_rms' in self.kwargs:
-            convergence_criterion['convergence_drms'] = self.kwargs['convergence_step_rms']        # default 1.2e-3 Angstrom
-        if 'convergence_step_max' in self.kwargs:
-            convergence_criterion['convergence_dmax'] = self.kwargs['convergence_step_max']        # default 1.8e-3 Angstrom
-
         maximum_number_of_steps = self.maximum_number_of_steps
         model_predict_kwargs = self.model_predict_kwargs
         class MLatomEngine(geometric.engine.Engine):
@@ -334,9 +365,10 @@ class optimize_geometry():
                 self.maxsteps = maximum_number_of_steps
 
             def calc_new(self, coords, dirname):
-                mol = self.mol
-                mol.xyz_coordinates = coords.reshape(-1,3)*constants.Bohr2Angstrom
-                self.model._predict_geomopt(molecule=mol, calculate_energy=True, calculate_energy_gradients=True, **model_predict_kwargs)
+                mol = self.mol.copy(atomic_labels=[],molecular_labels=[])
+                updated_coord = coords.reshape(-1,3)*constants.Bohr2Angstrom
+                mol.update_xyz_vectorial_properties('xyz_coordinates', updated_coord)
+                self.model._predict_geomopt(molecule=mol, **model_predict_kwargs)
                 energy = mol.energy
                 gradients = mol.get_energy_gradients()/constants.Angstrom2Bohr
                 self.cycle += 1
@@ -346,26 +378,40 @@ class optimize_geometry():
         with tempfile.TemporaryDirectory() as tmpdirname:
             tmpdirname = os.path.abspath(tmpdirname)
 
-        import logging
-        loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
-        for logger in loggers:
-            if logger.name in ['geometric.nifty', 'geometric']:
-                logger.setLevel(logging.CRITICAL)
-                logger.propagate = False
-        mlatom_engine = MLatomEngine(self.initial_molecule, self.model)
-        try:
-            geometric.optimize.run_optimizer(customengine=mlatom_engine, input=tmpdirname, constraints=constraints, transition=self.ts, maxiter=self.maximum_number_of_steps, **convergence_criterion)
-            self.successful = True
-            self.converge = True
-        except Exception as ex:
-            if type(ex) == geometric.errors.GeomOptNotConvergedError:
-                print('Warning: Geometry optimization with geometric failed to converge. The last geometry will be used as the optimized geometry.')
-                self.converge = False
+            import logging
+            loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
+            for logger in loggers:
+                if logger.name in ['geometric.nifty', 'geometric']:
+                    logger.setLevel(logging.CRITICAL)
+                    logger.propagate = False
+            
+            if self.ts:
+                print('Start calculating hessian on trainsition state as first step ...')
+                sys.stdout.flush()
+                self.model.predict(molecule=self.initial_molecule, calculate_hessian=True)
+                print('Finish calculating hessian and start optimizing geometry ...')
+                sys.stdout.flush()
+                hess = self.initial_molecule.hessian
+                hessdir = f'{tmpdirname}.tmp/hessian'
+                if not os.path.exists(hessdir):
+                    os.makedirs(hessdir)
+                np.savetxt(f'{hessdir}/hessian.txt',hess)
+                self.initial_molecule.write_file_with_xyz_coordinates(f'{hessdir}/coords.xyz')
+
+            mlatom_engine = MLatomEngine(self.initial_molecule, self.model)
+            try:
+                geometric.optimize.run_optimizer(customengine=mlatom_engine, input=tmpdirname, transition=self.ts, maxiter=self.maximum_number_of_steps, **self.program_kwargs)
                 self.successful = True
-            else:
-                print('Warning: Geometry optimization with geometric failed. The initial geometry will be used as the optimized geometry.')
-                self.converge = False
-                self.successful = False
+                self.converge = True
+            except Exception as ex:
+                if type(ex) == geometric.errors.GeomOptNotConvergedError:
+                    print('Warning: Geometry optimization with geometric failed to converge. The last geometry will be used as the optimized geometry.')
+                    self.converge = False
+                    self.successful = True
+                else:
+                    print('Warning: Geometry optimization with geometric failed. The initial geometry will be used as the optimized geometry.')
+                    self.converge = False
+                    self.successful = False
 
         if self.successful:
             self.optimization_trajectory.load(filename=os.path.join(self.working_directory,self.filename), format='json')
@@ -425,11 +471,27 @@ class freq():
 
 
     """
-    def __init__(self, model=None, model_predict_kwargs={}, molecule=None, program=None, normal_mode_normalization='mass deweighted normalized', anharmonic=False, anharmonic_kwargs={}, working_directory=None):
-        if model != None:
-            self.model = model
+    def __init__(self, model=None, model_predict_kwargs={}, molecule=None, program=None, ir=False, raman=False, normal_mode_normalization='mass deweighted normalized', anharmonic=False, anharmonic_kwargs={}, working_directory=None):
+        self.model = model
         self.model_predict_kwargs = model_predict_kwargs
         self.molecule = molecule
+        self.ir = ir
+        self.raman = raman
+        if self.ir:
+            # import inspect
+            # args = ['self']
+            # for subclass in self.model.__mro__:
+            #     if 'predict' in subclass.__dict__:
+            #         args += inspect.getfullargspec(subclass.predict).args[1:]
+            # print(args)
+            # if not 'calculate_dipole_derivatives' in args:
+            #     raise TypeError('the model cannot be used for IR spectra calculations')
+            # else:
+            if not 'calculate_dipole_derivatives' in self.model_predict_kwargs:
+                self.model_predict_kwargs['calculate_dipole_derivatives'] = True
+        if self.raman:
+            if not 'calculate_polarizability_derivatives' in self.model_predict_kwargs:
+                self.model_predict_kwargs['calculate_polarizability_derivatives'] = True
         if program != None:
             self.program = program
         else:
@@ -453,7 +515,14 @@ class freq():
             if not 'shape' in self.molecule.__dict__:
                 self.molecule.shape = 'nonlinear'
             self.freq_modified_from_TorchANI(molecule=self.molecule,normal_mode_normalization=self.normal_mode_normalization,model=self.model, model_predict_kwargs=self.model_predict_kwargs)
-        
+
+        if 'dipole_derivatives' in self.molecule.__dict__:
+            if self.program.casefold() != 'Gaussian'.casefold():
+                self.ir_intensities(normal_mode_normalization='mass deweighted normalized')
+        if 'polarizability_derivatives' in self.molecule.__dict__:
+            if self.program.casefold() != 'Gaussian'.casefold():
+                self.raman_intensities(normal_mode_normalization='mass deweighted normalized')
+
     def freq_gaussian(self, anharmonic):
         self.successful = False
         from .interfaces import gaussian_interface
@@ -461,42 +530,100 @@ class freq():
         else: suffix = ''
         filename = os.path.join(self.working_directory,f'gaussian{suffix}')
         self.model.dump(filename=os.path.join(self.working_directory,'model.json'), format='json')
-        self.optimization_trajectory = data.molecular_trajectory()
         self.molecule.dump(filename=os.path.join(self.working_directory,'gaussian_freq_mol.json'), format='json')
         
         # Run Gaussian
         if anharmonic:
-            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq(anharmonic)',cwd=self.working_directory,**self.anharmonic_kwargs, model_predict_kwargs=self.model_predict_kwargs)
+            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq(anharmonic)',working_directory=self.working_directory,freq_keywords=self.anharmonic_kwargs, model_predict_kwargs=self.model_predict_kwargs)
         else:
-            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq',cwd=self.working_directory, model_predict_kwargs=self.model_predict_kwargs)
+            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq',working_directory=self.working_directory, model_predict_kwargs=self.model_predict_kwargs)
         
         # Get results
         outputfile = f'{filename}.log'
+        if os.path.exists('gaussian_freq_mol.json'):
+            self.molecule.load(filename='gaussian_freq_mol.json', format='json')
         if not os.path.exists(outputfile): outputfile = f'{filename}.out'
-        self.successful = gaussian_interface.read_freq_thermochemistry_from_Gaussian_output(outputfile, self.molecule)
-        if anharmonic:
-            freq_len = len(self.molecule.frequencies)//2
-            self.molecule.frequencies = self.molecule.frequencies[:freq_len]
-            self.molecule.force_constants = self.molecule.force_constants[:freq_len]
-            self.molecule.reduced_masses = self.molecule.reduced_masses[:freq_len]
-            for iatom in range(len(self.molecule.atoms)):
-                self.molecule.atoms[iatom].normal_modes = self.molecule.atoms[iatom].normal_modes[:freq_len]
-            self.molecule.harmonic_frequencies = np.copy(self.molecule.frequencies)
-            gaussian_interface.read_anharmonic_frequencies(outputfile,self.molecule)
-            self.molecule.frequencies = self.molecule.anharmonic_frequencies              
-            thermochemistry_properties = ['ZPE','DeltaE2U','DeltaE2H','DeltaE2G','U0','H0','U','H','G','S']
-            for each_property in thermochemistry_properties:
-                self.molecule.__dict__['harmonic_'+each_property] = self.molecule.__dict__[each_property]
-                self.molecule.__dict__[each_property] = self.molecule.__dict__['anharmonic_'+each_property]
-        if self.molecule.infrared_intensities == []:
-            del(self.molecule.infrared_intensities)
+        gaussian_interface.parse_gaussian_output(filename=outputfile, molecule=self.molecule)
         if os.path.exists(os.path.join(self.working_directory,'gaussian_freq_mol.json')): os.remove(os.path.join(self.working_directory,'gaussian_freq_mol.json'))
 
     def freq_pyscf(self):
         self.successful = False
-        self.model.predict(molecule=self.molecule, calculate_energy=True, calculate_hessian=True, **self.model_predict_kwargs)
+        if self.model is not None:
+            self.model.predict(molecule=self.molecule, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=True, **self.model_predict_kwargs)
         from .interfaces import pyscf_interface
         self.successful = pyscf_interface.thermo_calculation(molecule=self.molecule)
+
+    # This function uses dipole derivatives in Debye/Angstrom
+    # The unit of IR intensities (km/mol) refers to kernel_ir function in 
+    # https://github.com/pyscf/properties/blob/master/pyscf/prop/infrared/rhf.py
+    def ir_intensities(self,normal_mode_normalization='mass deweighted normalized'):
+        Natoms = len(self.molecule)
+        Nfreqs = len(self.molecule.frequencies)
+        masses = self.molecule.get_nuclear_masses()
+        kmmol = constants.fine_structure_constant**2 * 1e-3 * constants.au2ram * constants.Avogadro_constant * np.pi * constants.Bohr2Angstrom * 1e-10 / 3
+        de = np.copy(self.molecule.dipole_derivatives) * constants.Debye
+        if normal_mode_normalization == 'mass deweighted normalized':
+            # mass deweighted normalized to mass weighted normalized
+            nm = np.zeros((Nfreqs,Natoms,3))
+            for imode in range(Nfreqs):
+                for iatom in range(Natoms):
+                    nm[imode][iatom] = self.molecule[iatom].normal_modes[imode] * np.sqrt(masses[iatom])
+            for imode in range(Nfreqs):
+                nm[imode] /= np.sqrt(np.sum(nm[imode]**2))
+            # mass weighted normalized to mass deweighted unnormalized
+            for imode in range(Nfreqs):
+                for iatom in range(Natoms):
+                    nm[imode][iatom] = nm[imode][iatom] / np.sqrt(masses[iatom])
+        elif normal_mode_normalization == 'mass deweighted unnormalized':
+            nm = np.zeros((Nfreqs,Natoms,3))
+            for imode in range(Nfreqs):
+                for iatom in range(Natoms):
+                    nm[imode][iatom] = self.molecule[iatom].normal_modes[imode]
+        else:
+            return
+        new_de = de.reshape((Natoms*3,3))
+
+        # The normal modes here should be mass deweighted unnormalized ones
+        nm = nm.reshape((nm.shape[0],3*Natoms))
+        de_nm = np.dot(nm,new_de)
+        self.molecule.infrared_intensities = kmmol * np.einsum("qt, qt -> q", de_nm,de_nm)
+
+    def raman_intensities(self,normal_mode_normalization='mass deweighted normalized'):
+        Natoms = len(self.molecule)
+        Nfreqs = len(self.molecule.frequencies)
+        masses = self.molecule.get_nuclear_masses()
+        if normal_mode_normalization == 'mass deweighted normalized':
+            # mass deweighted normalized to mass weighted normalized
+            nm = np.zeros((Nfreqs,Natoms,3))
+            for imode in range(Nfreqs):
+                for iatom in range(Natoms):
+                    nm[imode][iatom] = self.molecule[iatom].normal_modes[imode] * np.sqrt(masses[iatom])
+            for imode in range(Nfreqs):
+                nm[imode] /= np.sqrt(np.sum(nm[imode]**2))
+            # mass weighted normalized to mass deweighted unnormalized
+            for imode in range(Nfreqs):
+                for iatom in range(Natoms):
+                    nm[imode][iatom] = nm[imode][iatom] / np.sqrt(masses[iatom])
+        elif normal_mode_normalization == 'mass deweighted unnormalized':
+            nm = np.zeros((Nfreqs,Natoms,3))
+            for imode in range(Nfreqs):
+                for iatom in range(Natoms):
+                    nm[imode][iatom] = self.molecule[iatom].normal_modes[imode]
+        else:
+            return
+        
+        polard = np.copy(self.molecule.polarizability_derivatives)
+        new_polard = polard.reshape((Natoms*3,6))
+        nm = nm.reshape((nm.shape[0],3*Natoms))
+        polard_nm = np.dot(nm,new_polard)
+        intensities = []
+        for each in polard_nm:
+            a2 = (each[0]+each[2]+each[5])**2 / 9.0
+            gamma2 = ((each[0]-each[2])**2 + (each[0]-each[5])**2 + (each[2]-each[5])**2 + 6*(each[1]**2+each[3]**2+each[4]**2)) / 2.0
+            intensities.append(45.0*a2+7.0*gamma2)
+        intensities = np.array(intensities).astype(float)
+        self.molecule.raman_intensities = intensities * constants.au2Angstrom4byamu * constants.au2ram
+        
     
     @classmethod
     def freq_modified_from_TorchANI(cls,molecule,normal_mode_normalization,model=None, **kwargs):
@@ -534,7 +661,7 @@ class freq():
             model_predict_kwargs = {}
 
         if not model is None:
-            model.predict(molecule=molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=True)
+            model.predict(molecule=molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=True, **model_predict_kwargs)
         
         mhessian2fconst = 4.359744650780506
         unit_converter = 17091.7006789297
@@ -662,7 +789,7 @@ class thermochemistry():
     
     * ``DeltaHf298``: Heat of formation at 298 K
     """
-    def __init__(self, model=None, molecule=None, program=None, normal_mode_normalization='mass deweighted normalized'):
+    def __init__(self, model=None, molecule=None, program=None, ir=False, raman=False, normal_mode_normalization='mass deweighted normalized'):
         if model != None:
             self.model = model
         self.molecule = molecule
@@ -676,7 +803,7 @@ class thermochemistry():
                     self.program = 'ASE'
                 except:
                     raise ValueError('please set $GAUSS_EXEDIR or install ase')
-        freq(model=model, molecule=self.molecule, program=program, normal_mode_normalization=normal_mode_normalization)
+        freq(model=model, molecule=self.molecule, program=program, ir=ir, raman=raman, normal_mode_normalization=normal_mode_normalization)
         if self.program.casefold() == 'ASE'.casefold(): self.thermochem_ase()
         # Calculate heats of formation
         self.calculate_heats_of_formation()
@@ -692,7 +819,8 @@ class thermochemistry():
         if 'H0' in self.molecule.__dict__:
             atoms_have_H0 = True
             for atom in self.molecule.atoms:
-                if not 'H0' in atom.__dict__:
+                # if not 'H0' in atom.__dict__:
+                if not atom.H0:
                     atoms_have_H0 = False
                     break
             if not atoms_have_H0:
@@ -809,7 +937,19 @@ class dmc():
         '''
         return self.result.get_zpe(onwards=start_step, ret_cm=False)
 
-def numerical_gradients(molecule, model_with_function_to_predict_energy, eps=1e-5, kwargs_funtion_predict_energy={}, return_molecular_database=False):
+def numerical_gradients(molecule, model, displacement=1e-5, model_kwargs={}, return_molecular_database=False, nthreads=None):
+    '''
+    Calculate numerical gradients.
+    Two-point numerical differentiation is used and the required single-point calculations are run in parallel.
+    
+    Arguments:
+        molecule (:class:`mlatom.data.molecule`):                               the molecule object.
+        model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): any model or method which provides energies (takes molecule as an argument).
+        displacement (float, optional):                                         displacement of nuclear coordinates in Angstrom (default: 1e-5).
+        model_kwargs (dict, optional):                                          kwargs to be passed to model (except for molecule).
+        return_molecular_database (bool, optional):                             whether to return the :class:`mlatom.data.molecular_database` with the displaced geometries and energies (default: False).
+        nthreads (int, optional):                                               number of threads (default: None, using all threads it can find).       
+    '''
     if return_molecular_database:
         molDB = data.molecular_database()
     coordinates = molecule.xyz_coordinates.reshape(-1)
@@ -817,42 +957,62 @@ def numerical_gradients(molecule, model_with_function_to_predict_energy, eps=1e-
     natoms = len(coordinates) // 3
     for ii in range(len(coordinates)):
         new_coordinates = np.copy(coordinates)
-        new_coordinates[ii] += eps
+        new_coordinates[ii] += displacement
         coordinates_list.append(new_coordinates)
     coordinates_list.append(coordinates)
     def get_energy(coordinates):
         current_molecule = molecule.copy()
         current_molecule.xyz_coordinates = coordinates.reshape(len(current_molecule.atoms),3)
-        model_with_function_to_predict_energy.predict(molecule=current_molecule, **kwargs_funtion_predict_energy)
+        model.predict(molecule=current_molecule, **model_kwargs)
         if return_molecular_database: molDB.molecules.append(current_molecule)
         return current_molecule.energy
     from multiprocessing import cpu_count
-    nthreads = cpu_count()
+    if nthreads == None:
+        nthreads = cpu_count()
     if nthreads == 1:
         energies = np.array([get_energy(each) for each in coordinates_list])
     else:
-        from multiprocessing.pool import ThreadPool as Pool
-        model_with_function_to_predict_energy.set_num_threads(1)
-        pool = Pool(processes=nthreads)
-        energies = np.array(pool.map(get_energy, coordinates_list))
+        import joblib
+        from joblib import Parallel, delayed
+        nthreads_saved = model.nthreads
+        model.set_num_threads(1)
+        energies = Parallel(n_jobs=nthreads)(delayed(get_energy)(coord) for coord in coordinates_list)
+        try:
+            energies = np.array(energies)
+        except:
+            raise ValueError('Some of the single-point calculations in numerical gradient calculations failed.')
+        model.set_num_threads(nthreads_saved)
     relenergy = energies[-1]
-    gradients = (energies[:-1]-relenergy)/eps
-    if return_molecular_database: return gradients.reshape(natoms,3), molDB
-    else:                         return gradients.reshape(natoms,3)
+    gradients = (energies[:-1]-relenergy)/displacement
+    molecule.energy_gradients = gradients.reshape(natoms,3)
+    if return_molecular_database: return molecule.energy_gradients, molDB
+    else: return molecule.energy_gradients
 
-def numerical_hessian(molecule, model_with_function_to_predict_energy, eps=5.29167e-4, epsgrad=1e-5, kwargs_funtion_predict_energy={}):
-    g1 = numerical_gradients(molecule, model_with_function_to_predict_energy, epsgrad, kwargs_funtion_predict_energy)
+def numerical_hessian(molecule, model, displacement=5.29167e-4, displacement4grads=1e-5, model_kwargs={}):
+    '''
+    Calculate numerical Hessians.
+    Two-point numerical differentiation is used and the required single-point calculations are run in parallel.
+    
+    Arguments:
+        molecule (:class:`mlatom.data.molecule`):                               the molecule object.
+        model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): any model or method which provides energies (takes molecule as an argument).
+        displacement (float, optional):                                         displacement of nuclear coordinates in Angstrom (default: 5.29167e-4).
+        displacement4grads (float, optional):                                   displacement of nuclear coordinates in Angstrom (default: 1e-5) when calculating gradients.
+        model_kwargs (dict, optional):                                          kwargs to be passed to model (except for molecule).     
+    '''
+    g1 = numerical_gradients(molecule, model, displacement4grads, model_kwargs)
     coordinates1 = molecule.xyz_coordinates.reshape(-1)
     ndim = len(coordinates1)
     hess = np.zeros((ndim, ndim))
     coordinates2 = coordinates1
     for i in range(ndim):
         x0 = coordinates2[i]
-        coordinates2[i] = coordinates1[i] + eps
+        coordinates2[i] = coordinates1[i] + displacement
         molecule2 = molecule.copy()
         molecule2.xyz_coordinates = coordinates2.reshape(len(molecule2.atoms),3)
-        g2 = numerical_gradients(molecule2, model_with_function_to_predict_energy, epsgrad, kwargs_funtion_predict_energy)
-        hess[:, i] = (g2.reshape(-1) - g1.reshape(-1)) / eps
+        g2 = numerical_gradients(molecule2, model, displacement4grads, model_kwargs)
+        hess[:, i] = (g2.reshape(-1) - g1.reshape(-1)) / displacement
         coordinates2[i] = x0
-
+    molecule.hessian = hess
     return hess
+

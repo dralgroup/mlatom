@@ -11,7 +11,7 @@ def printHeader(args):
     if args.mlqd: refItems['MLQD program']  = refs['MLQDprog']
     if args.deltaLearn:  refItems['delta-learning']  = refs['JCTC2015_DeltaLearning']
     if args.molDescriptor.upper() == 'CM': refItems['Coulomb matrix'] = refs['CM']
-    if args.selfCorrect: refItems['cross-section'] = refs['JCP2017_MLCH3Cl']
+    if args.selfCorrect: refItems['self-correction'] = refs['JCP2017_MLCH3Cl']
     if (args.MLprog.lower() == 'mlatomf' or args.MLprog == '') and (args.MLmodelType.lower() == 'kreg' or not args.MLmodelType) and (args.createMLmodel or args.estAccMLmodel or args.XYZ2X):
         if args.XYZfile != '' and (args.molDescriptor.upper() == 'RE' or not args.molDescriptor):
             if args.kernel.lower() == 'gaussian' or args.kernel == '' and not args.XYZ2X:
@@ -44,19 +44,29 @@ def printHeader(args):
         refItems['GAP model'] = refs['GAP']
         if (args.MLmodelType.lower() == 'gap-soap' or args.MLmodelType.lower() == ''):
             refItems['SOAP descriptor'] = refs['SOAP']
-    
-    if 'qmprog=pyscf' in ' '.join(args.args2pass).lower():
+
+    # QM programs
+    if args.QMprog == 'pyscf':
         refItems['PySCF']  = refs['PySCF']
-    elif 'qmprog=gaussian' in ' '.join(args.args2pass).lower():
+    if args.QMprog == 'gaussian':
         refItems['Gaussian program']  = refs['Gaussian']
-    elif 'qmprog=sparrow' in ' '.join(args.args2pass).lower():
-            refItems['Sparrow program']  = refs['Sparrow']
-    elif 'qmprog=mndo' in ' '.join(args.args2pass).lower():
-            refItems['MNDO program']  = refs['MNDOprog']
-    elif 'qmprog=xtb' in ' '.join(args.args2pass).lower():
+    if args.QMprog == 'sparrow':
+        refItems['Sparrow program']  = refs['Sparrow']
+    if args.QMprog == 'mndo':
+        refItems['MNDO program']  = refs['MNDOprog']
+    if args.QMprog == 'xtb':
         refItems['xtb program']  = refs['xtb']
-    elif 'qmprog=orca' in ' '.join(args.args2pass).lower():
-        refItems['ORCA program']  = refs['ORCA']
+    if args.QMprog == 'torchani':
+        refItems['TorchANI program'] = refs['TorchANI']
+    if args.QMprog in ['ccsdtstarcbs', 'orca']:
+        refItems['ORCA program']  = refs['ORCA']    
+    if args.QMprog == 'dftd4':
+        refItems['D4']  = refs['D4']
+        refItems['D4 program']  = refs['D4prog']
+    # if args.QMprog == 'dftd3':
+    #     refItems['D3 program']  = refs['D3prog']
+    # if args.QMprog == 'turbomole':
+    #     refItems['TURBOMOLE program']  = refs['TURBOMOLE']
             
     if args.crossSection:  
         refItems['ML-NEA']  = refs['ML-NEA']
@@ -72,34 +82,35 @@ def printHeader(args):
         refItems['hyperopt program'] = refs['hyperopt']
         refItems['Tree-Structured Parzen Estimator algorithm'] = refs['TPE']
         
-    if args.method in models.methods.methods_map['aiqm1']:
-        refItems['AIQM1']  = refs['AIQM1']
-        refItems['ODM2']  = refs['ODM2']
-        if 'qmprog=sparrow' in ' '.join(args.args2pass).lower() and 'sparrowbin' in os.environ:
-            refItems['Sparrow program']  = refs['Sparrow']
-        elif 'mndobin' in os.environ:
-            refItems['MNDO program']  = refs['MNDOprog']
-        elif 'sparrowbin' in os.environ:
-            refItems['Sparrow program']  = refs['Sparrow']
-        refItems['D4']  = refs['D4']
-        refItems['D4 program']  = refs['D4prog']
-        refItems['ANI model'] = refs['ANI']
-        refItems['TorchANI program'] = refs['TorchANI']
-        if args.freq:
-            refItems['Uncertainty quantification of AIQM1 heats of formation'] = refs['HoF-ANI1ccx']
+    if type(args.method) is str:
+        if args.method.casefold() in [m.casefold() for m in ['AIQM1', 'AIQM1@DFT', 'AIQM1@DFT*']]:
+            refItems['AIQM1']  = refs['AIQM1']
+            refItems['ODM2']  = refs['ODM2']
+            if 'qmprog=sparrow' in ' '.join(args.args2pass).lower() and 'sparrowbin' in os.environ:
+                refItems['Sparrow program']  = refs['Sparrow']
+            elif 'mndobin' in os.environ:
+                refItems['MNDO program']  = refs['MNDOprog']
+            elif 'sparrowbin' in os.environ:
+                refItems['Sparrow program']  = refs['Sparrow']
+            refItems['D4']  = refs['D4']
+            refItems['D4 program']  = refs['D4prog']
+            refItems['ANI model'] = refs['ANI']
+            refItems['TorchANI program'] = refs['TorchANI']
+            if args.freq:
+                refItems['Uncertainty quantification of AIQM1 heats of formation'] = refs['HoF-ANI1ccx']
     
-    if args.method in models.methods.methods_map['mndo'] + models.methods.methods_map['sparrow']:
-        if args.ODM2:
-            refItems['ODM2']  = refs['ODM2']
-        elif args.ODM2star:
-            refItems['ODM2']  = refs['ODM2']
-            refItems['ODM2*']  = refs['AIQM1']
-        if 'qmprog=sparrow' in ' '.join(args.args2pass).lower() and 'sparrowbin' in os.environ:
-            refItems['Sparrow program']  = refs['Sparrow']
-        elif 'mndobin' in os.environ:
-            refItems['MNDO program']  = refs['MNDOprog']
-        elif 'sparrowbin' in os.environ:
-            refItems['Sparrow program']  = refs['Sparrow']
+        if args.method.casefold() in [models.mndo_methods.supported_methods + models.sparrow_methods.supported_methods]:
+            if args.ODM2:
+                refItems['ODM2']  = refs['ODM2']
+            elif args.ODM2star:
+                refItems['ODM2']  = refs['ODM2']
+                refItems['ODM2*']  = refs['AIQM1']
+            if 'qmprog=sparrow' in ' '.join(args.args2pass).lower() and 'sparrowbin' in os.environ:
+                refItems['Sparrow program']  = refs['Sparrow']
+            elif 'mndobin' in os.environ:
+                refItems['MNDO program']  = refs['MNDOprog']
+            elif 'sparrowbin' in os.environ:
+                refItems['Sparrow program']  = refs['Sparrow']
 
     if args.CCSDTstarCBS:
         refItems['CCSD(T)*/CBS']  = refs['ANI-1ccx']
@@ -154,8 +165,10 @@ def printHeader(args):
             refItems['Gaussian program']  = refs['Gaussian']
         else:
             try:
-                import ase
-                refItems['Atomic simulation environment (ASE)']  = refs['ASE']
+                # import ase
+                # refItems['Atomic simulation environment (ASE)']  = refs['ASE']
+                import geometric 
+                refItems['geomeTRIC program']  = refs['geometric']
             except:
                 try: 
                     import scipy

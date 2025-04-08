@@ -23,7 +23,7 @@ class CLItasks(object):
     def __init__(self, args):
         self.args = args
     def run(self):
-        if self.args.MLprog.lower() == 'mlatomf' and self.args.task in self.MLatomF_tasks and not self.args.method and not self.args.hyperparameter_optimization['hyperparameters']:
+        if self.args.MLprog.lower() == 'mlatomf' and self.args.task in self.MLatomF_tasks and not self.args.method and not self.args.hyperparameter_optimization['hyperparameters'] and not self.args.uaiqm:
             return run_with_mlatomF(self.args)
         else: 
             return globals()[self.args.task](self.args)
@@ -39,25 +39,36 @@ def run_with_mlatomF(args):
         post_delta_learning(args)
     return results
     
-# Functions for tasks bleow. Name with corresponding task name in args_class.mLatom_args._task_list
+# Functions for tasks below. Name with corresponding task name in args_class.mLatom_args._task_list
 def useMLmodel(args):
     if args.deltaLearn:
         pre_delta_learning(args)
+    if args.uaiqm:
+        get_uaiqm_args(args)
     model = loading_model(args)
     molecular_database = loading_data(args.XYZfile, args.Yfile, args.YgradXYZfile, charges=args.charges, multiplicities=args.multiplicities)
     t_predict = predicting(model=model, molecular_database=molecular_database, value=bool(args.YestFile), gradient=bool(args.YgradXYZestFile), hessian=bool(args.hessianEstFile), ismethod=args.method)
     saving_predictions(molecular_database, YestFile=args.YestFile, YgradXYZestFile=args.YgradXYZestFile, hessianEstFile=args.hessianEstFile, method=args.method)
     if args.method:
         print('')
-        if args.AIQM1 or args.AIQM1DFT or args.AIQM1DFTstar or args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4:
+        if args.AIQM1 or args.AIQM1DFT or args.AIQM1DFTstar or args.AIQM2 or args.AIQM2DFT or args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4 or args.ani1ccxgelu or args.ani1xgelu or args.ani1ccxgelud4 or args.ani1xgelud4:
             nmol = 0
             for mol in molecular_database:
                 nmol += 1
                 print('\n\n Properties of molecule %d\n' % nmol)
                 if args.AIQM1 or args.AIQM1DFT or args.AIQM1DFTstar:
                     printing_aiqm1_results(aiqm1=args.AIQM1, molecule=mol)
-                elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4:
+                if args.AIQM2 or args.AIQM2DFT:
+                    printing_aiqm2_results(molecule=mol)
+                elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4 or args.ani1ccxgelu or args.ani1xgelu or args.ani1ccxgelud4 or args.ani1xgelud4:
                     printing_animethod_results(methodname=model.method, molecule=mol)
+        elif 'uaiqm' in args.method:
+            nmol = 0
+            for mol in molecular_database:
+                nmol += 1
+                print('\n\n Properties of molecule %d\n' % nmol)
+                uversion = None if not args.uversion else args.uversion
+                printing_uaiqm_results(molecule=mol, method=args.method, uversion=args.uversion)
         else:
             for imol in range(len(molecular_database.molecules)): print(' Energy of molecule %6d: %25.13f Hartree' % (imol+1, molecular_database.molecules[imol].energy))
         print('')
@@ -362,8 +373,18 @@ def slice(args):
     from . import sliceData
     sliceData.sliceDataCls(argsSD = args.args2pass)
 
-def geomopt(args):
+def optfreq(args):
+    molDB = geomopt(args, return_moldb=True)
+    freq(args, molDB=molDB)
+    
+def tsfreq(args):
+    molDB = ts(args, return_moldb=True)
+    freq(args, molDB=molDB)
+
+def geomopt(args, return_moldb=False):
     from . import simulations
+    if args.uaiqm:
+        get_uaiqm_args(args)
     molDB = loading_data(XYZfile=args.XYZfile, charges=args.charges, multiplicities=args.multiplicities)
     model = loading_model(args)
     fname = args.optXYZ
@@ -406,20 +427,38 @@ def geomopt(args):
             print('\n\n Final properties of molecule %d\n' % (imol+1))
             printing_aiqm1_results(aiqm1=args.AIQM1, molecule=geomopt.optimized_molecule)
             print('\n')
-        elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4:
+        if args.AIQM2 or args.AIQM2DFT:
+            print('\n\n Final properties of molecule %d\n' % (imol+1))
+            printing_aiqm2_results(molecule=geomopt.optimized_molecule)
+            print('\n')
+        elif args.method and 'uaiqm' in args.method:
+            print('\n\n Final properties of molecule %d\n' % (imol+1))
+            uversion = None if not args.uversion else args.uversion
+            printing_uaiqm_results(molecule=geomopt.optimized_molecule, method=args.method, uversion=uversion)
+            print('\n')
+        elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4 or args.ani1ccxgelu or args.ani1xgelu or args.ani1ccxgelud4 or args.ani1xgelud4:
             print('\n\n Final properties of molecule %d\n' % (imol+1))
             printing_animethod_results(methodname=model.method, molecule=geomopt.optimized_molecule)
             print('\n')
         else:
             print('\n Final energy of molecule %6d: %25.13f Hartree\n\n' % (imol+1, geomopt.optimized_molecule.energy))
     db_opt.write_file_with_xyz_coordinates(filename=fname)
+    if return_moldb:
+        return db_opt
 
-def ts(args):
-    geomopt(args)
+def ts(args, return_moldb=False):
+    if return_moldb:
+        molDB = geomopt(args, return_moldb=return_moldb)
+        return molDB
+    else:
+        geomopt(args, return_moldb=return_moldb)
 
-def freq(args):
+def freq(args, molDB=None):
     from . import simulations
-    molDB = loading_data(args.XYZfile, charges=args.charges, multiplicities=args.multiplicities)
+    if molDB is None:
+        molDB = loading_data(args.XYZfile, charges=args.charges, multiplicities=args.multiplicities)
+    if args.uaiqm:
+        get_uaiqm_args(args)
     model = loading_model(args)
     kwargs = {}
     if args.freqProg:       kwargs['program'] = args.freqProg
@@ -446,8 +485,11 @@ def freq(args):
             mol.symmetry_number = int(symmetrynumbers[imol])
         geomopt = simulations.thermochemistry(model=model,
                                         molecule=mol,
+                                        ir=args.ir,
+                                        raman=args.raman,
                                         **kwargs)
         mol.dump(f'freq{mol.number}.json',format='json')
+        mol.dump(f'freq_gaussian{mol.number}.log',format='gaussian')
         print(' %s ' % ('='*78))
         print(' %s Vibration analysis for molecule %6d' % (' '*20, imol+1))
         print(' %s ' % ('='*78))
@@ -455,10 +497,55 @@ def freq(args):
         if 'symmetry_number' in mol.__dict__: print(' Rotational symmetry number: %s' % mol.symmetry_number)
         if 'shape' in mol.__dict__: print(f' This is a {mol.shape.casefold()} molecule')
         
-        print('   Mode     Frequencies     Reduced masses     Force Constants')
-        print('              (cm^-1)            (AMU)           (mDyne/A)')
-        for i in range(len(mol.frequencies)):
-            print('%6d %15.4f %15.4f %18.4f' % (i+1, mol.frequencies[i], mol.reduced_masses[i], mol.force_constants[i]))
+        if 'infrared_intensities' in mol.__dict__ and 'raman_intensities' in mol.__dict__:
+            print('   Mode     Frequencies     Reduced masses     Force Constants       IR intensities     Raman intensities')
+            print('              (cm^-1)            (AMU)           (mDyne/A)              (km/mol)            (A^4/AMU)')
+            for i in range(len(mol.frequencies)):
+                print('%6d %15.4f %15.4f %18.4f     %18.4f %18.4f' % (i+1, mol.frequencies[i], mol.reduced_masses[i], mol.force_constants[i], mol.infrared_intensities[i], mol.raman_intensities[i]))
+        elif 'infrared_intensities' in mol.__dict__:
+            print('   Mode     Frequencies     Reduced masses     Force Constants       IR intensities')
+            print('              (cm^-1)            (AMU)           (mDyne/A)              (km/mol)')
+            for i in range(len(mol.frequencies)):
+                print('%6d %15.4f %15.4f %18.4f     %18.4f' % (i+1, mol.frequencies[i], mol.reduced_masses[i], mol.force_constants[i], mol.infrared_intensities[i]))
+        elif 'raman_intensities' in mol.__dict__:
+            print('   Mode     Frequencies     Reduced masses     Force Constants     Raman intensities')
+            print('              (cm^-1)            (AMU)           (mDyne/A)            (A^4/AMU)')
+            for i in range(len(mol.frequencies)):
+                print('%6d %15.4f %15.4f %18.4f     %18.4f     %18.4f' % (i+1, mol.frequencies[i], mol.reduced_masses[i], mol.force_constants[i], mol.raman_intensities[i]))
+        else:
+            print('   Mode     Frequencies     Reduced masses     Force Constants')
+            print('              (cm^-1)            (AMU)           (mDyne/A)')
+            for i in range(len(mol.frequencies)):
+                print('%6d %15.4f %15.4f %18.4f' % (i+1, mol.frequencies[i], mol.reduced_masses[i], mol.force_constants[i]))
+
+        if 'infrared_intensities' in mol.__dict__:
+            scaling = False
+            if abs(args.scaling - 0.0) > 1e-6:
+                if abs(args.scaling - 1.0) > 1e-8:
+                    scaling = True 
+                    scaling_factor = args.scaling
+            else:
+                if args.AIQM2:
+                    scaling = True
+                    scaling_factor = 0.962
+                elif args.AIQM1:
+                    scaling = True 
+                    scaling_factor = 0.957
+                # if args.method and 'uqiam_gfn2xtbstar' in args.method and 'cc' in args.method:
+                #     scaling = True 
+                #     scaling_factor = 0.962
+                
+            if scaling:
+                mol_copy = mol.copy()
+                mol_copy.frequencies = np.array(mol_copy.frequencies) * scaling_factor
+                mol_copy.dump(f'scaled_freq_gaussian{mol.number}.log',format='gaussian')
+                print(' Scale frequencies linearly')
+                print(f' Scaling factor: {scaling_factor}')
+                print('   Mode     Frequencies     Reduced masses     Force Constants       IR intensities')
+                print('              (cm^-1)            (AMU)           (mDyne/A)              (km/mol)')
+                for i in range(len(mol.frequencies)):
+                    print('%6d %15.4f %15.4f %18.4f     %18.4f' % (i+1, mol.frequencies[i]*scaling_factor, mol.reduced_masses[i], mol.force_constants[i], mol.infrared_intensities[i]))
+
             
         print(' %s ' % ('='*78))
         print(' %s Thermochemistry for molecule %6d' % (' '*20, imol+1))
@@ -467,7 +554,14 @@ def freq(args):
         if args.AIQM1 or args.AIQM1DFT or args.AIQM1DFTstar:
             printing_aiqm1_results(aiqm1=args.AIQM1, molecule=mol)
             print('')
-        elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4:
+        if args.AIQM2 or args.AIQM2DFT:
+            printing_aiqm2_results(molecule=mol)
+            print('')
+        elif args.method and 'uaiqm' in args.method:
+            uversion = None if not args.uversion else args.uversion
+            printing_uaiqm_results(molecule=mol, method=args.method, uversion=args.uversion)
+            print('')
+        elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4 or args.ani1ccxgelu or args.ani1xgelu or args.ani1ccxgelud4 or args.ani1xgelud4:
             printing_animethod_results(methodname=model.method, molecule=mol)
             print('')
         if hasattr(mol, 'energy'):  print(fmt % ('ZPE-exclusive internal energy at      0 K', mol.energy))
@@ -486,10 +580,20 @@ def freq(args):
             if args.AIQM1:
                 if mol.aiqm1_nn.energy_standard_deviation > 0.41*constants.kcalpermol2Hartree:
                     print(' * Warning * Heat of formation have high uncertainty!')
+            if args.AIQM2:
+                if mol.aiqm2_nn.energy_standard_deviation > 0.36*constants.kcalpermol2Hartree:
+                    print(' * Warning * Heat of formation have high uncertainty!')
             if args.ani1ccx:
                 if mol.ani1ccx.energy_standard_deviation > 1.68*constants.kcalpermol2Hartree:
                     print(' * Warning * Heat of formation have high uncertainty!')
         print('')
+
+def ir(args):
+    freq(args)
+
+def raman(args):
+    args.ir = True 
+    freq(args)
 
 def irc(args):
     from . import simulations
@@ -501,7 +605,7 @@ def irc(args):
                                     ts_molecule=mol)
 
 def MD(args):
-    from . import md_cmd 
+    from . import md_cmd
     model = loading_model(args)
     md_cmd.MD_CMD.dynamics(args.args2pass, model)
 
@@ -573,11 +677,15 @@ def loading_method(args):
             kwargs['read_keywords_from_file'] = args.QMprogramKeywords
             if args.mndokeywords or 'sparrow' in args.qmprog.lower():
                 kwargs['save_files_in_current_directory'] = True
-    if args.qmprog:
+    if args.QMprog:
         if 'AIQM' in kwargs['method']:
             kwargs['qm_program'] = args.qmprog
         else:
-            kwargs['program'] = args.qmprog                    
+            kwargs['program'] = args.qmprog 
+    if args.uversion:
+        kwargs['version'] = args.uversion
+    if 'uwarning' in args.args_dict:
+        kwargs['warning'] = args.uwarning
     method = models.methods(**kwargs)
     method.set_num_threads(args.nthreads)
     return method
@@ -836,8 +944,20 @@ def analyzing(molecular_database, ref_value='', est_value='', ref_grad='', est_g
      estimated value        ={'%26.13f' % neg_off_est}
      reference value        ={'%26.13f' % neg_off_ref}''')
     if est_grad:
-        ref = molecular_database.get_xyz_vectorial_properties(ref_grad).flatten()
-        est = molecular_database.get_xyz_vectorial_properties(est_grad).flatten()
+        ref_raw = molecular_database.get_xyz_vectorial_properties(ref_grad)
+        est_raw = molecular_database.get_xyz_vectorial_properties(est_grad)
+        if isinstance(ref_raw[0],list) or isinstance(ref_raw[0],np.ndarray):
+            ref = []
+            est = []
+            for each in ref_raw:
+                ref.append(each.flatten())
+            for each in est_raw:
+                est.append(each.flatten())
+            ref = np.concatenate(ref)
+            est = np.concatenate(est)
+        else:
+            ref = ref_raw
+            est = est_raw
         mae = stats.mae(est, ref)
         mse = stats.mse(est, ref)
         rmse = stats.rmse(est, ref)
@@ -959,6 +1079,21 @@ def post_delta_learning(args):
                         strtmp += '%25.13f   ' % (ygradxyzb[imol][iatom][idim] + corr[imol][iatom][idim])
                     fyestt.writelines('%s\n' % strtmp)
 
+def get_uaiqm_args(args):
+    molecular_database = loading_data(args.XYZfile, args.Yfile, args.YgradXYZfile, charges=args.charges, multiplicities=args.multiplicities)
+    model = models.uaiqm(method='uaiqm_optimal')
+    if not args.ncpus:
+        args.ncpus = 8
+    if not args.time_budget:
+        args.time_budget = None
+    model.select_optimal(
+        molecule=molecular_database[0],
+        nCPUs=args.ncpus,
+        time_budget=args.time_budget
+    )
+    args.method = model.method
+    args.uversion = model.version  
+
 def printing_aiqm1_results(aiqm1=True, molecule=None):
     fmt = ' %-41s: %15.8f Hartree'
     # find aiqm1 keyword
@@ -972,6 +1107,36 @@ def printing_aiqm1_results(aiqm1=True, molecule=None):
     print(fmt % ('Sum of atomic self energies', molecule.__dict__[aiqm1method+'_atomic_energy_shift'].energy))
     print(fmt % ('ODM2* contribution', molecule.odm2star.energy), file=sys.stdout)
     if aiqm1: print(fmt % ('D4 contribution', molecule.d4_wb97x.energy))
+    print(fmt % ('Total energy', molecule.energy))
+
+def printing_aiqm2_results(molecule=None):
+    fmt = ' %-41s: %15.8f Hartree'
+    # find aiqm1 keyword
+    for kk,_ in molecule.__dict__.items():
+        if 'aiqm2' in kk and kk[-2:]=='nn':
+            aiqm2method = kk.replace('_nn','')
+            break
+    print(fmt % ('Standard deviation of NN contribution', molecule.__dict__[aiqm2method+'_nn'].energy_standard_deviation), end='')
+    print(' %15.5f kcal/mol' % (molecule.__dict__[aiqm2method+'_nn'].energy_standard_deviation * constants.Hartree2kcalpermol))
+    print(fmt % ('NN contribution', molecule.__dict__[aiqm2method+'_nn'].energy))
+    print(fmt % ('GFN2-xTB* contribution', molecule.gfn2xtbstar.energy), file=sys.stdout)
+    print(fmt % ('D4 contribution', molecule.d4wb97x.energy))
+    print(fmt % ('Total energy', molecule.energy))
+
+def printing_uaiqm_results(molecule=None, method=None, uversion=None):
+    print(f' Selected UAIQM method: {method}')
+    if uversion:
+        print(f' Selected version: {uversion}\n')
+    else:
+        print(f' Selected version: latest\n')
+    fmt = ' %-41s: %15.8f Hartree'
+    print(fmt % ('Standard deviation of ML contribution', molecule.energy_standard_deviation), end='')
+    print(' %15.5f kcal/mol' % (molecule.energy_standard_deviation * constants.Hartree2kcalpermol))
+    if molecule.baseline_energy:
+        print(fmt % ('Baseline contribution', molecule.baseline_energy))
+    print(fmt % ('NN contribution', molecule.MLs_energy))
+    if molecule.dispersion_energy:
+        print(fmt % ('D4 contribution', molecule.dispersion_energy), file=sys.stdout)
     print(fmt % ('Total energy', molecule.energy))
     
 def printing_animethod_results(methodname=None, molecule=None):

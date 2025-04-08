@@ -8,9 +8,11 @@
 
 import os
 import numpy as np
-from .. import constants, models
-
-class columbus_methods(models.model):
+from .. import constants
+from ..model_cls import method_model
+class columbus_methods(method_model):
+    bin_env_name = 'COLUMBUS'
+    
     def __init__(self, command_line_arguments=None, save_files_in_current_directory=True, working_directory=None, directory_with_input_files='', **kwargs):
         self.command_line_arguments = command_line_arguments
         self.save_files_in_current_directory = save_files_in_current_directory
@@ -18,11 +20,11 @@ class columbus_methods(models.model):
         self.directory_with_input_files = directory_with_input_files
         if self.directory_with_input_files != '':
             self.directory_with_input_files = os.path.abspath(directory_with_input_files)
-        try:
-            self.progbin = os.environ['COLUMBUS'] + '/runc'
-        except:
-            msg = 'Cannot find the COLUMBUS program, please set the environment variable: export COLUMBUS=...'
-            raise ValueError(msg)
+        self.progbin = self.get_bin_env_var()
+        if self.progbin is not None:
+            self.progbin += '/runc'
+        else:
+            raise ValueError('Cannot find the COLUMBUS program, please set the environment variable: export COLUMBUS=...')
         
     def predict(self, 
                 molecular_database=None, 

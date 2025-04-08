@@ -7,13 +7,11 @@
   !---------------------------------------------------------------------------! 
 '''
 from __future__ import annotations
-from typing import Any, Union, Dict, Callable
-import os, sys, uuid, time, tempfile, subprocess
+from typing import Any, Union, Dict
+import os, sys, uuid, tempfile, subprocess
 import numpy as np
-from .. import constants
 from .. import data
-from .. import models
-from .. import stopper
+from ..model_cls import ml_model, hyperparameter, hyperparameters
 from ..decorators import doc_inherit
 
 
@@ -47,7 +45,7 @@ def molDB2extendedXYZ(file_name, molDB,
                     file.write(' %12.8f %12.8f %12.8f' % tuple(-1 * atom.__dict__[xyz_derivative_property_to_learn]))
                 file.write('\n')
 
-class gap(models.ml_model):
+class gap(ml_model):
     '''
     Create an `GAP <https://journals.aps.org/prl/abstract/10.1103/PhysRevLett.104.136403>`_-`SOAP <https://doi.org/10.1103/PhysRevB.87.184115>`_ model object. 
     
@@ -55,31 +53,31 @@ class gap(models.ml_model):
 
     Arguments:
         model_file (str, optional): The filename that the model to be saved with or loaded from.
-        hyperparameters (Dict[str, Any] | :class:`mlatom.models.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
+        hyperparameters (Dict[str, Any] | :class:`mlatom.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
         verbose (int, optional): 0 for silence, 1 for verbosity.
     '''
     
-    hyperparameters = models.hyperparameters({
+    hyperparameters = hyperparameters({
         #gap
-        'type':                     models.hyperparameter(value='soap'),
-        'l_max':                    models.hyperparameter(value=6, minval=1, maxval=10, optimization_space='linear', dtype=int),
-        'n_max':                    models.hyperparameter(value=6, minval=1, maxval=10, optimization_space='linear', dtype=int),
-        'atom_sigma':               models.hyperparameter(value=0.5, minval=0.1, maxval=4, optimization_space='linear', dtype=float),
-        'zeta':                     models.hyperparameter(value=4, minval=1, maxval=10, optimization_space='linear', dtype=float),
-        'cutoff':                   models.hyperparameter(value=6, minval=1, maxval=10, optimization_space='linear', dtype=float),
-        'cutoff_transition_width':  models.hyperparameter(value=0.5, minval=0.1, maxval=2, optimization_space='linear', dtype=float),
-        'n_sparse':                 models.hyperparameter(value=1000000, minval=1, maxval=1000000, optimization_space='log', dtype=int),
-        'delta':                    models.hyperparameter(value=1, minval=0.1, maxval=10, optimization_space='linear', dtype=float),
-        'covariance_type':          models.hyperparameter(value='dot_product', optimization_space='choice', dtype=str), 
-        'sparse_method':            models.hyperparameter(value='cur_points', optimization_space='choice', dtype=str),
-        'add_species':              models.hyperparameter(value='T', choices=['T', 'F'], optimization_space='choice', dtype=str),
+        'type':                     hyperparameter(value='soap'),
+        'l_max':                    hyperparameter(value=6, minval=1, maxval=10, optimization_space='linear', dtype=int),
+        'n_max':                    hyperparameter(value=6, minval=1, maxval=10, optimization_space='linear', dtype=int),
+        'atom_sigma':               hyperparameter(value=0.5, minval=0.1, maxval=4, optimization_space='linear', dtype=float),
+        'zeta':                     hyperparameter(value=4, minval=1, maxval=10, optimization_space='linear', dtype=float),
+        'cutoff':                   hyperparameter(value=6, minval=1, maxval=10, optimization_space='linear', dtype=float),
+        'cutoff_transition_width':  hyperparameter(value=0.5, minval=0.1, maxval=2, optimization_space='linear', dtype=float),
+        'n_sparse':                 hyperparameter(value=1000000, minval=1, maxval=1000000, optimization_space='log', dtype=int),
+        'delta':                    hyperparameter(value=1, minval=0.1, maxval=10, optimization_space='linear', dtype=float),
+        'covariance_type':          hyperparameter(value='dot_product', optimization_space='choice', dtype=str), 
+        'sparse_method':            hyperparameter(value='cur_points', optimization_space='choice', dtype=str),
+        'add_species':              hyperparameter(value='T', choices=['T', 'F'], optimization_space='choice', dtype=str),
         #gapfit
-        'default_sigma_e':          models.hyperparameter(value= 0.0005, minval=0.0001, maxval=10, optimization_space='log', dtype=float),
-        'default_sigma_f':          models.hyperparameter(value= 0.001, minval=0.0001, maxval=10, optimization_space='log', dtype=float),
-        'default_sigma_v':          models.hyperparameter(value= 0.1, minval=0.0001, maxval=10, optimization_space='log', dtype=float),
-        'default_sigma_h':          models.hyperparameter(value= 0.1, minval=0.0001, maxval=10, optimization_space='log', dtype=float),
-        'e0_method':                models.hyperparameter(value='average',  optimization_space='choice', dtype=str),
-        'sparse_separate_file':     models.hyperparameter(value='F', choices=['T', 'F'], optimization_space='choice', dtype=str)
+        'default_sigma_e':          hyperparameter(value= 0.0005, minval=0.0001, maxval=10, optimization_space='log', dtype=float),
+        'default_sigma_f':          hyperparameter(value= 0.001, minval=0.0001, maxval=10, optimization_space='log', dtype=float),
+        'default_sigma_v':          hyperparameter(value= 0.1, minval=0.0001, maxval=10, optimization_space='log', dtype=float),
+        'default_sigma_h':          hyperparameter(value= 0.1, minval=0.0001, maxval=10, optimization_space='log', dtype=float),
+        'e0_method':                hyperparameter(value='average',  optimization_space='choice', dtype=str),
+        'sparse_separate_file':     hyperparameter(value='F', choices=['T', 'F'], optimization_space='choice', dtype=str)
     })
     gapdict = {
         'type': 'soap',
@@ -143,7 +141,7 @@ class gap(models.ml_model):
         molecular_database: data.molecular_database,
         property_to_learn: str = 'energy',
         xyz_derivative_property_to_learn: str = None,
-        hyperparameters: Union[Dict[str,Any], models.hyperparameters] = {},
+        hyperparameters: Union[Dict[str,Any], hyperparameters] = {},
         stdout=None,
         stderr=None,
     ):

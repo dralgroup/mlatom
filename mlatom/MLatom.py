@@ -4,7 +4,7 @@
   !---------------------------------------------------------------------------!
   !                                                                           !
   !     MLatom: a Package for Atomistic Simulations with Machine Learning     !
-  !                             MLatom 3.10.1                                  !
+  !                             MLatom 3.17.1                                 !
   !                                   @                                       !
   !                 Xiamen Atomistic Computing Suite (XACS)                   !
   !                                                                           !
@@ -18,26 +18,27 @@
   ! copy of this software and associated documentation files (the "Software"),!
   ! to deal in the Software without restriction, including without limitation !
   ! the rights to use, copy, modify, merge, publish, distribute, sublicense,  !
-  ! and/or sell copies of the Software, and to permit persons to whom the     ! 
+  ! and/or sell copies of the Software, and to permit persons to whom the     !
   ! Software is furnished to do so, subject to the following conditions:      !
   !                                                                           !
   ! The above copyright notice and this permission notice shall be included   !
   ! in all copies or substantial portions of the Software.                    !
-  ! When this Software or its derivatives are used                            ! 
+  ! When this Software or its derivatives are used                            !
   ! in scientific publications, it shall be cited as:                         !
   !                                                                           !
-  ! Pavlo O. Dral, Fuchun Ge, Yi-Fan Hou, Peikun Zheng, Yuxinxin Chen,        ! 
+  ! Pavlo O. Dral, Fuchun Ge, Yi-Fan Hou, Peikun Zheng, Yuxinxin Chen,        !
   ! Mario Barbatti, Olexandr Isayev, Cheng Wang, Bao-Xin Xue,                 !
-  ! Max Pinheiro Jr, Yuming Su, Yiheng Dai, Yangtao Chen, Lina Zhang,         ! 
+  ! Max Pinheiro Jr, Yuming Su, Yiheng Dai, Yangtao Chen, Lina Zhang,         !
   ! Shuang Zhang, Arif Ullah, Quanhao Zhang, Yanchi Ou.                       !
   ! J. Chem. Theory Comput. 2024, 20, 1193-1213.                              !
   !                                                                           !
   ! Pavlo O. Dral, Fuchun Ge, Yi-Fan Hou, Peikun Zheng, Yuxinxin Chen,        !
   ! Bao-Xin Xue, Mikolaj Martyka, Max Pinheiro Jr, Yuming Su, Yiheng Dai,     !
   ! Yangtao Chen, Shuang Zhang, Lina Zhang, Arif Ullah, Quanhao Zhang,        !
-  ! Sebastian V. Pios, Yanchi Ou,                                             !
+  ! Sebastian V. Pios, Yanchi Ou, Matheus O. Bispo, Vignesh B. Kumar,         !
+  ! Xin-Yu Tong,                                                              !
   ! MLatom: A Package for Atomistic Simulations with Machine Learning,        !
-  ! version 3.10.1, Xiamen University, Xiamen, China, 2013-2024.               !
+  ! version 3.17.1, Xiamen University, Xiamen, China, 2013-2024.              !
   !                                                                           !
   ! The citations for MLatom's interfaces and features shall be eventually    !
   ! included too. See header.py, ref.json and http://mlatom.com.              !
@@ -49,15 +50,30 @@
   ! DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR     !
   ! OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE !
   ! USE OR OTHER DEALINGS IN THE SOFTWARE.                                    !
-  !                                                                           !  
+  !                                                                           !
   !---------------------------------------------------------------------------!
 
 '''
 
 import os, sys, time
-from mlatom import header
-from mlatom.MLtasks import CLItasks
-from mlatom.args_class import mlatom_args
+# import header
+# from mlatom.MLtasks import CLItasks
+# from mlatom.args_class import mlatom_args
+import importlib.util
+# ~POD, 2025.03.23
+# the complicated import below is required to load the same instance of mlatom,
+# where this script is located.
+
+dir_path = os.path.dirname(os.path.abspath(__file__))
+path2init = os.path.join(dir_path, '__init__.py')
+dirname = os.path.basename(dir_path)
+spec = importlib.util.spec_from_file_location(dirname, path2init)
+mlatom_with_this_file = importlib.util.module_from_spec(spec)
+sys.modules[dirname] = mlatom_with_this_file
+spec.loader.exec_module(mlatom_with_this_file)
+header = mlatom_with_this_file.header
+CLItasks = mlatom_with_this_file.MLtasks.CLItasks
+mlatom_args = mlatom_with_this_file.args_class.mlatom_args
 
 def run(argv = []):
     starttime = time.time()

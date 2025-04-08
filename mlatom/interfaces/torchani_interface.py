@@ -9,26 +9,20 @@
   !---------------------------------------------------------------------------! 
 '''
 
-from __future__ import annotations
 from typing import Any, Union, Dict, List, Callable
 from types import FunctionType
 import os, sys, uuid
 import numpy as np
 import tqdm
 from collections import OrderedDict
-import torch
-from torch import nn, Tensor
-import torchani
-from torchani.data import TransformableIterable, IterableAdapter
-from typing import Dict, List
 
-
-from .. import data
-from .. import models
+from .. import data, model_cls
+from ..model_cls import ml_model, torchani_model, method_model, hyperparameters, hyperparameter, model_tree_node
 from ..decorators import doc_inherit
 
 def median(yp,yt):
-        return torch.median(torch.abs(yp-yt))
+    import torch
+    return torch.median(torch.abs(yp-yt))
 def molDB2ANIdata_state(molDB, 
                   property_to_learn=None,
                   xyz_derivative_property_to_learn=None,
@@ -45,18 +39,9 @@ def molDB2ANIdata_state(molDB,
             if False: #debug
                 ret['id']=mol.__dict__["mol_id"]
             yield ret
+    from torchani.data import TransformableIterable, IterableAdapter
     return TransformableIterable(IterableAdapter(lambda: molDBiter()))
-class StateInputNet(torch.nn.Module):
-    def __init__(self, AEV_comp, net):
-        super(StateInputNet,self).__init__()
-        self.AEV_computer = AEV_comp
-        self.network = net
-    def forward(self, species, coordinates, state):
-        species_, aev = self.AEV_computer((species,coordinates))
-        state_tensor = torch.transpose(state.expand(species.size()[1],-1),0,1)  
-        aev_with_state = torch.cat((aev,state_tensor.unsqueeze(2)),2)
-        out = self.network((species_, aev_with_state))
-        return out
+
 def unpackData2State(mol_db):
     train_data = data.molecular_database()
     for mol_id, i in enumerate(mol_db):
@@ -80,10 +65,25 @@ def molDB2ANIdata(molDB,
                 ret['energies'] = mol.__dict__[property_to_learn]
             if xyz_derivative_property_to_learn is not None:
                 ret['forces'] = -1 * mol.get_xyz_vectorial_properties(xyz_derivative_property_to_learn)
+            if mol.pbc is not None:
+                ret['pbc'] = mol.pbc
+            if mol.cell is not None:
+                ret['cell'] = mol.cell
             yield ret
+    from torchani.data import TransformableIterable, IterableAdapter
     return TransformableIterable(IterableAdapter(lambda: molDBiter()))
 
-class ani(models.ml_model, models.torchani_model):
+PADDING = {
+    'species': -1,
+    'coordinates': 0.0,
+    'forces': 0.0,
+    'energies': 0.0,
+    'pbc': False,
+    'cell': 0.0,
+}    
+
+
+class ani(ml_model, torchani_model):
     '''
     Create an `ANI <http://pubs.rsc.org/en/Content/ArticleLanding/2017/SC/C6SC05720A>`_ (`ANAKIN <https://www.google.com/search?q=Anakin+Skywalker>`_-ME: Accurate NeurAl networK engINe for Molecular Energie) model object. 
     
@@ -92,36 +92,38 @@ class ani(models.ml_model, models.torchani_model):
     Arguments:
         model_file (str, optional): The filename that the model to be saved with or loaded from.
         device (str, optional): Indicate which device the calculation will be run on. i.e. 'cpu' for CPU, 'cuda' for Nvidia GPUs. When not speficied, it will try to use CUDA if there exists valid ``CUDA_VISIBLE_DEVICES`` in the environ of system.
-        hyperparameters (Dict[str, Any] | :class:`mlatom.models.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
+        hyperparameters (Dict[str, Any] | :class:`model_cls.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
         verbose (int, optional): 0 for silence, 1 for verbosity.
     '''
 
-    hyperparameters = models.hyperparameters({
+    hyperparameters = model_cls.hyperparameters({
         #### Training ####
-        'batch_size':           models.hyperparameter(value=8, minval=1, maxval=1024, optimization_space='linear', dtype=int),
-        'max_epochs':           models.hyperparameter(value=1000000, minval=100, maxval=1000000, optimization_space='log', dtype=int),
-        'learning_rate':                    models.hyperparameter(value=0.001, minval=0.0001, maxval=0.01, optimization_space='log'),
-        'early_stopping_learning_rate':     models.hyperparameter(value=1.0E-5, minval=1.0E-6, maxval=1.0E-4, optimization_space='log'),
-        'lr_reduce_patience':   models.hyperparameter(value=64, minval=16, maxval=256, optimization_space='linear'),
-        'lr_reduce_factor':     models.hyperparameter(value=0.5, minval=0.1, maxval=0.9, optimization_space='linear'),
-        'lr_reduce_threshold':  models.hyperparameter(value=0.0, minval=-0.01, maxval=0.01, optimization_space='linear'),
+        'batch_size':           hyperparameter(value=8, minval=1, maxval=1024, optimization_space='linear', dtype=int),
+        'max_epochs':           hyperparameter(value=1000000, minval=100, maxval=1000000, optimization_space='log', dtype=int),
+        'learning_rate':                    hyperparameter(value=0.001, minval=0.0001, maxval=0.01, optimization_space='log'),
+        'early_stopping_learning_rate':     hyperparameter(value=1.0E-5, minval=1.0E-6, maxval=1.0E-4, optimization_space='log'),
+        'lr_reduce_patience':   hyperparameter(value=64, minval=16, maxval=256, optimization_space='linear'),
+        'lr_reduce_factor':     hyperparameter(value=0.5, minval=0.1, maxval=0.9, optimization_space='linear'),
+        'lr_reduce_threshold':  hyperparameter(value=0.0, minval=-0.01, maxval=0.01, optimization_space='linear'),
         #### Loss ####
-        'force_coefficient':    models.hyperparameter(value=0.1, minval=0.05, maxval=5, optimization_space='linear'),
-        'median_loss':          models.hyperparameter(value=False),
-        'validation_loss_type': models.hyperparameter(value='MSE', choices=['MSE', 'mean_RMSE']),
+        'force_coefficient':    hyperparameter(value=0.1, minval=0.05, maxval=5, optimization_space='linear'),
+        'median_loss':          hyperparameter(value=False),
+        'validation_loss_type': hyperparameter(value='MSE', choices=['MSE', 'mean_RMSE']),
+        'loss_type':            hyperparameter(value='weighted', choices=['weighted', 'geometric']),
         #### Network ####
-        "neurons":              models.hyperparameter(value=[[160, 128, 96]]),
-        "activation_function":  models.hyperparameter(value=lambda: torch.nn.CELU(0.1), optimization_space='choice', choices=["CELU", "ReLU", "GELU"], dtype=(str, type, FunctionType)),
-        "fixed_layers":         models.hyperparameter(value=False),
+        "neurons":              hyperparameter(value=[[160, 128, 96]]),
+        "activation_function":  hyperparameter(value='CELU(0.1)',#lambda: torch.nn.CELU(0.1), 
+                                                      optimization_space='choice', choices=["CELU", "ReLU", "GELU"], dtype=(str, type, FunctionType)),
+        "fixed_layers":         hyperparameter(value=False),
         #### AEV ####
-        'Rcr':                  models.hyperparameter(value=5.2000e+00, minval=1.0, maxval=10.0, optimization_space='linear'),
-        'Rca':                  models.hyperparameter(value=3.5000e+00, minval=1.0, maxval=10.0, optimization_space='linear'),
-        'EtaR':                 models.hyperparameter(value=[1.6000000e+01]),
-        'ShfR':                 models.hyperparameter(value=[9.0000000e-01, 1.1687500e+00, 1.4375000e+00, 1.7062500e+00, 1.9750000e+00, 2.2437500e+00, 2.5125000e+00, 2.7812500e+00, 3.0500000e+00, 3.3187500e+00, 3.5875000e+00, 3.8562500e+00, 4.1250000e+00, 4.3937500e+00, 4.6625000e+00, 4.9312500e+00]),
-        'Zeta':                 models.hyperparameter(value=[3.2000000e+01]),
-        'ShfZ':                 models.hyperparameter(value=[1.9634954e-01, 5.8904862e-01, 9.8174770e-01, 1.3744468e+00, 1.7671459e+00, 2.1598449e+00, 2.5525440e+00, 2.9452431e+00]),
-        'EtaA':                 models.hyperparameter(value=[8.0000000e+00]),
-        'ShfA':                 models.hyperparameter(value=[9.0000000e-01, 1.5500000e+00, 2.2000000e+00, 2.8500000e+00]),
+        'Rcr':                  hyperparameter(value=5.2000e+00, minval=1.0, maxval=10.0, optimization_space='linear'),
+        'Rca':                  hyperparameter(value=3.5000e+00, minval=1.0, maxval=10.0, optimization_space='linear'),
+        'EtaR':                 hyperparameter(value=[1.6000000e+01]),
+        'ShfR':                 hyperparameter(value=[9.0000000e-01, 1.1687500e+00, 1.4375000e+00, 1.7062500e+00, 1.9750000e+00, 2.2437500e+00, 2.5125000e+00, 2.7812500e+00, 3.0500000e+00, 3.3187500e+00, 3.5875000e+00, 3.8562500e+00, 4.1250000e+00, 4.3937500e+00, 4.6625000e+00, 4.9312500e+00]),
+        'Zeta':                 hyperparameter(value=[3.2000000e+01]),
+        'ShfZ':                 hyperparameter(value=[1.9634954e-01, 5.8904862e-01, 9.8174770e-01, 1.3744468e+00, 1.7671459e+00, 2.1598449e+00, 2.5525440e+00, 2.9452431e+00]),
+        'EtaA':                 hyperparameter(value=[8.0000000e+00]),
+        'ShfA':                 hyperparameter(value=[9.0000000e-01, 1.5500000e+00, 2.2000000e+00, 2.8500000e+00]),
     })
     
     argsdict = {}
@@ -133,9 +135,10 @@ class ani(models.ml_model, models.torchani_model):
     meta_data = {
         "genre": "neural network"
     }
-    verbose = 1
+    verbose = 1 # 2 can give more training information
 
-    def __init__(self, model_file: str = None, device: str = None, hyperparameters: Union[Dict[str,Any], models.hyperparameters]={}, verbose=1):
+    def __init__(self, model_file: str = None, device: str = None, hyperparameters: Union[Dict[str,Any], model_cls.hyperparameters]={}, verbose=1, **kwargs):
+        import torch, torchani
         if device == None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.device = torch.device(device)
@@ -143,6 +146,10 @@ class ani(models.ml_model, models.torchani_model):
         self.hyperparameters.update(hyperparameters)
         self.verbose = verbose
         self.energy_shifter = torchani.utils.EnergyShifter(None)
+        if 'key' in kwargs:
+            self.key = kwargs['key']
+        else:
+            self.key = None
         if model_file: 
             if os.path.isfile(model_file):
                 self.load(model_file)
@@ -155,8 +162,8 @@ class ani(models.ml_model, models.torchani_model):
         for hyperparam in self.hyperparameters:
             if hyperparam in args.hyperparameter_optimization['hyperparameters']:
                 self.parse_hyperparameter_optimization(args, hyperparam)
-            elif hyperparam in args.data:
-                self.hyperparameters[hyperparam].value = args.data[hyperparam]
+            # elif hyperparam in args.data:
+            #     self.hyperparameters[hyperparam].value = args.data[hyperparam]
             elif 'ani' in args.data and hyperparam in args.ani.data:
                 self.hyperparameters[hyperparam].value = args.ani.data[hyperparam]
 
@@ -172,6 +179,7 @@ class ani(models.ml_model, models.torchani_model):
         Arguments:
             model_file (str, optional): The filename that the model to be saved into. If not provided, a randomly generated string will be used.
         '''
+        import torch
         if not model_file:
             model_file =f'ani_{str(uuid.uuid4())}.pt'
             self.model_file = model_file
@@ -199,11 +207,28 @@ class ani(models.ml_model, models.torchani_model):
             reset_parameters(bool): Reset network paramters in the loaded model.
             method(str): Load an ANI method, see also :meth:`ani.load_ani_model`.
         '''
+        import torch, torchani
+        
         if method:
             self.load_ani_model(method)
             return
-        
-        model_dict = torch.load(model_file, map_location=torch.device('cpu'))
+            
+        # encryption
+        if model_file[-3:] == 'pth':
+            import io 
+            from cryptography.fernet import Fernet 
+            with open(model_file, 'rb') as fr:
+                encrypted_model = fr.read()
+            if not self.key:
+                raise ValueError('Key for encryption is missing')
+            decrypted_model = Fernet(self.key).decrypt(encrypted_model)
+            b = io.BytesIO(decrypted_model)
+            b.seek(0)
+            model_dict = torch.load(b, map_location=torch.device('cpu'))
+        else: 
+            model_dict = torch.load(model_file, map_location=torch.device('cpu'))
+
+
 
         if 'property' in model_dict['args']:
             self.property_name = model_dict['args']['property']
@@ -270,6 +295,7 @@ class ani(models.ml_model, models.torchani_model):
             Arguments:
                 method(str): Can be ``'ANI-1x'``, ``'ANI-1ccx'``, or ``'ANI-2x'``.
         '''
+        import torch, torchani
         self.hyperparameters.update(hyperparameters)
         if 'ANI-1x'.casefold() in method.casefold():
             model = torchani.models.ANI1x(periodic_table_index=True).to(self.device)
@@ -278,7 +304,7 @@ class ani(models.ml_model, models.torchani_model):
         elif 'ANI-2x'.casefold() in method.casefold():
             model = torchani.models.ANI2x(periodic_table_index=True).to(self.device)
         else:
-            print("method not found, please check ANI_methods().available_methods")
+            print("method not found, please check ANI_methods().supported_methods")
             return
 
         self.species_order = model.species
@@ -299,23 +325,27 @@ class ani(models.ml_model, models.torchani_model):
         property_to_learn: str = 'energy',
         xyz_derivative_property_to_learn: str = None,
         validation_molecular_database: Union[data.molecular_database, str, None] = 'sample_from_molecular_database',
-        hyperparameters: Union[Dict[str,Any], models.hyperparameters] = {},
+        hyperparameters: Union[Dict[str,Any], model_cls.hyperparameters] = {},
         spliting_ratio: float = 0.8, 
         save_model: bool = True,
+        file_to_save_model: str = None,
         check_point: str = None,
         reset_optim_state: bool = False,
         use_last_model: bool = False,
         reset_parameters: bool = False,
         reset_network: bool = False,
         reset_optimizer: bool = False,
-        reset_energy_shifter: bool = False,
+        reset_energy_shifter = False,
+        # reset_energy_shifter: Union[bool, torchani.utils.EnergyShifter, list] = False, # too heavy to load torchani for definitions
         save_every_epoch: bool = False,
+        save_epoch_interval: int = None,
         energy_weighting_function: Callable = None,
         energy_weighting_function_kwargs: dict = {},
+        verbose: int = None
     ) -> None:
         r'''
             validation_molecular_database (:class:`mlatom.data.molecular_database` | str, optional): Explicitly defines the database for validation, or use ``'sample_from_molecular_database'`` to make it sampled from the training set.
-            hyperparameters (Dict[str, Any] | :class:`mlatom.models.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
+            hyperparameters (Dict[str, Any] | :class:`mlatom.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
             spliting_ratio (float, optional): The ratio sub-training dataset in the whole training dataset.
             save_model (bool, optional): Whether save the model to disk during training process. Note that the model might be saved many times during training.
             reset_optim_state (bool, optional): Whether to reset the state of optimizer.
@@ -324,21 +354,50 @@ class ani(models.ml_model, models.torchani_model):
             reset_network (bool, optional): Whether to re-construct the network before training.
             reset_optimizer (bool, optional): Whether to re-define the optimizer before training .
             save_every_epoch (bool, optional): Whether to save model in every epoch, valid when ``save_model`` is ``True``.
+            save_epoch_interval (int, optional): The interval to save each epoch.
             energy_weighting_function (Callable, optional): A weighting function :math:`\mathit{W}(\mathbf{E_ref})` that assign weights to training points based on their reference energies.
             energy_weighting_function_kwargs (dict, optional): Extra weighting function arguments in a dictionary.
         '''
+        import torch, torchani
+        
         if hyperparameters:
             self.hyperparameters.update(hyperparameters)
+        if verbose:
+            self.verbose = verbose
+        if file_to_save_model:
+            self.model_file = file_to_save_model
 
-        energy_weighting_function_kwargs = {k: (v.value if isinstance(v, models.hyperparameter) else v) for k, v in energy_weighting_function_kwargs.items()}
+        energy_weighting_function_kwargs = {k: (v.value if isinstance(v, hyperparameter) else v) for k, v in energy_weighting_function_kwargs.items()}
         
         if reset_energy_shifter:
-            self.energy_shifter = torchani.utils.EnergyShifter(None)
-        
+            if self.energy_shifter:
+                self.energy_shifter_ = self.energy_shifter
+            if type(reset_energy_shifter) == list:
+                self.energy_shifter = torchani.utils.EnergyShifter(reset_energy_shifter)
+            elif isinstance(reset_energy_shifter, torchani.utils.EnergyShifter):
+                self.energy_shifter = reset_energy_shifter
+            else:
+                self.energy_shifter = torchani.utils.EnergyShifter(None)
+            
+        if not molecular_database._is_uniform_cell():
+            print('non-uniform PBC cells detected, using batch_size=1')
+            self.hyperparameters.batch_size = 1
         self.data_setup(molecular_database, validation_molecular_database, spliting_ratio, property_to_learn, xyz_derivative_property_to_learn)
+
+        # print energy shifter information
+        if self.verbose and self.verbose == 2:
+            print('\nDelta self atomic energies: ', )
+            for sp, esp in zip(self.species_order, self.energy_shifter.self_energies):
+                print(f'{sp} : {esp}')
+            print('\n')
+            sys.stdout.flush()
 
         if not self.model:
             self.model_setup(**self.hyperparameters)
+        else:
+            if 'fixed_layers' in hyperparameters:
+                if hyperparameters['fixed_layers'] and type(hyperparameters['fixed_layers'])==list:
+                    self.fix_layers(layers_to_fix=hyperparameters['fixed_layers'])
 
         if reset_network:
             self.NN_setup(**self.hyperparameters)
@@ -354,6 +413,9 @@ class ani(models.ml_model, models.torchani_model):
         if self.verbose: print(self.model)
 
         if check_point and os.path.isfile(check_point):
+            if self.verbose and self.verbose == 2:
+                print(f'\nCheckpoint file {check_point} found. Model training will start from checkpoint.\n')
+                sys.stdout.flush()
             checkpoint = torch.load(check_point)
             self.nn.load_state_dict(checkpoint['nn'])
             if not reset_optim_state:
@@ -364,10 +426,15 @@ class ani(models.ml_model, models.torchani_model):
     
         def validate():
             total_error  = 0.0
+            mae_sum = torch.nn.L1Loss(reduction='sum'); energy_mae = 0.0
+            # mse_sum = torch.nn.MSELoss(reduction='sum'); energy_mse = 0.0
+            energy_loss = 0.0
             count = 0
             for properties in self.validation_set:
                 true_energies = properties['energies'].to(self.device).float()
                 species = properties['species'].to(self.device)
+                pbc = properties['pbc'][0].to(self.device) if 'pbc' in properties else None
+                cell = properties['cell'][0].float().to(self.device) if 'cell' in properties else None
                 num_atoms = (species >= 0).sum(dim=1, dtype=true_energies.dtype)
 
                 if callable(energy_weighting_function):
@@ -375,21 +442,34 @@ class ani(models.ml_model, models.torchani_model):
                 else:
                     weightings_e = 1
                 coordinates = properties['coordinates'].to(self.device).float()
-                _, predicted_energies = self.model((species, coordinates))
+                _, predicted_energies = self.model((species, coordinates), pbc=pbc, cell=cell)
+
+                # add MAE, RMSE, loss report
+                # energy_mse += mse_sum(predicted_energies*weightings_e, true_energies*weightings_e).item()
+                energy_mae += mae_sum(predicted_energies*weightings_e, true_energies*weightings_e).item()
+                energy_loss += (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).sum().item()
+
                 if self.hyperparameters.validation_loss_type == 'mean_RMSE':                    
                     total_error += loss_function(predicted_energies, true_energies, weightings_e, reduction='sum').nanmean().sqrt().item()
                 else:
                     total_error += loss_function(predicted_energies, true_energies, weightings_e, reduction='sum').nanmean().item()
                 count += predicted_energies.shape[0]
-            return total_error/count
+
+            return total_error/count, (total_error/count)**0.5, energy_mae/count, energy_loss/count
 
         def loss_function(prediction, reference, weightings=1, reduction='none'):
             return torch.nn.functional.mse_loss(prediction*weightings, reference*weightings, reduction=reduction)
 
         if self.verbose: print("training starting from epoch", self.AdamW_scheduler.last_epoch + 1)
         for _ in range(self.AdamW_scheduler.last_epoch + 1, self.hyperparameters.max_epochs + 1):
-            rmse = validate()
-            if self.verbose: print('validation loss:', rmse, 'at epoch', self.AdamW_scheduler.last_epoch + 1)
+            mse, rmse, mae, validation_loss = validate()
+            if self.verbose: 
+                print('validation loss:', mse, 'at epoch', self.AdamW_scheduler.last_epoch + 1)
+                if self.verbose == 2:
+                    print('validation MAE:', mae, 'at epoch', self.AdamW_scheduler.last_epoch + 1)
+                    print('validation RMSE:', rmse, 'at epoch', self.AdamW_scheduler.last_epoch + 1)
+                    print('validation energy loss:', validation_loss, 'at epoch', self.AdamW_scheduler.last_epoch + 1)
+                    print('best validation MSE:', self.AdamW_scheduler.best)
             sys.stdout.flush()
             learning_rate = self.AdamW.param_groups[0]['lr']
             if self.verbose: print('learning_rate:',learning_rate)
@@ -397,12 +477,15 @@ class ani(models.ml_model, models.torchani_model):
             if learning_rate < self.hyperparameters.early_stopping_learning_rate:
                 break
 
-            if self.AdamW_scheduler.is_better(rmse, self.AdamW_scheduler.best) or save_every_epoch:
+            if self.AdamW_scheduler.is_better(mse, self.AdamW_scheduler.best) or save_every_epoch:
                 if save_model:
                     self.save(self.model_file)
+            if save_epoch_interval:
+                if (self.AdamW_scheduler.last_epoch + 1)%save_epoch_interval==0 and save_model:
+                    self.save(f'{self.model_file}.epoch{self.AdamW_scheduler.last_epoch + 1}')
 
-            self.AdamW_scheduler.step(rmse)
-            self.SGD_scheduler.step(rmse)
+            self.AdamW_scheduler.step(mse)
+            self.SGD_scheduler.step(mse)
             for properties in tqdm.tqdm(
                 self.subtraining_set,
                 total=len(self.subtraining_set),
@@ -412,6 +495,8 @@ class ani(models.ml_model, models.torchani_model):
                 true_energies = properties['energies'].to(self.device).float()
                 species = properties['species'].to(self.device)
                 num_atoms = (species >= 0).sum(dim=1, dtype=true_energies.dtype)
+                pbc = properties['pbc'][0].to(self.device) if 'pbc' in properties else None
+                cell = properties['cell'][0].float().to(self.device) if 'cell' in properties else None
 
                 if callable(energy_weighting_function):
                     weightings_e = energy_weighting_function(self.energy_shifter((species, true_energies)).energies, **energy_weighting_function_kwargs)
@@ -424,7 +509,7 @@ class ani(models.ml_model, models.torchani_model):
                 if xyz_derivative_property_to_learn:
                     coordinates = properties['coordinates'].to(self.device).float().requires_grad_(True)
                     true_forces = properties['forces'].to(self.device).float()
-                    _, predicted_energies = self.model((species, coordinates))
+                    _, predicted_energies = self.model((species, coordinates), pbc=pbc, cell=cell)
                     forces = -torch.autograd.grad(predicted_energies.sum(), coordinates, create_graph=True, retain_graph=True)[0]
                     # true_energies[true_energies.isnan()]=predicted_energies[true_energies.isnan()]
                     if self.hyperparameters.median_loss:
@@ -433,10 +518,13 @@ class ani(models.ml_model, models.torchani_model):
                         energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
                     # true_forces[true_forces.isnan()]=forces[true_forces.isnan()]
                     force_loss = (loss_function(true_forces, forces, weightings_f).sum(dim=(1, 2)) / num_atoms).nanmean()
-                    loss = energy_loss + self.hyperparameters.force_coefficient * force_loss
+                    if self.hyperparameters.loss_type == 'weighted':
+                        loss = energy_loss + self.hyperparameters.force_coefficient * force_loss
+                    if self.hyperparameters.loss_type == 'geometric':
+                        loss = (energy_loss * force_loss)**0.5
                 else:
                     coordinates = properties['coordinates'].to(self.device).float()
-                    _, predicted_energies = self.model((species, coordinates))
+                    _, predicted_energies = self.model((species, coordinates), pbc=pbc, cell=cell)
                     loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
 
                 self.AdamW.zero_grad()
@@ -444,6 +532,10 @@ class ani(models.ml_model, models.torchani_model):
                 loss.backward()
                 self.AdamW.step()
                 self.SGD.step()
+
+            if self.verbose and self.verbose == 2:
+                print('Training loss:', loss.item(), 'at epoch', self.AdamW_scheduler.last_epoch,'\n')
+                sys.stdout.flush()
 
             if check_point:
                 torch.save({
@@ -453,6 +545,14 @@ class ani(models.ml_model, models.torchani_model):
                     'AdamW_scheduler':  self.AdamW_scheduler.state_dict(),
                     'SGD_scheduler':    self.SGD_scheduler.state_dict(),
                 }, check_point)
+
+        # print the performance of the best model
+        if self.verbose and self.verbose == 2:
+            print('\nPerformance of the best model on validation set')
+            _, best_rmse, best_mae, best_val_loss = validate()
+            print('best validation MAE:', best_mae,)
+            print('best validation RMSE:', best_rmse,)
+            print('best validation energy loss:', best_val_loss,)
 
         if save_model and not use_last_model:
             self.load(self.model_file)
@@ -473,6 +573,7 @@ class ani(models.ml_model, models.torchani_model):
         '''
             batch_size (int, optional): The batch size for batch-predictions.
         '''
+        import torch, torchani
         molDB, property_to_predict, xyz_derivative_property_to_predict, hessian_to_predict = \
             super().predict(molecular_database=molecular_database, molecule=molecule, calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, property_to_predict = property_to_predict, xyz_derivative_property_to_predict = xyz_derivative_property_to_predict, hessian_to_predict = hessian_to_predict)
         
@@ -480,12 +581,12 @@ class ani(models.ml_model, models.torchani_model):
             batch_size = 1
         
         for batch in molDB.batches(batch_size):
-            for properties in molDB2ANIdata(batch).species_to_indices(self.species_order).collate(batch_size):
+            for properties in molDB2ANIdata(batch).species_to_indices(self.species_order).collate(batch_size, PADDING):
                 species = properties['species'].to(self.device)
                 xyz_coordinates = properties['coordinates'].float().to(self.device)
                 break
-            pbc = torch.tensor(batch[0].pbc).to(self.device) if batch[0].pbc is not None else None
-            cell = torch.tensor(batch[0].cell).float().to(self.device) if batch[0].cell is not None else None
+            pbc = properties['pbc'][0].to(self.device) if 'pbc' in properties else None
+            cell = properties['cell'][0].float().to(self.device) if 'cell' in properties else None
             if pbc is not None and cell is not None:
                 xyz_coordinates = torchani.utils.map2central(cell, xyz_coordinates, pbc)
             xyz_coordinates = xyz_coordinates.requires_grad_(bool(xyz_derivative_property_to_predict or hessian_to_predict))
@@ -499,11 +600,12 @@ class ani(models.ml_model, models.torchani_model):
                     batch.add_xyz_vectorial_properties(grads, xyz_derivative_property_to_predict)
                 if hessian_to_predict:
                     ANI_NN_hessians = torchani.utils.hessian(xyz_coordinates, energies=ANI_NN_energies)
-                    batch.add_scalar_properties(ANI_NN_hessians.detach().cpu().numpy(), hessian_to_predict)
+                    batch.add_hessian_properties(ANI_NN_hessians.detach().cpu().numpy(), hessian_to_predict)
 
 
     def AEV_setup(self, **kwargs):
-        kwargs = models.hyperparameters(kwargs)
+        import torch, torchani
+        kwargs = hyperparameters(kwargs)
         Rcr = kwargs.Rcr
         Rca = kwargs.Rca
         EtaR = torch.tensor(kwargs.EtaR).to(self.device)
@@ -516,9 +618,12 @@ class ani(models.ml_model, models.torchani_model):
         self.argsdict.update({'Rcr': Rcr, 'Rca': Rca, 'EtaR': EtaR, 'ShfR': ShfR, 'Zeta': Zeta, 'ShfZ': ShfZ, 'EtaA': EtaA, 'ShfA': ShfA, 'species_order': self.species_order})
 
     def NN_setup(self, **kwargs):
-        kwargs = models.hyperparameters(kwargs)
+        import torch, torchani
+        kwargs = hyperparameters(kwargs)
         if len(kwargs.neurons) == 1:
             self.neurons = [kwargs.neurons[0].copy() for _ in range(len(self.species_order))]
+        else:
+            self.neurons = kwargs.neurons
 
         self.networkdict = OrderedDict()
         for i, specie in enumerate(self.species_order):
@@ -526,7 +631,14 @@ class ani(models.ml_model, models.torchani_model):
             layers = [torch.nn.Linear(self.aev_computer.aev_length, self.neurons[i][0])]
             for j in range(len(self.neurons[i]) - 1):
                 if type(kwargs.activation_function) == str:
-                    layers += [torch.nn.__dict__[kwargs.activation_function]()]
+                    act_fun = kwargs.activation_function
+                    if '(' in act_fun:
+                        xx = act_fun.split('(')
+                        act_fun = xx[0]
+                        alpha = float(xx[1].strip(')'))
+                        layers += [torch.nn.__dict__[act_fun](alpha)]
+                    else:  
+                        layers += [torch.nn.__dict__[act_fun]()]
                 elif callable(kwargs.activation_function):
                     layers += [kwargs.activation_function()]
                 layers += [torch.nn.Linear(self.neurons[i][j], self.neurons[i][j + 1])]
@@ -544,6 +656,7 @@ class ani(models.ml_model, models.torchani_model):
         Arguments:
             a(float): Check `torch.nn.init.kaiming_normal_() <https://pytorch.org/docs/stable/nn.init.html#torch.nn.init.kaiming_uniform_>`_.
         '''
+        import torch
         def init_params(m):
             if isinstance(m, torch.nn.Linear):
                 torch.nn.init.kaiming_normal_(m.weight, a)
@@ -552,7 +665,8 @@ class ani(models.ml_model, models.torchani_model):
         self.nn.apply(init_params)
 
     def optimizer_setup(self, **kwargs):
-        kwargs = models.hyperparameters(kwargs)
+        import torch
+        kwargs = hyperparameters(kwargs)
         if isinstance(self.networkdict, OrderedDict) or type(self.networkdict) == dict:
             wlist2d = [
                 [
@@ -587,6 +701,7 @@ class ani(models.ml_model, models.torchani_model):
         self.SGD_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.SGD, factor=kwargs.lr_reduce_factor, patience=kwargs.lr_reduce_patience, threshold=kwargs.lr_reduce_threshold)
 
     def model_setup(self, **kwargs):
+        import torchani
         self.AEV_setup(**kwargs)
         self.NN_setup(**kwargs)
         self.model = torchani.nn.Sequential(self.aev_computer, self.nn).float().to(self.device)
@@ -605,7 +720,7 @@ class ani(models.ml_model, models.torchani_model):
             .. code-block:: python
             
                 import mlatom as ml
-                >>> ani = ml.models.ani(model_file='ANI.pt')
+                >>> ani = ml.ani(model_file='ANI.pt')
                 model loade from ANI.pt
                 >>> ani.model # show model summary
                 Sequential(
@@ -660,6 +775,7 @@ class ani(models.ml_model, models.torchani_model):
 
     def data_setup(self, molecular_database, validation_molecular_database, spliting_ratio,
                    property_to_learn, xyz_derivative_property_to_learn, ):
+        import torch
         assert molecular_database, 'provide molecular database'
 
         self.property_name = property_to_learn
@@ -689,15 +805,27 @@ class ani(models.ml_model, models.torchani_model):
                 self.subtraining_set = molDB2ANIdata(molecular_database, property_to_learn, xyz_derivative_property_to_learn).subtract_self_energies(self.energy_shifter, self.species_order).species_to_indices(self.species_order).shuffle()
         else:
             self.subtraining_set = molDB2ANIdata(molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).shuffle()
+
+        if len(self.species_order) != len(self.energy_shifter.self_energies):
+            true_species_order = sorted(data_element_symbols, key=lambda x: self.species_order.index(x))
+            expanded_self_energies = np.zeros((len(self.species_order)))
+            for ii, sp in enumerate(self.species_order):
+                if sp in true_species_order:
+                    expanded_self_energies[ii] = self.energy_shifter.self_energies[true_species_order.index(sp)]
+                elif 'energy_shifter_' in self.__dict__:
+                    expanded_self_energies[ii] = self.energy_shifter_.self_energies[ii]
+
+            self.energy_shifter.self_energies = torch.tensor(expanded_self_energies)
+        
         self.validation_set = molDB2ANIdata(validation_molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).shuffle()
         
         self.energy_shifter = self.energy_shifter.to(self.device)
         
-        self.subtraining_set = self.subtraining_set.collate(self.hyperparameters.batch_size)
-        self.validation_set = self.validation_set.collate(self.hyperparameters.batch_size)
+        self.subtraining_set = self.subtraining_set.collate(self.hyperparameters.batch_size, PADDING)
+        self.validation_set = self.validation_set.collate(self.hyperparameters.batch_size, PADDING)
 
         self.argsdict.update({'self_energies': self.energy_shifter.self_energies, 'property': self.property_name})
-class msani(models.ml_model, models.torchani_model):
+class msani(ml_model, torchani_model):
     '''
     Create an `MS-ANI', an extension of the ANI NN model for multi-state learning. First described in <10.26434/chemrxiv-2024-dtc1w>. 
     
@@ -706,36 +834,37 @@ class msani(models.ml_model, models.torchani_model):
     Arguments:
         model_file (str, optional): The filename that the model to be saved with or loaded from.
         device (str, optional): Indicate which device the calculation will be run on. i.e. 'cpu' for CPU, 'cuda' for Nvidia GPUs. When not speficied, it will try to use CUDA if there exists valid ``CUDA_VISIBLE_DEVICES`` in the environ of system.
-        hyperparameters (Dict[str, Any] | :class:`mlatom.models.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
+        hyperparameters (Dict[str, Any] | :class:`mlatom.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
         verbose (int, optional): 0 for silence, 1 for verbosity.
     '''
 
-    hyperparameters = models.hyperparameters({
+    hyperparameters = model_cls.hyperparameters({
         #### Training ####
-        'batch_size':           models.hyperparameter(value=16, minval=1, maxval=1024, optimization_space='linear', dtype=int),
-        'max_epochs':           models.hyperparameter(value=1000000, minval=100, maxval=1000000, optimization_space='log', dtype=int),
-        'learning_rate':                    models.hyperparameter(value=0.001, minval=0.0001, maxval=0.01, optimization_space='log'),
-        'early_stopping_learning_rate':     models.hyperparameter(value=1.0E-5, minval=1.0E-6, maxval=1.0E-4, optimization_space='log'),
-        'lr_reduce_patience':   models.hyperparameter(value=64, minval=16, maxval=256, optimization_space='linear'),
-        'lr_reduce_factor':     models.hyperparameter(value=0.5, minval=0.1, maxval=0.9, optimization_space='linear'),
-        'lr_reduce_threshold':  models.hyperparameter(value=0.0, minval=-0.01, maxval=0.01, optimization_space='linear'),
+        'batch_size':           hyperparameter(value=16, minval=1, maxval=1024, optimization_space='linear', dtype=int),
+        'max_epochs':           hyperparameter(value=1000000, minval=100, maxval=1000000, optimization_space='log', dtype=int),
+        'learning_rate':                    hyperparameter(value=0.001, minval=0.0001, maxval=0.01, optimization_space='log'),
+        'early_stopping_learning_rate':     hyperparameter(value=1.0E-5, minval=1.0E-6, maxval=1.0E-4, optimization_space='log'),
+        'lr_reduce_patience':   hyperparameter(value=64, minval=16, maxval=256, optimization_space='linear'),
+        'lr_reduce_factor':     hyperparameter(value=0.5, minval=0.1, maxval=0.9, optimization_space='linear'),
+        'lr_reduce_threshold':  hyperparameter(value=0.0, minval=-0.01, maxval=0.01, optimization_space='linear'),
         #### Loss ####
-        'force_coefficient':    models.hyperparameter(value=0.1, minval=0.05, maxval=5, optimization_space='linear'),
-        'median_loss':          models.hyperparameter(value=False),
-        'gap_coefficient':             models.hyperparameter(value=1.0, minval=0.05, maxval=5, optimization_space='linear'),
+        'force_coefficient':    hyperparameter(value=0.1, minval=0.05, maxval=5, optimization_space='linear'),
+        'median_loss':          hyperparameter(value=False),
+        'gap_coefficient':             hyperparameter(value=1.0, minval=0.05, maxval=5, optimization_space='linear'),
         #### Network ####
-        "neurons":              models.hyperparameter(value=[[160, 128, 96]]),
-        "activation_function":  models.hyperparameter(value=lambda: torch.nn.CELU(0.1), optimization_space='choice', choices=["CELU", "ReLU", "GELU"], dtype=(str, type, FunctionType)),
-        "fixed_layers":         models.hyperparameter(value=False),
+        "neurons":              hyperparameter(value=[[160, 128, 96]]),
+        "activation_function":  hyperparameter(value='CELU(0.1)',#lambda: torch.nn.CELU(0.1), 
+                                                      optimization_space='choice', choices=["CELU", "ReLU", "GELU"], dtype=(str, type, FunctionType)),
+        "fixed_layers":         hyperparameter(value=False),
         #### AEV ####
-        'Rcr':                  models.hyperparameter(value=5.2000e+00, minval=1.0, maxval=10.0, optimization_space='linear'),
-        'Rca':                  models.hyperparameter(value=3.5000e+00, minval=1.0, maxval=10.0, optimization_space='linear'),
-        'EtaR':                 models.hyperparameter(value=[1.6000000e+01]),
-        'ShfR':                 models.hyperparameter(value=[9.0000000e-01, 1.1687500e+00, 1.4375000e+00, 1.7062500e+00, 1.9750000e+00, 2.2437500e+00, 2.5125000e+00, 2.7812500e+00, 3.0500000e+00, 3.3187500e+00, 3.5875000e+00, 3.8562500e+00, 4.1250000e+00, 4.3937500e+00, 4.6625000e+00, 4.9312500e+00]),
-        'Zeta':                 models.hyperparameter(value=[3.2000000e+01]),
-        'ShfZ':                 models.hyperparameter(value=[1.9634954e-01, 5.8904862e-01, 9.8174770e-01, 1.3744468e+00, 1.7671459e+00, 2.1598449e+00, 2.5525440e+00, 2.9452431e+00]),
-        'EtaA':                 models.hyperparameter(value=[8.0000000e+00]),
-        'ShfA':                 models.hyperparameter(value=[9.0000000e-01, 1.5500000e+00, 2.2000000e+00, 2.8500000e+00]),
+        'Rcr':                  hyperparameter(value=5.2000e+00, minval=1.0, maxval=10.0, optimization_space='linear'),
+        'Rca':                  hyperparameter(value=3.5000e+00, minval=1.0, maxval=10.0, optimization_space='linear'),
+        'EtaR':                 hyperparameter(value=[1.6000000e+01]),
+        'ShfR':                 hyperparameter(value=[9.0000000e-01, 1.1687500e+00, 1.4375000e+00, 1.7062500e+00, 1.9750000e+00, 2.2437500e+00, 2.5125000e+00, 2.7812500e+00, 3.0500000e+00, 3.3187500e+00, 3.5875000e+00, 3.8562500e+00, 4.1250000e+00, 4.3937500e+00, 4.6625000e+00, 4.9312500e+00]),
+        'Zeta':                 hyperparameter(value=[3.2000000e+01]),
+        'ShfZ':                 hyperparameter(value=[1.9634954e-01, 5.8904862e-01, 9.8174770e-01, 1.3744468e+00, 1.7671459e+00, 2.1598449e+00, 2.5525440e+00, 2.9452431e+00]),
+        'EtaA':                 hyperparameter(value=[8.0000000e+00]),
+        'ShfA':                 hyperparameter(value=[9.0000000e-01, 1.5500000e+00, 2.2000000e+00, 2.8500000e+00]),
     })
     
     argsdict = {}
@@ -749,7 +878,8 @@ class msani(models.ml_model, models.torchani_model):
     }
     verbose = 1
 
-    def __init__(self, model_file: str = None, device: str = None, hyperparameters: Union[Dict[str,Any], models.hyperparameters]={}, verbose=1, nstates=1,validate_train=True):
+    def __init__(self, model_file: str = None, device: str = None, hyperparameters: Union[Dict[str,Any], model_cls.hyperparameters]={}, verbose=1, nstates=1,validate_train=True):
+        import torch, torchani
         if device == None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.device = torch.device(device)
@@ -771,8 +901,8 @@ class msani(models.ml_model, models.torchani_model):
         for hyperparam in self.hyperparameters:
             if hyperparam in args.hyperparameter_optimization['hyperparameters']:
                 self.parse_hyperparameter_optimization(args, hyperparam)
-            elif hyperparam in args.data:
-                self.hyperparameters[hyperparam].value = args.data[hyperparam]
+            # elif hyperparam in args.data:
+            #     self.hyperparameters[hyperparam].value = args.data[hyperparam]
             elif 'ani' in args.data and hyperparam in args.ani.data:
                 self.hyperparameters[hyperparam].value = args.ani.data[hyperparam]
     
@@ -788,6 +918,7 @@ class msani(models.ml_model, models.torchani_model):
         Arguments:
             model_file (str, optional): The filename that the model to be saved into. If not provided, a randomly generated string will be used.
         '''
+        import torch
         if not model_file:
             model_file =f'ani_{str(uuid.uuid4())}.pt'
             self.model_file = model_file
@@ -815,6 +946,7 @@ class msani(models.ml_model, models.torchani_model):
             reset_parameters(bool): Reset network paramters in the loaded model.
             method(str): Load an ANI method, see also :meth:`ani.load_ani_model`.
         '''
+        import torch, torchani
         if method:
             self.load_ani_model(method)
             return
@@ -875,6 +1007,7 @@ class msani(models.ml_model, models.torchani_model):
         else:
             print('network parameters not found')
         
+        from .torchani_heavy_parts import StateInputNet
         self.model = torch.nn.DataParallel(StateInputNet(self.aev_computer, self.nn)).to(self.device)
         self.model.eval()
         if self.verbose: print(f'model loaded from {model_file}')
@@ -886,6 +1019,7 @@ class msani(models.ml_model, models.torchani_model):
             Arguments:
                 method(str): Can be ``'ANI-1x'``, ``'ANI-1ccx'``, or ``'ANI-2x'``.
         '''
+        import torch, torchani
         self.hyperparameters.update(hyperparameters)
         if 'ANI-1x'.casefold() in method.casefold():
             model = torchani.models.ANI1x(periodic_table_index=True).to(self.device)
@@ -894,7 +1028,7 @@ class msani(models.ml_model, models.torchani_model):
         elif 'ANI-2x'.casefold() in method.casefold():
             model = torchani.models.ANI2x(periodic_table_index=True).to(self.device)
         else:
-            print("method not found, please check ANI_methods().available_methods")
+            print("method not found, please check ANI_methods().supported_methods")
             return
 
         self.species_order = model.species
@@ -905,6 +1039,7 @@ class msani(models.ml_model, models.torchani_model):
         self.nn = model.neural_networks
         self.optimizer_setup(**self.hyperparameters)
         self.energy_shifter = model.energy_shifter
+        from .torchani_heavy_parts import StateInputNet
         self.model = torch.nn.DataParallel(StateInputNet(self.aev_computer, self.nn)).to(self.device).float()
         if self.verbose: print(f'loaded {method} model')
     
@@ -915,7 +1050,7 @@ class msani(models.ml_model, models.torchani_model):
         property_to_learn: str = 'energy',
         xyz_derivative_property_to_learn: str = None,
         validation_molecular_database: Union[data.molecular_database, str, None] = 'sample_from_molecular_database',
-        hyperparameters: Union[Dict[str,Any], models.hyperparameters] = {},
+        hyperparameters: Union[Dict[str,Any], model_cls.hyperparameters] = {},
         spliting_ratio: float = 0.8, 
         save_model: bool = True,
         check_point: str = None,
@@ -930,7 +1065,7 @@ class msani(models.ml_model, models.torchani_model):
     ) -> None:
         r'''
             validation_molecular_database (:class:`mlatom.data.molecular_database` | str, optional): Explicitly defines the database for validation, or use ``'sample_from_molecular_database'`` to make it sampled from the training set.
-            hyperparameters (Dict[str, Any] | :class:`mlatom.models.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
+            hyperparameters (Dict[str, Any] | :class:`mlatom.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
             spliting_ratio (float, optional): The ratio sub-training dataset in the whole training dataset.
             save_model (bool, optional): Whether save the model to disk during training process. Note that the model might be saved many times during training.
             reset_optim_state (bool, optional): Whether to reset the state of optimizer.
@@ -941,10 +1076,11 @@ class msani(models.ml_model, models.torchani_model):
             save_every_epoch (bool, optional): Whether to save model in every epoch, valid when ``save_model`` is ``True``.
             energy_weighting_function (Callable[Array-like], optional): A weighting function :math:`\mathit{W}(\mathbf{E_ref})` that assign weights to training points based on their reference energies.
         '''
+        import torch
         if hyperparameters:
             self.hyperparameters.update(hyperparameters)
 
-        energy_weighting_function_kwargs = {k: (v.value if isinstance(v, models.hyperparameter) else v) for k, v in energy_weighting_function_kwargs.items()}
+        energy_weighting_function_kwargs = {k: (v.value if isinstance(v, hyperparameter) else v) for k, v in energy_weighting_function_kwargs.items()}
         
         self.data_setup(molecular_database, validation_molecular_database, spliting_ratio, property_to_learn, xyz_derivative_property_to_learn)
 
@@ -1033,9 +1169,11 @@ class msani(models.ml_model, models.torchani_model):
                         energy_loss= median(predicted_energies,true_energies)
                     else:
                         energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
-                    auxnumber = int(len(predicted_energies)/self.nstates)
-
-                    gap_loss = (loss_function(predicted_gaps,true_gaps, 1) / num_atoms[:-auxnumber].sqrt()).nanmean()
+                    if self.hyperparameters.gap_coefficient != 0.0:
+                        gap_loss = (loss_function(predicted_gaps,true_gaps, 1) / num_atoms[0].sqrt()).nanmean()
+                    else:
+                        gap_loss = 0
+                    # true_forces[true_
                     # true_forces[true_forces.isnan()]=forces[true_forces.isnan()]
                     force_loss = (loss_function(true_forces, forces, weightings_f).sum(dim=(1, 2)) / num_atoms).nanmean()
                     loss = energy_loss + self.hyperparameters.force_coefficient * force_loss + self.hyperparameters.gap_coefficient * gap_loss
@@ -1052,9 +1190,11 @@ class msani(models.ml_model, models.torchani_model):
                     predicted_gaps = torch.FloatTensor(predicted_gap_list).to(self.device)
                     
                     energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
-                    auxnumber = int(len(predicted_energies)/self.nstates)
-
-                    gap_loss = (loss_function(predicted_gaps,true_gaps, 1) / num_atoms[:-auxnumber].sqrt()).nanmean()
+                    if self.hyperparameters.gap_coefficient != 0.0:
+                        gap_loss = (loss_function(predicted_gaps,true_gaps, 1) / num_atoms[0].sqrt()).nanmean()
+                    else:
+                        gap_loss = 0
+                    # true_forces[true_
                     loss = energy_loss + self.hyperparameters.gap_coefficient * gap_loss
                     total_mse += loss.item()
             return total_mse
@@ -1129,8 +1269,11 @@ class msani(models.ml_model, models.torchani_model):
                         energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
                    # print(predicted_gaps.shape, true_gaps.shape)
                     #print(num_atoms.sqrt())
-                    auxnumber = int(len(predicted_energies)/self.nstates)
-                    gap_loss = (loss_function(predicted_gaps,true_gaps, 1) / num_atoms[:-auxnumber].sqrt()).nanmean()
+                    if self.hyperparameters.gap_coefficient != 0.0:
+                        gap_loss = (loss_function(predicted_gaps,true_gaps, 1) / num_atoms[0].sqrt()).nanmean()
+                    else:
+                        gap_loss = 0
+                    # true_forces[true_
                     # true_forces[true_forces.isnan()]=forces[true_forces.isnan()]
                     force_loss = (loss_function(true_forces, forces, weightings_f).sum(dim=(1, 2)) / num_atoms).nanmean()
                     loss = energy_loss + self.hyperparameters.force_coefficient * force_loss + self.hyperparameters.gap_coefficient * gap_loss
@@ -1146,8 +1289,11 @@ class msani(models.ml_model, models.torchani_model):
                     #print(predicted_gaps)
 
                     energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
-                    auxnumber = int(len(predicted_energies)/self.nstates)
-                    gap_loss = (loss_function(predicted_gaps,true_gaps, 1) / num_atoms[:-auxnumber].sqrt()).nanmean()
+                    if self.hyperparameters.gap_coefficient != 0.0:
+                        gap_loss = (loss_function(predicted_gaps,true_gaps, 1) / num_atoms[0].sqrt()).nanmean()
+                    else:
+                        gap_loss = 0
+                    # true_forces[true_
                     loss = energy_loss + self.hyperparameters.gap_coefficient * gap_loss
 
                 self.AdamW.zero_grad()
@@ -1186,6 +1332,7 @@ class msani(models.ml_model, models.torchani_model):
         '''
             batch_size (int, optional): The batch size for batch-predictions.
         '''
+        import torch, torchani
         molDB, property_to_predict, xyz_derivative_property_to_predict, hessian_to_predict = \
             super().predict(molecular_database=molecular_database, molecule=molecule, calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, property_to_predict = property_to_predict, xyz_derivative_property_to_predict = xyz_derivative_property_to_predict, hessian_to_predict = hessian_to_predict)
         
@@ -1194,7 +1341,7 @@ class msani(models.ml_model, models.torchani_model):
             state_gradients =[]
             state_hessians = []
             for i in range(nstates):
-                for properties in molDB2ANIdata_state(batch, use_state=False).species_to_indices(self.species_order).collate(batch_size):
+                for properties in molDB2ANIdata_state(batch, use_state=False).species_to_indices(self.species_order).collate(batch_size, PADDING):
                     species = properties['species'].to(self.device)
                     state = torch.full((len(batch),),i).to(self.device)
                     xyz_coordinates = properties['coordinates'].float().to(self.device).requires_grad_(bool(xyz_derivative_property_to_predict or hessian_to_predict))
@@ -1243,7 +1390,8 @@ class msani(models.ml_model, models.torchani_model):
 
 
     def AEV_setup(self, **kwargs):
-        kwargs = models.hyperparameters(kwargs)
+        import torch, torchani
+        kwargs = hyperparameters(kwargs)
         Rcr = kwargs.Rcr
         Rca = kwargs.Rca
         EtaR = torch.tensor(kwargs.EtaR).to(self.device)
@@ -1256,7 +1404,8 @@ class msani(models.ml_model, models.torchani_model):
         self.argsdict.update({'Rcr': Rcr, 'Rca': Rca, 'EtaR': EtaR, 'ShfR': ShfR, 'Zeta': Zeta, 'ShfZ': ShfZ, 'EtaA': EtaA, 'ShfA': ShfA, 'species_order': self.species_order})
 
     def NN_setup(self, **kwargs):
-        kwargs = models.hyperparameters(kwargs)
+        import torch, torchani
+        kwargs = hyperparameters(kwargs)
         if len(kwargs.neurons) == 1:
             self.neurons = [kwargs.neurons[0].copy() for _ in range(len(self.species_order))]
 
@@ -1266,7 +1415,14 @@ class msani(models.ml_model, models.torchani_model):
             layers = [torch.nn.Linear(self.aev_computer.aev_length+1, self.neurons[i][0])]
             for j in range(len(self.neurons[i]) - 1):
                 if type(kwargs.activation_function) == str:
-                    layers += [torch.nn.__dict__[kwargs.activation_function]()]
+                    act_fun = kwargs.activation_function
+                    if '(' in act_fun:
+                        xx = act_fun.split('(')
+                        act_fun = xx[0]
+                        alpha = float(xx[1].strip(')'))
+                        layers += [torch.nn.__dict__[act_fun](alpha)]
+                    else:  
+                        layers += [torch.nn.__dict__[act_fun]()]
                 elif callable(kwargs.activation_function):
                     layers += [kwargs.activation_function()]
                 layers += [torch.nn.Linear(self.neurons[i][j], self.neurons[i][j + 1])]
@@ -1284,6 +1440,7 @@ class msani(models.ml_model, models.torchani_model):
         Arguments:
             a(float): Check `torch.nn.init.kaiming_normal_() <https://pytorch.org/docs/stable/nn.init.html#torch.nn.init.kaiming_uniform_>`_.
         '''
+        import torch
         def init_params(m):
             if isinstance(m, torch.nn.Linear):
                 torch.nn.init.kaiming_normal_(m.weight, a)
@@ -1292,7 +1449,8 @@ class msani(models.ml_model, models.torchani_model):
         self.nn.apply(init_params)
 
     def optimizer_setup(self, **kwargs):
-        kwargs = models.hyperparameters(kwargs)
+        import torch
+        kwargs = hyperparameters(kwargs)
         if isinstance(self.networkdict, OrderedDict) or type(self.networkdict) == dict:
             wlist2d = [
                 [
@@ -1329,6 +1487,7 @@ class msani(models.ml_model, models.torchani_model):
     def model_setup(self, **kwargs):
         self.AEV_setup(**kwargs)
         self.NN_setup(**kwargs)
+        from .torchani_heavy_parts import StateInputNet
         self.model = StateInputNet(self.aev_computer, self.nn).float().to(self.device)
 
     def fix_layers(self, layers_to_fix: Union[List[List[int]],List[int]]):
@@ -1387,13 +1546,20 @@ class msani(models.ml_model, models.torchani_model):
         
         self.energy_shifter = self.energy_shifter.to(self.device)
         
-        self.subtraining_set = self.subtraining_set.collate(self.hyperparameters.batch_size)
-        self.validation_set = self.validation_set.collate(self.hyperparameters.batch_size)
+        self.subtraining_set = self.subtraining_set.collate(self.hyperparameters.batch_size, PADDING)
+        self.validation_set = self.validation_set.collate(self.hyperparameters.batch_size, PADDING)
 
         self.argsdict.update({'self_energies': self.energy_shifter.self_energies, 'property': self.property_name})
-class ani_child(models.torchani_model):
-    def __init__(self, parent, index, name='ani_child', device='cuda' if torch.cuda.is_available() else 'cpu'):
-        self.device = torch.device(device)
+class ani_child(torchani_model):
+    def __init__(self, parent, index, name='ani_child', device=None):
+        import torch
+        if device is None:
+            if torch.cuda.is_available():
+                self.device = torch.device('cuda')
+            else:
+                self.device = torch.device('cpu')
+        else:
+            self.device = torch.device(device)
         self.name = name
         self.model = parent.__getitem__(index)
 
@@ -1406,20 +1572,22 @@ class ani_child(models.torchani_model):
             calculate_hessian: bool = False,
             batch_size: int = 2**16,
         ) -> None:
+        import torch, torchani
+        
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
 
         if not molDB._is_uniform_cell():
             batch_size = 1
 
         for batch in molDB.batches(batch_size):
-            for properties in molDB2ANIdata(batch).species_to_indices('periodic_table').collate(batch_size):
+            for properties in molDB2ANIdata(batch).species_to_indices('periodic_table').collate(batch_size, PADDING):
                 species = properties['species'].to(self.device)
                 if torchani.utils.PERIODIC_TABLE[0] == 'H':
                     species += 1
                 xyz_coordinates = properties['coordinates'].float().to(self.device)
                 break
-            pbc = torch.tensor(batch[0].pbc).to(self.device) if batch[0].pbc is not None else None
-            cell = torch.tensor(batch[0].cell).float().to(self.device) if batch[0].cell is not None else None
+            pbc = properties['pbc'][0].to(self.device) if 'pbc' in properties else None
+            cell = properties['cell'][0].float().to(self.device) if 'cell' in properties else None
             if pbc is not None and cell is not None:
                 xyz_coordinates = torchani.utils.map2central(cell, xyz_coordinates, pbc)
             xyz_coordinates = xyz_coordinates.requires_grad_(calculate_energy_gradients or calculate_hessian)
@@ -1437,28 +1605,44 @@ class ani_child(models.torchani_model):
                     batch.add_hessian_properties(ANI_NN_hessians.detach().cpu().numpy(), 'hessian')
     
     def node(self,):
-        return models.model_tree_node(name=self.name, operator='predict', model=self)
+        return model_tree_node(name=self.name, operator='predict', model=self)
     
-class ani_methods(models.torchani_model):
+class ani_methods(torchani_model, method_model):
     '''
     Create a model object with one of the ANI methods
 
     Arguments:
-        method (str): A string that specifies the method. Available choices: ``'ANI-1x'``, ``'ANI-1ccx'``, or ``'ANI-2x'``.
+        method (str): A string that specifies the method. Available choices: ``'ANI-1x'``, ``'ANI-1ccx'``, ``'ANI-2x'``, ``'ANI-1ccx-gelu'`` or ``'ANI-1x-gelu'``.
         device (str, optional): Indicate which device the calculation will be run on, i.e. 'cpu' for CPU, 'cuda' for Nvidia GPUs. When not speficied, it will try to use CUDA if there exists valid ``CUDA_VISIBLE_DEVICES`` in the environ of system.
 
     '''
-    available_methods = models.methods.methods_map['ani']
+    
+    supported_methods = ["ANI-1x", "ANI-1ccx", "ANI-2x", 'ANI-1x-D4', 'ANI-2x-D4', 'ANI-1xnr', 'ANI-1ccx-gelu', 'ANI-1ccx-gelu-D4', 'ANI-1x-gelu', 'ANI-1x-gelu-d4']
+    # no atomic energies for ANI-1ccx-gelu thus calculating energy on single atom will get error
     atomic_energies = {'ANI-1ccx': {1:-0.50088088, 6:-37.79199048, 7:-54.53379230, 8:-75.00968205}}
 
-    def __init__(self, method: str = 'ANI-1ccx', device: str = 'cuda' if torch.cuda.is_available() else 'cpu', **kwargs):
-        self.device = torch.device(device)
+    def __init__(self, method: str = 'ANI-1ccx', device = None):
+        import torch
+        if device is None:
+            if torch.cuda.is_available():
+                self.device = torch.device('cuda')
+            else:
+                self.device = torch.device('cpu')
+        else:
+            self.device = torch.device(device)
+        self.method = method
         self.model_setup(method)
 
     def model_setup(self, method):
+        import torchani
+        from ..models import methods
         self.method = method
         if 'ANI-1xnr'.casefold() in method.casefold():
             self.model = load_ani1xnr_model().to(self.device)
+        elif 'ANI-1ccx-gelu'.casefold() in method.casefold():
+            self.model = self.load_ani_gelu_model('ani1ccx_gelu')
+        elif 'ANI-1x-gelu'.casefold() in method.casefold():
+            self.model = self.load_ani_gelu_model('ani1x_gelu')
         elif 'ANI-1x'.casefold() in method.casefold():
             self.model = torchani.models.ANI1x(periodic_table_index=True).to(self.device).double()
         elif 'ANI-1ccx'.casefold() in method.casefold():
@@ -1466,25 +1650,34 @@ class ani_methods(models.torchani_model):
         elif 'ANI-2x'.casefold() in method.casefold():
             self.model = torchani.models.ANI2x(periodic_table_index=True).to(self.device).double()
         else:
-            print("method not found, please check ANI_methods().available_methods")
-            
-        self.element_symbols_available = self.model.species
+            print("method not found, please check ANI_methods().supported_methods")
 
         modelname = method.lower().replace('-','')
-        self.children = [ani_child(self.model, index, name=f'{modelname}_nn{index}', device=self.device).node() for index in range(len(self.model))]
-        if 'D4'.casefold() in self.method.casefold():
-            d4 = models.model_tree_node(name='d4_wb97x', operator='predict', model=models.methods(method='D4', functional='wb97x'))
-            ani_nns = models.model_tree_node(name=f'{modelname}_nn', children=self.children, operator='average')
-            self.model = models.model_tree_node(name=modelname, children=[ani_nns, d4], operator='sum')
+        if 'gelu'.casefold() in method.casefold():
+            self.element_symbols_available = self.model[0].species_order
+            self.children = [model_tree_node(name=f'{modelname}_nn{index}', model=self.model[index], operator='predict') for index in range(len(self.model))]
         else:
-            self.model = models.model_tree_node(name=modelname, children=self.children, operator='average')
+            self.element_symbols_available = self.model.species
+            self.children = [ani_child(self.model, index, name=f'{modelname}_nn{index}', device=self.device).node() for index in range(len(self.model))]
+        if 'D4'.casefold() in self.method.casefold():
+            d4 = model_tree_node(name='d4_wb97x', operator='predict', model=methods(method='D4', functional='wb97x'))
+            ani_nns = model_tree_node(name=f'{modelname}_nn', children=self.children, operator='average')
+            self.model = model_tree_node(name=modelname, children=[ani_nns, d4], operator='sum')
+        else:
+            self.model = model_tree_node(name=modelname, children=self.children, operator='average')
+
+    def load_ani_gelu_model(self, method):
+
+        currentdir=os.path.dirname(__file__)
+        dirname=os.path.join(currentdir, f'../ani_gelu_model')
+        return [ani(model_file=f'{dirname}/{method}_cv{ii}.pt', verbose=0) for ii in range(8)]
             
     @doc_inherit
     def predict(
             self, 
             molecular_database: data.molecular_database = None, 
             molecule: data.molecule = None,
-            calculate_energy: bool = False,
+            calculate_energy: bool = True,
             calculate_energy_gradients: bool = False, 
             calculate_hessian: bool = False,
             batch_size: int = 2**16,
@@ -1535,16 +1728,98 @@ class ani_methods(models.torchani_model):
         else:
             modelname = self.method.lower().replace('-','')
         molecule.__dict__[f'{modelname}'].standard_deviation(properties=properties+atomic_properties)
+    
+    def train(self, **kwargs):
+        import torchani
+        
+        # default settings
+        kwargs['save_model'] = True # force saving model
+        if 'file_to_save_model' in kwargs:
+            file_to_save_model = kwargs['file_to_save_model']
+        else:
+            file_to_save_model = None
+        if 'reset_energy_shifter' not in kwargs:
+            kwargs['reset_energy_shifter'] = True
+
+        if 'hyperparameters' in kwargs:
+            _hyperparameters = kwargs['hyperparameters']
+        else:
+            _hyperparameters = {}
+        # check hyperparameters
+        if 'fix_layers' not in _hyperparameters:
+            _hyperparameters['fixed_layers'] = [[0,4]]
+        if 'loss_type' not in _hyperparameters:
+            _hyperparameters['loss_type'] = 'geometric'
+        if 'max_epochs' not in _hyperparameters:
+            _hyperparameters['max_epochs'] = 100
+
+        kwargs['hyperparameters'] = _hyperparameters
+        
+        pretrained_models = []
+        if 'gelu'.casefold() in self.method.casefold():
+            if 'ANI-1ccx-gelu'.casefold() in self.method.casefold():
+                pretrained_models = self.load_ani_gelu_model(method='ani1ccx_gelu')
+            elif 'ANI-1x-gelu'.casefold() in self.method.casefold():
+                pretrained_models = self.load_ani_gelu_model(method='ani1x_gelu')
+        elif 'ANI-1xnr'.casefold() not in self.method.casefold():
+            animodel = ani()
+            if 'ANI-1ccx'.casefold() in self.method.casefold():
+                animodel.load_ani_model('ANI-1ccx')
+            elif 'ANI-1x'.casefold() in self.method.casefold():
+                animodel.load_ani_model('ANI-1x')
+            elif 'ANI-2x'.casefold() in self.method.casefold():
+                animodel.load_ani_model('ANI-2x')
+            for ii in range(8):
+                pmodel = ani()
+                pmodel.species_order = animodel.species_order
+                pmodel.aev_computer = animodel.aev_computer
+                pmodel.networkdict = animodel.networkdict[ii]
+                pmodel.neurons = animodel.neurons[ii]
+                pmodel.nn = animodel.nn[ii]
+                pmodel.energy_shifter = animodel.energy_shifter
+                pmodel.optimizer_setup(**pmodel.hyperparameters)
+
+                pmodel.model = torchani.nn.Sequential(animodel.aev_computer, animodel.nn[ii]).to(pmodel.device).float()
+                
+                pretrained_models.append(pmodel)
+        else:
+            raise ValueError('Currently ANI-1xnr can not be retrained on')
+
+        retrained_models = []
+        modelname = self.method.lower().replace('-','')
+        for ii, pmodel in enumerate(pretrained_models):
+            print(f'\nStart retraining on model {ii}...')
+            sys.stdout.flush()
+            if file_to_save_model:
+                kwargs['file_to_save_model'] = file_to_save_model + f'.cv{ii}'
+            else:
+                kwargs['file_to_save_model'] = f'{modelname}_retrained.pt.cv{ii}'
+            pmodel.train(**kwargs)
+            retrained_models.append(pmodel)
+
+        self.children = [
+            model_tree_node(
+                name=f'{modelname}_nn{ii}', 
+                model=rmodel, 
+                operator='predict') for ii, rmodel in enumerate(retrained_models)]
+        self.model = model_tree_node(
+            name=modelname, 
+            children=self.children, 
+            operator='average')
 
 def load_ani1xnr_model():
     # ANI-1xnr https://github.com/atomistic-ml/ani-1xnr/
     # Universal reactive ML potential ANI-1xnr: https://doi.org/10.1038/s41557-023-01427-3
+    import torchani
     species = ['H', 'C', 'N', 'O']
     def parse_ani1xnr_resources():
         import requests
         import zipfile
         import io
-        local_dir = os.path.expanduser('~/.local/ANI1xnr/')
+        if os.path.exists('/export/home/xacscloud/ANI/ANI1xnr/'):
+            local_dir = '/export/home/xacscloud/ANI/ANI1xnr/'
+        else:
+            local_dir = os.path.expanduser('~/.local/ANI1xnr/')
         url = "https://github.com/atomistic-ml/ani-1xnr/archive/refs/heads/main.zip"
         if not os.path.exists(local_dir+'ani-1xnr-main'):
             os.makedirs(local_dir, exist_ok=True)
@@ -1572,95 +1847,6 @@ def load_ani1xnr_model():
 
     return model_ensemble
 
-class aimnet2_methods(models.torchani_model):
-    '''
-    Universal ML methods with AIMNet2: https://doi.org/10.26434/chemrxiv-2023-296ch
-
-    Arguments:
-        method (str): A string that specifies the method. Available choices: ``'AIMNet2@b973c'`` and ``'AIMNet2@wb97m-d3'``.
-        device (str, optional): Indicate which device the calculation will be run on, i.e. 'cpu' for CPU, 'cuda' for Nvidia GPUs. When not speficied, it will try to use CUDA if there exists valid ``CUDA_VISIBLE_DEVICES`` in the environ of system.
-
-    '''
-    
-    available_methods = models.methods.methods_map['aimnet2']
-    element_symbols_available = ['H', 'B', 'C', 'N', 'O', 'F', 'Si', 'P', 'S', 'Cl', 'As', 'Se', 'Br', 'I']
-
-    def __init__(self, method: str = 'AIMNet2@b973c', device: str = 'cuda' if torch.cuda.is_available() else 'cpu', **kwargs):
-        self.device = torch.device(device)
-        self.model_path = self.parse_aimnet2_resources(method)
-        self.model = torch.jit.load(self.model_path)
-        
-    @doc_inherit
-    def predict(
-            self, 
-            molecular_database: data.molecular_database = None, 
-            molecule: data.molecule = None,
-            calculate_energy: bool = False,
-            calculate_energy_gradients: bool = False, 
-            calculate_hessian: bool = False,
-            batch_size: int = 2**16,
-        ) -> None:
-
-        molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
-
-        for element_symbol in np.unique(np.concatenate(molDB.element_symbols)):
-            if element_symbol not in self.element_symbols_available:
-                print(f' * Warning * Molecule contains elements \'{element_symbol}\', which is not supported by method \'{self.method}\' that only supports {self.element_symbols_available}, no calculations performed')
-                return
-
-        for mol in molDB:
-            self.predict_for_molecule(
-                molecule=mol, 
-                calculate_energy=calculate_energy, 
-                calculate_energy_gradients=calculate_energy_gradients, 
-                calculate_hessian=calculate_hessian)
-
-    def predict_for_molecule(
-        self,
-        molecule, 
-        calculate_energy: bool = False, 
-        calculate_energy_gradients: bool = False, 
-        calculate_hessian: bool = False):
-
-        coord = torch.as_tensor(molecule.xyz_coordinates).to(torch.float).to(self.device).unsqueeze(0)
-        numbers = torch.as_tensor(molecule.atomic_numbers).to(torch.long).to(self.device).unsqueeze(0)
-        charge = torch.tensor([molecule.charge], dtype=torch.float, device=self.device)
-        nninput = dict(coord=coord, numbers=numbers, charge=charge)
-        prev = torch.is_grad_enabled()
-        torch._C._set_grad_enabled(calculate_energy_gradients)
-        if calculate_energy_gradients:
-            nninput['coord'].requires_grad_(True)
-        nnoutput = self.model(nninput)
-        if calculate_energy:
-            molecule.energy = nnoutput['energy'].item()
-        if calculate_energy_gradients:
-            if 'forces' in nnoutput:
-                f = nnoutput['forces'][0]
-            else:
-                f = - torch.autograd.grad(nnoutput['energy'], nninput['coord'])[0][0]
-            forces = f.detach().cpu().numpy()
-            molecule.add_xyz_vectorial_property(forces, 'energy_gradients')
-
-        if calculate_hessian:
-            print('Hessian not available yet')
-            molecule.hessian = np.zeros((len(molecule),)*2)
-        
-        torch._C._set_grad_enabled(prev)
-
-    @staticmethod
-    def parse_aimnet2_resources(method):
-        import requests
-        local_dir = os.path.expanduser('~/.local/AIMNet2/')
-        repo_name = "AIMNet2"
-        tag_name = method.lower().replace('@', '_')
-        url = "https://github.com/isayevlab/{}/raw/main/models/{}_ens.jpt".format(repo_name, tag_name)
-        if not os.path.exists(local_dir+f'{tag_name}_ens.jpt'):
-            os.makedirs(local_dir, exist_ok=True)
-            print(f'Downloading {method} model parameters ...')
-            resource_res = requests.get(url)
-            with open(local_dir+f'{tag_name}_ens.jpt', 'wb') as f:
-                f.write(resource_res.content)
-        return local_dir + f'{tag_name}_ens.jpt'
 
 def printHelp():
     helpText = __doc__.replace('.. code-block::\n\n', '') + '''

@@ -7,10 +7,10 @@
 
 import os
 import math
-from . import models
+from .model_cls import method_model
 
-class ccsdtstarcbs_legacy(models.model):
-    available_methods = models.methods.methods_map['ccsdtstarcbs']
+class ccsdtstarcbs_legacy(method_model):
+    supported_methods = ['CCSD(T)*/CBS']
     def __init__(self, method='CCSD(T)*/CBS', **kwargs):
         if not "orcabin" in os.environ:
             raise ValueError('enviromental variable orcabin is not set')

@@ -73,8 +73,12 @@ def optimize_geometry(initial_molecule, model, convergence_criterion_for_forces,
     
     from ase import optimize
     opt = optimize.__dict__[optimization_algorithm](atoms)
-    opt.run(fmax=convergence_criterion_for_forces, steps=maximum_number_of_steps)
-    
+    # redirect output of ASE
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        aselog = open(f'{tmpdirname}/templog','w')
+        opt.logfile = aselog
+        opt.run(fmax=convergence_criterion_for_forces, steps=maximum_number_of_steps)
+        
     # For some reason ASE dumps the same energy twice. Here we remove the repeated value.
     if len(optimization_trajectory.steps) > 1:
         if abs(optimization_trajectory.steps[1].molecule.energy - optimization_trajectory.steps[0].molecule.energy) < 1e-13:
@@ -84,30 +88,26 @@ def optimize_geometry(initial_molecule, model, convergence_criterion_for_forces,
     
     return optimization_trajectory
 
-def transition_state(initial_molecule, model, 
-                     convergence_criterion_for_forces,
-                     maximum_number_of_steps,  
+def transition_state(initial_molecule=None, reactants=None, products=None,
+                     model=None, 
+                     model_predict_kwargs={},
+                     convergence_criterion_for_forces=None,
+                     maximum_number_of_steps=None,  
                      optimization_algorithm='dimer', 
-                     **kwargs):
+                     ase_kwargs={}):
     if optimization_algorithm == None:
         optimization_algorithm = 'dimer'
-
-    if 'model_predict_kwargs' in kwargs:
-        # model_predict_kwargs = kwargs['model_predict_kwargs']
-        model_predict_kwargs = kwargs.pop('model_predict_kwargs')
-    else:
-        model_predict_kwargs = {}
 
     if optimization_algorithm.casefold() == 'dimer'.casefold():
         return dimer_method(initial_molecule, model, 
                             model_predict_kwargs,
                             convergence_criterion_for_forces,
-                            maximum_number_of_steps, **kwargs)
+                            maximum_number_of_steps, **ase_kwargs)
     elif optimization_algorithm.casefold() == 'NEB'.casefold():
-        return nudged_elastic_band(initial_molecule, kwargs.pop('final_molecule'), model, 
+        return nudged_elastic_band(reactants, products, model, 
                                    model_predict_kwargs,
                                    convergence_criterion_for_forces,
-                                   maximum_number_of_steps,  **kwargs)
+                                   maximum_number_of_steps,  **ase_kwargs)
 
 def dimer_method(initial_molecule, model, 
                  model_predict_kwargs,
@@ -125,9 +125,11 @@ def dimer_method(initial_molecule, model,
     atoms.calc = MLatomCalculator(model=model,  model_predict_kwargs= model_predict_kwargs, save_optimization_trajectory=True)
 
     from ase.dimer import DimerControl, MinModeAtoms, MinModeTranslate
+    
+    random_seed = kwargs.pop('random_seed') if 'random_seed' in kwargs else None
 
     with DimerControl(**kwargs) as d_control:
-        d_atoms = MinModeAtoms(atoms, d_control, random_seed = kwargs['random_seed'] if 'random_seed' in kwargs else 0)
+        d_atoms = MinModeAtoms(atoms, d_control, random_seed = random_seed)
         d_atoms.displace()
         with MinModeTranslate(d_atoms) as dim_rlx:
             dim_rlx.run(fmax=convergence_criterion_for_forces,
@@ -189,7 +191,7 @@ class MLatomCalculator(Calculator):
             coordinates = mol_from_file.xyz_coordinates
             current_molecule.xyz_coordinates = coordinates
             
-            self.model._predict_geomopt(molecule=current_molecule, calculate_energy=True, calculate_energy_gradients=True, **self.model_predict_kwargs)
+            self.model._predict_geomopt(molecule=current_molecule, **self.model_predict_kwargs)
             if not 'energy' in current_molecule.__dict__:
                 raise ValueError('model did not return any energy')
             
