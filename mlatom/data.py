@@ -404,6 +404,26 @@ class molecule:
 
     add_xyz_vectorial_properties = add_xyz_vectorial_property
 
+
+    def add_property_from_egrad1_file(self, filename: str, energy_property_name: str = 'energy', gradient_property_name: str = 'energy_gradients') -> None:
+        '''
+        Add energy and gradient from BDF output xxx.engrad1 file to the molecule.
+
+        Arguments:
+            filename (str): The .egrad1 filename that contains energy and gradient to be added.
+            energy_property_name (str, optional): the name assign to the energy property.
+            gradient_property_name (str, optional): the name assign to the gradient property.
+        '''
+        with open(filename, 'r') as f:
+            string_lst = f.readlines()
+            energy = float(string_lst[0].upper().replace(' ', '').removeprefix('ENERGY='))
+            vectors = [array(s.strip().split()[-3:]).astype(float) for s in string_lst[2:]]
+
+        self.__dict__[energy_property_name] = energy
+        assert len(vectors) == len(self.atoms), 'the number of atom does not match'
+        for i, atom in enumerate(self.atoms):
+            atom.__dict__[gradient_property_name] = vectors[i]
+
     def write_file_with_xyz_coordinates(self, filename: str, format: Union[str, None] = None) -> None:
         '''
         Write the molecular geometry data into a file.
