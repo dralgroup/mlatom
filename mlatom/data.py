@@ -461,6 +461,45 @@ class molecule:
         for j in range(len(self)):
             self.atoms[j].__dict__[xyz_vectorial_property] = vector[j]
 
+    def add_property_from_BDF_egrad1_file(self, filename: str, energy_property_name: str = 'energy', gradient_property_name: str = 'energy_gradients') -> None:
+        '''
+        Add energy and gradient from BDF output xxx.engrad1 file to the molecule.
+
+        Arguments:
+            filename (str): The .egrad1 filename that contains energy and gradient to be added.
+            energy_property_name (str, optional): the name assign to the energy property.
+            gradient_property_name (str, optional): the name assign to the gradient property.
+
+        .. note::
+            gradient in BDF output file(.egrad1 file) use Hartree/Bohr unit but in MLatom it use Hartree/Angstrom unit, unit conversion is performed here.
+
+        **Example ``.egrad1`` file format**::
+
+            ENERGY=        -232.108204353561
+            GRADIENT
+                         1           0.0042475274         0.0060127667        -0.0000039839
+                         2          -0.0031002205         0.0066626467        -0.0000030526
+                         3          -0.0073204325         0.0006716961         0.0000008478
+                         4          -0.0042366843        -0.0060243853        -0.0000048821
+                         5           0.0030982020        -0.0066557785         0.0000061277
+                         6           0.0072992592        -0.0006745077        -0.0000023993
+                         7          -0.0042945127        -0.0061028118        -0.0000007873
+                         8          -0.0074275957         0.0006603016         0.0000007442
+                         9          -0.0031308833         0.0067766069         0.0000040330
+                        10           0.0043069792         0.0060984600        -0.0000008635
+                        11           0.0031303714        -0.0067593045         0.0000035547
+                        12           0.0074279899        -0.0006656904         0.0000006613
+        '''
+        with open(filename, 'r') as f:
+            string_lst = f.readlines()
+            energy = float(string_lst[0].upper().replace(' ', '').removeprefix('ENERGY='))
+            vectors = [array(s.strip().split()[-3:]).astype(float) / constants.Bohr2Angstrom for s in string_lst[2:] if s.strip() != ""]  # unit conversion
+
+        self.__dict__[energy_property_name] = energy
+        assert len(vectors) == len(self.atoms), 'the number of atom does not match'
+        for i, atom in enumerate(self.atoms):
+            atom.__dict__[gradient_property_name] = vectors[i]
+
     def write_file_with_xyz_coordinates(self, filename: str, format: Union[str, None] = None) -> None:
         '''
         Write the molecular geometry data into a file.
@@ -1406,6 +1445,31 @@ class molecular_database:
                 update_h5file(h5file, str(na), prop, prop_value)
         h5file.close() 
 
+    def read_from_BDF_egrad1_files(self, folder:str, energy_property_name:str = 'energy', gradient_property_name:str = 'energy_gradients') -> molecular_database:
+        '''
+        Generate molecules from BDF software, geometries will be read from ``xxx.xyz`` files, energy and gradient will be read from BDF output ``xxx.egrad1`` files.
+
+        Each ``.xyz`` file should only contain one molecule geometry info, and the ``.egrad1`` file with same name should contain its energy and gradient. (If there are more than one molecules' geometries in the ``.xyz`` file, according to the :meth:`molecule().read_from_xyz_string` method, only the first one will be used.)
+
+        To see an example of ``.egrad1`` file, see :meth:`molecule().add_property_from_BDF_egrad1_file` method.
+
+        All the files should be contained in one folder.
+
+        Arguments:
+            folder (str): the folder which contains all the ``.xyz`` and ``.egrad1`` files with the same name.
+            energy_property_name (str, optional): the name assign to the energy property.
+            gradient_property_name (str, optional): the name assign to the gradient property.
+        '''
+        files = [path for path in os.listdir(folder) if os.path.isfile(os.path.join(folder, path))]
+        egrad1_files = [file.removesuffix(".egrad1") for file in files if file.endswith(".egrad1")]
+        xyz_files = [file.removesuffix(".xyz") for file in files if file.endswith(".xyz")]
+        valid_files = list(set(egrad1_files) & set(xyz_files))
+
+        for file in valid_files:
+            mol = molecule.from_xyz_file(os.path.join(folder, file+".xyz"))
+            mol.add_property_from_BDF_egrad1_file(os.path.join(folder, file+".egrad1"), energy_property_name=energy_property_name, gradient_property_name=gradient_property_name)
+            self.molecules.append(mol)
+        return self
 
     @classmethod
     def from_xyz_file(cls, filename: str) -> molecular_database:
@@ -1441,7 +1505,13 @@ class molecular_database:
         Classmethod wrapper for :meth:`molecular_database.read_from_smiles_string`, returns a :class:`molecular_database` object.
         '''
         return cls().read_from_smiles_string(smi_string)
-    
+
+    @classmethod
+    def from_BDF_egrad1_files(cls, folder:str, energy_property_name:str ='energy', gradient_property_name:str = 'energy_gradients') -> molecular_database:
+        '''
+        Classmethod wrapper for :meth:`molecular_database.read_from_BDF_egrad1_files`, returns a :class:`molecular_database` object.
+        '''
+        return cls().read_from_BDF_egrad1_files(folder, energy_property_name=energy_property_name, gradient_property_name=gradient_property_name)
 
     def add_scalar_properties(self, scalars, property_name: str = 'y') -> None: # kind of redundant? mol.a = x does the samething
         '''
