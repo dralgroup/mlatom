@@ -149,7 +149,7 @@ def printHeader(args):
     if args.aimnet2atb973c:
         refItems['AIMNet2@B973c'] = refs['AIMNet2']
     if args.aimnet2atwb97md3:
-        refItems['AIMNet2@wb97M-D3'] = refs['AIMNet2']
+        refItems['AIMNet2@wb97M'] = refs['AIMNet2']
 
     
     if args.geomopt:

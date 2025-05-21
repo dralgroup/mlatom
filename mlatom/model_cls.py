@@ -197,6 +197,149 @@ class method_model(model):
     @classmethod
     def raise_unsupported_method_error(cls, method):
         raise ValueError(f'The method "{method}" is not supported by this class. You might have misspelled method, please check the class documentation.')
+
+class downloadable_model(model):
+
+    link2 = {
+        'aiqm1_dft_model':'https://zenodo.org/records/15383390/files/aiqm1_dft_model.zip?download=1',
+        'aiqm1_model':'https://zenodo.org/records/15383390/files/aiqm1_cc_model.zip?download=1',
+        'aiqm2_dft_model':'https://zenodo.org/records/15383333/files/aiqm2_dft_model.zip?download=1',
+        'aiqm2_model':'https://zenodo.org/records/15383333/files/aiqm2_cc_model.zip?download=1',
+        'ani_1ccx_gelu_model':'https://zenodo.org/records/15383363/files/ani1ccx_gelu_model.zip?download=1',
+        'ani_1x_gelu_model':'https://zenodo.org/records/15383363/files/ani1x_gelu_model.zip?download=1'
+    }
+    model_downloadable_files = {
+        'aiqm1_dft_model':[f'cv{ii}.pt' for ii in range(8)],
+        'aiqm1_model':[f'cv{ii}.pt' for ii in range(8)],
+        'aiqm2_dft_model':[f'cv{ii}.pt' for ii in range(8)],
+        'aiqm2_model':[f'cv{ii}.pt' for ii in range(8)],
+        'ani_1ccx_gelu_model':[f'cv{ii}.pt' for ii in range(8)],
+        'ani_1x_gelu_model':[f'cv{ii}.pt' for ii in range(8)],
+    }
+
+    enable_link1=True; enable_link2=True # for test and debug
+
+    def parse_model_name(self, method):
+        method = method.lower()
+        method = method.replace('@','_').replace('*','').replace('-','_').replace('-d4','')
+        if method == 'omni_p2x': method = 'omnip2x'
+        if 'uaiqm' in method: 
+            assert 'version' in self.__dict__ 
+            return f'{method}_{self.version}_model', f'uaiqm_model/{method}/{self.version}'
+        return method + '_model', method + '_model'
+
+    def check_model_path(self, method):
+        '''
+        check model paths prefix
+        1. $MODELSPATH
+        2. [mlatom dir]/models 
+        3. ~/.mlatom/models
+        
+        model will only be downloaded to ~/.mlatom/models
+        Currently, we only check if {method_name}_model folder exists. 
+        ''' 
+
+        model_name, model_name_tojoin = self.parse_model_name(method)
+        
+        to_download = False
+        if 'MODELSPATH' in os.environ:
+            modelspath = os.environ['MODELSPATH'].split(os.pathsep)
+            if len(modelspath) > 1:
+                for mm in modelspath:
+                    model_path = os.path.join(mm, model_name_tojoin)
+                    for mf in self.model_downloadable_files[model_name]:
+                        if not os.path.exists(os.path.join(model_path, mf)): 
+                            to_download = True
+                            break 
+                    if not to_download: return model_name, model_path, False
+                        
+            else:
+                model_path = os.path.join(modelspath[0], model_name_tojoin)
+                for mf in self.model_downloadable_files[model_name]:
+                    if not os.path.exists(os.path.join(model_path, mf)): 
+                        to_download = True
+                        break 
+                if not to_download: return model_name, model_path, False
+
+        if 'mlatom' in sys.modules:
+            prefix2 = os.path.join(os.path.dirname(sys.modules['mlatom'].__file__), 'mlatom_models')
+        elif 'aitomic' in sys.modules:
+            prefix2 = os.path.join(os.path.dirname(sys.modules['aitomic'].__file__), 'mlatom_models')
+        else:
+            raise ValueError('Neither aitomic nor mlatom is imported.')
+            
+        if os.path.exists(prefix2):
+            model_path = os.path.join(prefix2,model_name_tojoin)
+            for mf in self.model_downloadable_files[model_name]:
+                if not os.path.exists(os.path.join(model_path, mf)): 
+                    to_download = True
+                    break 
+            if not to_download: return model_name, model_path, False
+
+        home_dir = os.path.expanduser("~")
+        prefix3 = os.path.join(home_dir,'.mlatom/models')
+        
+        if os.path.exists(prefix3):
+            model_path = os.path.join(prefix3,model_name_tojoin)
+            for mf in self.model_downloadable_files[model_name]:
+                if not os.path.exists(os.path.join(model_path, mf)): 
+                    to_download = True
+                    break 
+            if not to_download: return model_name, model_path, False
+        os.makedirs(prefix3, exist_ok=True)
+        return model_name, os.path.join(prefix3, model_name_tojoin), True
+    
+    def _download(self, link, headers, model_path, target_name=None):
+        # download to [model_path]/target_name
+        from tqdm import tqdm
+        import requests
+        print(f'Start downloading model from {link} to {model_path}'); sys.stdout.flush()
+        try:
+            response = requests.get(link, headers=headers, stream=True, allow_redirects=True)
+            total_size = int(response.headers.get("content-length", 0))
+            os.makedirs(model_path, exist_ok=True) # no check of permission
+            if not target_name: target_name = model_path +'.zip'
+            else: target_name = os.path.join(model_path, target_name)
+
+            with open(target_name, "wb") as f:
+                with tqdm(total=total_size, unit="B", unit_scale=True, desc=target_name) as pbar:
+                    for chunk in response.iter_content(chunk_size=1024):
+                        if chunk: 
+                            f.write(chunk)
+                            pbar.update(len(chunk))
+            return target_name
+        except: return None
+
+    def download(self, model_name, model_path):
+        if not model_path: return 
+
+        import zipfile, io            
+
+        # try link 1
+        link1 = f'https://g-zzca2630.coding.net/p/mlatom/d/mlatom_models/git/raw/master/{model_name}.zip?download=true'
+        if self.enable_link1:
+            headers = {"Authorization": f"token 369d6f5182afba788bbd345271fc2c4c45038fac"}
+            downloaded_file = self._download(link1, headers, model_path)
+            if downloaded_file:
+                zipfile = zipfile.ZipFile(io.BytesIO(open(downloaded_file, 'rb').read()))
+                zipfile.extractall(path=model_path)
+                os.remove(downloaded_file)
+                print(f'models have been downloaded to {model_path}'); sys.stdout.flush()
+                return 
+        
+        link2 = self.link2[model_name]
+        if self.enable_link2:
+            # try link 2
+            headers=None
+            downloaded_file = self._download(link2, headers, model_path)
+            if downloaded_file:
+                zipfile = zipfile.ZipFile(io.BytesIO(open(downloaded_file, 'rb').read()))
+                zipfile.extractall(path=model_path)
+                os.remove(downloaded_file)
+                return 
+
+        raise ValueError(f'Failed to download required model files. Possible solutions:\n 1. Check your internet connection.\n 2. Download from links below:\nlink1: {link1}\nlink2: {link2}\nThe model .pt files should be placed under {model_path}')
+
  
 # Parent model class
 class ml_model(model):

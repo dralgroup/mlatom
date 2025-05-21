@@ -10,7 +10,7 @@
 import numpy as np
 import os
 from . import data
-from .model_cls import model, torchani_model, method_model, model_tree_node
+from .model_cls import model, torchani_model, method_model, model_tree_node, downloadable_model
 
 class aiqm1(torchani_model, method_model):
     """
@@ -52,6 +52,7 @@ class aiqm1(torchani_model, method_model):
         self.qm_program_kwargs = qm_program_kwargs
         modelname = self.method.lower().replace('*','star').replace('@','at')
         ani_nn_children = []
+
         for ii in range(8):
             nn_i = model_tree_node(name=f'{modelname}_nn{ii}', operator='predict', model=ani_nns_in_aiqm1(method=self.method, model_index=ii))
             ani_nn_children.append(nn_i)
@@ -167,7 +168,7 @@ class atomic_energy_shift(model):
                     ndim = len(mol.atoms) * 3
                     mol.hessian = np.zeros(ndim*ndim).reshape(ndim,ndim)
 
-class ani_nns_in_aiqm1(torchani_model):
+class ani_nns_in_aiqm1(torchani_model, downloadable_model):
     species_order = [1, 6, 7, 8]
     
     def __init__(self, method='AIQM1', model_index = 0):
@@ -176,6 +177,7 @@ class ani_nns_in_aiqm1(torchani_model):
             self.level = 'cc'
         elif method in ['AIQM1@DFT', 'AIQM1@DFT*']:
             self.level = 'dft'
+        self.method = method
         self.model_index = model_index
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.define_aev()
@@ -202,7 +204,21 @@ class ani_nns_in_aiqm1(torchani_model):
         dirname = os.path.join(mlatomdir, 'aiqm1_model')
         method = 'aiqm1_' + self.level
         self.define_nn()
-        checkpoint = torch.load(os.path.join(dirname, f'{method}_cv{self.model_index}.pt'), map_location=self.device)
+
+        # check model file
+        # if 'dft' in method.lower():
+        #     if 'MODELSPATH' in os.environ:
+        #         modelspath = os.environ['MODELSPATH']
+        #     else:
+        #         raise ValueError(f'Please set environment variable MODELSPATH for using this method and put NN model files under $MODELSPATH/{method}_model/')
+        # dirname = os.path.join(os.environ['MODELSPATH'], f'{method}_model')
+        # if not os.path.exists(dirname):
+        #     raise ValueError(f'Please put model files under $MODELSPATH/{method}_model/')
+        model_name, model_path, download = self.check_model_path(self.method)
+        if download: self.download(model_name, model_path)
+        
+        # checkpoint = torch.load(os.path.join(dirname, f'{method}_cv{self.model_index}.pt'), map_location=self.device)
+        checkpoint = torch.load(os.path.join(model_path, f'cv{self.model_index}.pt'), map_location=self.device, weights_only=False)
         self.nn.load_state_dict(checkpoint['nn'])
         import torchani
         self.model  = torchani.nn.Sequential(self.aev_computer, self.nn).to(self.device).double()

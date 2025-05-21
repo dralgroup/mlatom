@@ -432,6 +432,11 @@ class irc():
         else:
             self.model_predict_kwargs = {}
 
+        if 'program_kwargs' in kwargs:
+            self.program_kwargs = kwargs['program_kwargs']
+        else:
+            self.program_kwargs = {}
+
         from .interfaces import gaussian_interface
         if 'number' in self.ts_molecule.__dict__.keys(): suffix = f'_{self.ts_molecule.number}'
         else: suffix = ''
@@ -439,7 +444,7 @@ class irc():
         self.model.dump(filename='model.json', format='json')
         
         # Run Gaussian
-        gaussian_interface.run_gaussian_job(filename=f'{filename}.com', molecule=self.ts_molecule, external_task='irc', model_predict_kwargs=self.model_predict_kwargs)
+        gaussian_interface.run_gaussian_job(filename=f'{filename}.com', molecule=self.ts_molecule, external_task='irc', model_predict_kwargs=self.model_predict_kwargs,**self.program_kwargs)
         
         #if os.path.exists('model.json'): os.remove('model.json')
 
@@ -471,12 +476,13 @@ class freq():
 
 
     """
-    def __init__(self, model=None, model_predict_kwargs={}, molecule=None, program=None, ir=False, raman=False, normal_mode_normalization='mass deweighted normalized', anharmonic=False, anharmonic_kwargs={}, working_directory=None):
+    def __init__(self, model=None, model_predict_kwargs={}, molecule=None, program=None, ir=False, raman=False, normal_mode_normalization='mass deweighted normalized', anharmonic=False, anharmonic_kwargs={}, working_directory=None,program_kwargs={}):
         self.model = model
         self.model_predict_kwargs = model_predict_kwargs
         self.molecule = molecule
         self.ir = ir
         self.raman = raman
+        self.program_kwargs = program_kwargs
         if self.ir:
             # import inspect
             # args = ['self']
@@ -522,6 +528,7 @@ class freq():
         if 'polarizability_derivatives' in self.molecule.__dict__:
             if self.program.casefold() != 'Gaussian'.casefold():
                 self.raman_intensities(normal_mode_normalization='mass deweighted normalized')
+        
 
     def freq_gaussian(self, anharmonic):
         self.successful = False
@@ -534,9 +541,9 @@ class freq():
         
         # Run Gaussian
         if anharmonic:
-            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq(anharmonic)',working_directory=self.working_directory,freq_keywords=self.anharmonic_kwargs, model_predict_kwargs=self.model_predict_kwargs)
+            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq(anharmonic)',working_directory=self.working_directory,freq_keywords=self.anharmonic_kwargs, model_predict_kwargs=self.model_predict_kwargs,**self.program_kwargs)
         else:
-            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq',working_directory=self.working_directory, model_predict_kwargs=self.model_predict_kwargs)
+            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq',working_directory=self.working_directory, model_predict_kwargs=self.model_predict_kwargs,**self.program_kwargs)
         
         # Get results
         outputfile = f'{filename}.log'

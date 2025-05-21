@@ -398,7 +398,8 @@ def thermo_calculation(molecule):
     mode = thermo_results['norm_mode'].real
     # Pyscf provides mass deweighted unnormalized normal modes. Normalize them here.
     for imode in range(mode.shape[0]):
-        mode /= np.sqrt(np.sum(mode[imode]**2))
+        # mode /= np.sqrt(np.sum(mode[imode]**2))
+        mode[imode] /= np.sqrt(np.sum(mode[imode]**2))
     for iatom in range(len(molecule.atoms)):
         molecule.atoms[iatom].normal_modes = []
         for ii in range(mode.shape[0]):

@@ -229,7 +229,7 @@ class Nose_Hoover_thermostat(Thermostat):
         scale = 1.0
         for inc in range(self.Nc):
             for inys in range(len(self.YS_list)):
-                dt_nc = self.YS_list[inys]*time_step / float(inc+1)
+                dt_nc = self.YS_list[inys]*time_step / float(self.Nc)
                 dt_2 = dt_nc / 2.0
                 dt_4 = dt_nc / 4.0
                 dt_8 = dt_nc / 8.0
@@ -253,10 +253,11 @@ class Nose_Hoover_thermostat(Thermostat):
                 for i in range(M):
                     self.NHC_xi[i] = self.NHC_xi[i] + self.NHC_vxi[i]*dt_2
                 
-                scale = scale * np.exp(-self.NHC_vxi[0]*dt_2) # Scalar factor
+                aa = np.exp(-self.NHC_vxi[0]*dt_2)
+                scale = scale * aa # Scalar factor which will be applied to velocities after all these loops
                 
-                KE = KE*scale**2
-                    
+                KE = KE*aa**2
+
                 self.NHC_vxi[0] = self.NHC_vxi[0] * np.exp(-self.NHC_vxi[1]*dt_8)
                 G1 = (2*KE-self.degrees_of_freedom*avg_en)/self.NHC_Q[0]/abc
                 self.NHC_vxi[0] = self.NHC_vxi[0] + G1*dt_4
