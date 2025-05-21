@@ -1,8 +1,8 @@
 import os
 from . import data, models, constants
-from .model_cls import method_model, model_tree_node
+from .model_cls import method_model, model_tree_node, downloadable_model
 
-class aiqm2(method_model):
+class aiqm2(method_model, downloadable_model):
 
     """ 
     GFN2-xTB based artificial intelligence quantum-mechanical method 2 (AIQM2)
@@ -30,8 +30,8 @@ class aiqm2(method_model):
     """ 
     
     supported_methods = ['AIQM2', 'AIQM2@DFT', 'AIQM2@DFT*']
-    mlatomdir=os.path.dirname(__file__)
-    dirname = os.path.join(mlatomdir, 'aiqm2_model')
+    # mlatomdir=os.path.dirname(__file__)
+    # dirname = os.path.join(mlatomdir, 'aiqm2_model')
 
     def __init__(
         self,
@@ -97,10 +97,11 @@ class aiqm2(method_model):
 
     def load(self):
         from .models import methods
-        if not os.path.exists(os.path.join(self.dirname, f'{self.model_name}_cv0.pt')):
-            self.download_models()
+
+        model_name, model_path, download = self.check_model_path(self.method)
+        if download: self.download(model_name, model_path)
         
-        model_paths = [os.path.join(self.dirname, f'{self.model_name}_cv{ii}.pt') for ii in range(8)]
+        model_paths = [os.path.join(model_path, f'cv{ii}.pt') for ii in range(8)]
 
         baseline = model_tree_node(
             name='gfn2xtbstar',
@@ -144,15 +145,5 @@ class aiqm2(method_model):
             operator='sum'
         )
 
-    def download_models(self):
-        import requests
-        urls = [f"https://github.com/dralgroup/mlatom/raw/refs/heads/main/mlatom/aiqm2_model/{self.model_name}_cv{ii}.pt" for ii in range(8)]
-        if not os.path.exists(self.dirname):
-            os.makedirs(self.dirname, exist_ok=True)
-        print(f'Downloading aiqm2 model parameters ...')
-        for ii in range(8):
-            resource_res = requests.get(urls[ii])
-            with open(f'{self.dirname}/{self.model_name}_cv{ii}.pt','wb') as f:
-                f.write(resource_res.content)
 
 

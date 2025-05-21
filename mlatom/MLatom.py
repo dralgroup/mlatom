@@ -4,7 +4,7 @@
   !---------------------------------------------------------------------------!
   !                                                                           !
   !     MLatom: a Package for Atomistic Simulations with Machine Learning     !
-  !                             MLatom 3.17.1                                 !
+  !                             MLatom 3.17.3                                 !
   !                                   @                                       !
   !                 Xiamen Atomistic Computing Suite (XACS)                   !
   !                                                                           !
@@ -38,7 +38,7 @@
   ! Sebastian V. Pios, Yanchi Ou, Matheus O. Bispo, Vignesh B. Kumar,         !
   ! Xin-Yu Tong,                                                              !
   ! MLatom: A Package for Atomistic Simulations with Machine Learning,        !
-  ! version 3.17.1, Xiamen University, Xiamen, China, 2013-2024.              !
+  ! version 3.17.3, Xiamen University, Xiamen, China, 2013-2024.              !
   !                                                                           !
   ! The citations for MLatom's interfaces and features shall be eventually    !
   ! included too. See header.py, ref.json and http://mlatom.com.              !
@@ -59,24 +59,81 @@ import os, sys, time
 # import header
 # from mlatom.MLtasks import CLItasks
 # from mlatom.args_class import mlatom_args
-import importlib.util
-# ~POD, 2025.03.23
-# the complicated import below is required to load the same instance of mlatom,
-# where this script is located.
-
-dir_path = os.path.dirname(os.path.abspath(__file__))
-path2init = os.path.join(dir_path, '__init__.py')
-dirname = os.path.basename(dir_path)
-spec = importlib.util.spec_from_file_location(dirname, path2init)
-mlatom_with_this_file = importlib.util.module_from_spec(spec)
-sys.modules[dirname] = mlatom_with_this_file
-spec.loader.exec_module(mlatom_with_this_file)
-header = mlatom_with_this_file.header
-CLItasks = mlatom_with_this_file.MLtasks.CLItasks
-mlatom_args = mlatom_with_this_file.args_class.mlatom_args
 
 def run(argv = []):
+    import importlib.util
+    # ~POD, 2025.03.23
+    # the complicated import below is required to load the same instance of mlatom,
+    # where this script is located.
+
+    dir_path = os.path.dirname(os.path.abspath(__file__))
+    path2init = os.path.join(dir_path, '__init__.py')
+    dirname = os.path.basename(dir_path)
+    spec = importlib.util.spec_from_file_location(dirname, path2init)
+    mlatom_with_this_file = importlib.util.module_from_spec(spec)
+    sys.modules[dirname] = mlatom_with_this_file
+    spec.loader.exec_module(mlatom_with_this_file)
+    header = mlatom_with_this_file.header
+    CLItasks = mlatom_with_this_file.MLtasks.CLItasks
+    mlatom_args = mlatom_with_this_file.args_class.mlatom_args
+    
     starttime = time.time()
+
+    # add print mlatom version and list location of these versions
+    for arg in sys.argv:
+        if arg in ['-v', '--version']: 
+            version = mlatom_with_this_file.__version__
+            print(f'Current mlatom version: {version}')
+            if 'dev' not in version: 
+                # get latest version from pypi
+                import requests 
+                url = f"https://pypi.org/pypi/mlatom/json"
+                response = requests.get(url)
+                if response.status_code == 200:
+                    latest_version = response.json()["info"]['version']
+                    if latest_version != version:
+                        print(f'The latest mlatom version is {latest_version}, please upgrade your mlatom with `pip install --upgrade mlatom`')
+                else:
+                    print('Fail to get the latest mlatom version from pypi')
+            return
+        elif arg in ['-l', '--list']:
+            # get all installed packages in site packages
+            print('Current mlatom installation:')
+            print(f"  {'version':<15} location")
+            print(f'* {mlatom_with_this_file.__version__:<15} {dir_path}')
+
+            print('\nAvailable mlatom installation:')
+            print(f"{'version':<15} location")
+
+            def get_version_from_init(initpath, prefix):
+                pp_version = None; f = open(initpath,'r').readlines()
+                for ll in f:
+                    if '__version__' in ll: 
+                        import re 
+                        pp_version = re.search(r'(["\'])(.*?)\1', ll).group(2)
+                if not pp_version: pp_version = 'unknown'
+                print(f'{pp_version:<15} {prefix}')
+
+
+            # check pythonpath
+            if 'PYTHONPATH' in os.environ: 
+                pythonpaths = os.environ['PYTHONPATH'].split(os.pathsep)
+                for pp in pythonpaths:
+                    if os.path.exists(os.path.join(pp, 'mlatom')):
+                        path2init = os.path.join(pp, 'mlatom/__init__.py')
+                    elif os.path.exists(os.path.join(pp, 'aitomic')):
+                        path2init = os.path.join(pp, 'aitomic/__init__.py')
+                    else: continue
+                    get_version_from_init(path2init, os.path.join(pp, 'mlatom'))
+
+            # check python package
+            import site
+            sitepackage_paths = site.getsitepackages()
+            for sp in sitepackage_paths:
+                if os.path.exists(os.path.join(sp, 'mlatom')): 
+                    path2init = os.path.join(sp, 'mlatom/__init__.py')
+                    get_version_from_init(path2init, os.path.join(sp, 'mlatom'))
+            return  
     
     print(__doc__)
     

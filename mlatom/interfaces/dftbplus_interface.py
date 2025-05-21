@@ -57,10 +57,11 @@ class dftbplus_methods(OMP_model, method_model):
     """
     supported_methods = ['DFTB']
 
-    def __init__(self, method="DFTB", nthreads=None, save_files_in_current_directory=True, working_directory=None):
+    def __init__(self, method="DFTB", nthreads=None, save_files_in_current_directory=True, working_directory=None, scf_tolerance=None):
         self.method = method
         self.save_files_in_current_directory = save_files_in_current_directory
         self.working_directory = working_directory
+        self.scf_tolerance = scf_tolerance
         # print("Please use '3ob' parameterizations if your system contains only the following atoms:\nBr-C-Ca-Cl-F-H-I-K-Mg-N-Na-O-P-S-Zn")
         if self.is_program_found:
             self.skdir = self.get_skdir()
@@ -109,6 +110,17 @@ class dftbplus_methods(OMP_model, method_model):
         #     opt = 'Driver = {}\n\n'
         #     input_lines.append(opt)
 
+        if self.calculate_hessian:
+            if self.scf_tolerance is None:
+                scc_convergence = "    SCCTolerance = 1E-7\n" # The manual suggests SCCTolerance=1E-7 or better to get accurate results for the second derivatives.
+            else:
+                scc_convergence = f"    SCCTolerance = {self.scf_tolerance}" + '\n'
+        else:
+            if self.scf_tolerance is None:
+                scc_convergence = "" # The default SCCTolerance is 1E-5
+            else:
+                scc_convergence = f"    SCCTolerance = {self.scf_tolerance}" + '\n'
+
         # Figure out the element types and import the element interaction files (Slater-Koster files)
         element_type = set(molecule.element_symbols)
         file_name = []
@@ -126,6 +138,7 @@ class dftbplus_methods(OMP_model, method_model):
         for ii in element_type:
             input_lines.append(f'{ii} = "{angluar_momentums[ii]}"\n')
         input_lines.append("}\n")
+        input_lines.append(scc_convergence)
         try:
             if self.nstates == 1:
                 tmpline = []
@@ -228,7 +241,7 @@ class dftbplus_methods(OMP_model, method_model):
 
         # Read excitation info
         if self.nstates > 1:
-            xyzstring = data.molecule.from_xyz_file(f"{dirname}/ini_guess.xyz").get_xyz_string()
+            xyzstring = molecule.get_xyz_string()
             gsmol = data.molecule.from_xyz_string(xyzstring)
             gsmol.energy = molecule.energy
             excitation_energies, oscillator_strengths = [], []
@@ -249,19 +262,21 @@ class dftbplus_methods(OMP_model, method_model):
                     state_mol = data.molecule.from_xyz_string(xyzstring)
                     state_mol.energy = gsmol.energy + excitation_energies[ii]
                     molecule.electronic_states.append(state_mol)
-                if self.calculate_energy_gradients:
-                    molecule.add_xyz_vectorial_property(vector=energy_gradients, xyz_vectorial_property="energy_gradients")
+                # if self.calculate_energy_gradients:
+                #     molecule.add_xyz_vectorial_property(vector=energy_gradients, xyz_vectorial_property="energy_gradients")
             
             elif self.current_state > 0:
                 molecule.electronic_states += [data.molecule.from_xyz_string(xyzstring) for _ in range(self.nstates - 1)]
                 molecule.electronic_states[self.current_state].energy = molecule.energy
                 molecule.electronic_states[0].energy = molecule.electronic_states[self.current_state].energy - molecule.excitation_energies[self.current_state-1]
-                for istate in range(1,molecule.nstates):
+                for istate in range(1,self.nstates):
                     molecule.electronic_states[istate].energy = molecule.electronic_states[0].energy + molecule.excitation_energies[istate-1]
                 if self.calculate_energy_gradients:
-                    molecule.electronic_states[self.current_state].add_xyz_vectorial_property(vector=energy_gradients, xyz_vectorial_property="energy_gradients")
+                    molecule.electronic_states[self.current_state].add_xyz_derivative_property(derivative=energy_gradients, property_name="energy", xyz_derivative_property="energy_gradients")
+                    molecule.add_xyz_derivative_property(derivative=energy_gradients, property_name="energy", xyz_derivative_property="energy_gradients")
                 if self.calculate_hessian:
                     molecule.electronic_states[self.current_state].hessian = hessian
+                    molecule.hessian = hessian
 
     @doc_inherit
     def predict(self, 

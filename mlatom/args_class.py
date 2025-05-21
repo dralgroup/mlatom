@@ -471,7 +471,7 @@ class mlatom_args(ArgsBase):
         self.set_keyword_alias('ANI-1x-gelu', ['ani1xgelu'])
         self.set_keyword_alias('ANI-1x-gelu-d4', ['ani1xgelud4'])
         self.set_keyword_alias('AIMNet2@B973c', ['aimnet2atb973c'])
-        self.set_keyword_alias('AIMNet2@wb97M-D3', ['aimnet2atwb97md3'])
+        self.set_keyword_alias('AIMNet2@wb97M', ['aimnet2atwb97md3'])
         self.set_keyword_alias('GFN2-xTB', ['gfn2xtb'])
         self.set_keyword_alias('GFN2-xTB*',['gfn2xtbstar'])
         self.set_keyword_alias('MNDO/dH', ['mndodh'])

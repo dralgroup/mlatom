@@ -436,10 +436,14 @@ def mace(**kwargs):
     return mace(**kwargs)
 
 from .addons.uaiqm.uaiqm             import uaiqm
+from .addons.omnip2x.omnip2x         import omnip2x
+from .addons.omnip2x.vecmsani        import vecmsani
+
 from .aiqm1                          import aiqm1
 from .aiqm2                          import aiqm2
 from .dens                           import dens
-from .aimnet2                        import aimnet2_methods
+# from .aimnet2                        import aimnet2_methods
+from .interfaces.aimnet2_interface   import aimnet2_methods
 from .interfaces.torchani_interface  import ani_methods
 from .interfaces.gaussian_interface  import gaussian_methods
 from .interfaces.pyscf_interface     import pyscf_methods
@@ -455,7 +459,7 @@ from .interfaces.dftd3_interface     import dftd3_methods
 from .interfaces.dftd4_interface     import dftd4_methods
 
 # The order of classes determines the defaults (i.e., whatever first works, is used)
-known_classes = [aiqm1, aiqm2, dens, ani_methods, aimnet2_methods, ccsdtstarcbs, gaussian_methods, pyscf_methods, orca_methods, turbomole_methods, mndo_methods, sparrow_methods, xtb_methods, dftbplus_methods, columbus_methods, dftd3_methods, dftd4_methods, uaiqm]
+known_classes = [aiqm1, aiqm2, dens, ani_methods, aimnet2_methods, ccsdtstarcbs, gaussian_methods, pyscf_methods, orca_methods, turbomole_methods, mndo_methods, sparrow_methods, xtb_methods, dftbplus_methods, columbus_methods, dftd3_methods, dftd4_methods, uaiqm, omnip2x]
     
 def methods(method: str = None, program: str = None, **kwargs):
     '''

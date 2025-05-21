@@ -17,7 +17,7 @@ import tqdm
 from collections import OrderedDict
 
 from .. import data, model_cls
-from ..model_cls import ml_model, torchani_model, method_model, hyperparameters, hyperparameter, model_tree_node
+from ..model_cls import ml_model, torchani_model, method_model, hyperparameters, hyperparameter, model_tree_node, downloadable_model
 from ..decorators import doc_inherit
 
 def median(yp,yt):
@@ -214,21 +214,7 @@ class ani(ml_model, torchani_model):
             return
             
         # encryption
-        if model_file[-3:] == 'pth':
-            import io 
-            from cryptography.fernet import Fernet 
-            with open(model_file, 'rb') as fr:
-                encrypted_model = fr.read()
-            if not self.key:
-                raise ValueError('Key for encryption is missing')
-            decrypted_model = Fernet(self.key).decrypt(encrypted_model)
-            b = io.BytesIO(decrypted_model)
-            b.seek(0)
-            model_dict = torch.load(b, map_location=torch.device('cpu'))
-        else: 
-            model_dict = torch.load(model_file, map_location=torch.device('cpu'))
-
-
+        model_dict = torch.load(model_file, map_location=torch.device('cpu'), weights_only=False)
 
         if 'property' in model_dict['args']:
             self.property_name = model_dict['args']['property']
@@ -951,7 +937,7 @@ class msani(ml_model, torchani_model):
             self.load_ani_model(method)
             return
         
-        model_dict = torch.load(model_file, map_location=torch.device('cpu'))
+        model_dict = torch.load(model_file, map_location=torch.device('cpu'), weights_only=False)
 
         if 'property' in model_dict['args']:
             self.property_name = model_dict['args']['property']
@@ -1607,7 +1593,7 @@ class ani_child(torchani_model):
     def node(self,):
         return model_tree_node(name=self.name, operator='predict', model=self)
     
-class ani_methods(torchani_model, method_model):
+class ani_methods(torchani_model, method_model, downloadable_model):
     '''
     Create a model object with one of the ANI methods
 
@@ -1621,7 +1607,7 @@ class ani_methods(torchani_model, method_model):
     # no atomic energies for ANI-1ccx-gelu thus calculating energy on single atom will get error
     atomic_energies = {'ANI-1ccx': {1:-0.50088088, 6:-37.79199048, 7:-54.53379230, 8:-75.00968205}}
 
-    def __init__(self, method: str = 'ANI-1ccx', device = None):
+    def __init__(self, method: str = 'ANI-1ccx', model_index=None, device = None):
         import torch
         if device is None:
             if torch.cuda.is_available():
@@ -1631,6 +1617,7 @@ class ani_methods(torchani_model, method_model):
         else:
             self.device = torch.device(device)
         self.method = method
+        self.model_index = model_index
         self.model_setup(method)
 
     def model_setup(self, method):
@@ -1640,9 +1627,9 @@ class ani_methods(torchani_model, method_model):
         if 'ANI-1xnr'.casefold() in method.casefold():
             self.model = load_ani1xnr_model().to(self.device)
         elif 'ANI-1ccx-gelu'.casefold() in method.casefold():
-            self.model = self.load_ani_gelu_model('ani1ccx_gelu')
+            self.model = self.load_ani_gelu_model('ani_1ccx_gelu',model_index=self.model_index)
         elif 'ANI-1x-gelu'.casefold() in method.casefold():
-            self.model = self.load_ani_gelu_model('ani1x_gelu')
+            self.model = self.load_ani_gelu_model('ani_1x_gelu',model_index=self.model_index)
         elif 'ANI-1x'.casefold() in method.casefold():
             self.model = torchani.models.ANI1x(periodic_table_index=True).to(self.device).double()
         elif 'ANI-1ccx'.casefold() in method.casefold():
@@ -1658,7 +1645,10 @@ class ani_methods(torchani_model, method_model):
             self.children = [model_tree_node(name=f'{modelname}_nn{index}', model=self.model[index], operator='predict') for index in range(len(self.model))]
         else:
             self.element_symbols_available = self.model.species
-            self.children = [ani_child(self.model, index, name=f'{modelname}_nn{index}', device=self.device).node() for index in range(len(self.model))]
+            if self.model_index == None:
+                self.children = [ani_child(self.model, index, name=f'{modelname}_nn{index}', device=self.device).node() for index in range(len(self.model))]
+            else:
+                self.children = [ani_child(self.model, self.model_index, name=f'{modelname}_nn{self.model_index}', device=self.device).node()]
         if 'D4'.casefold() in self.method.casefold():
             d4 = model_tree_node(name='d4_wb97x', operator='predict', model=methods(method='D4', functional='wb97x'))
             ani_nns = model_tree_node(name=f'{modelname}_nn', children=self.children, operator='average')
@@ -1666,11 +1656,22 @@ class ani_methods(torchani_model, method_model):
         else:
             self.model = model_tree_node(name=modelname, children=self.children, operator='average')
 
-    def load_ani_gelu_model(self, method):
-
-        currentdir=os.path.dirname(__file__)
-        dirname=os.path.join(currentdir, f'../ani_gelu_model')
-        return [ani(model_file=f'{dirname}/{method}_cv{ii}.pt', verbose=0) for ii in range(8)]
+    def load_ani_gelu_model(self, method, model_index=None):
+        
+        model_name, model_path, download = self.check_model_path(method)
+        if download: self.download(model_name, model_path)
+        
+        if not model_index:
+            model_ensemble = []
+            for ii in range(8):
+                # if not os.path.exists(f'{dirname}/{method}_cv{ii}.pt'):
+                #     raise ValueError(f'Please put {method}_cv{ii}.pt file under $MODELSPATH/{method}_model/')
+                model_ensemble.append(ani(model_file=f'{model_path}/cv{ii}.pt', verbose=0))
+            return model_ensemble
+        else:
+            # if not os.path.exists(f'{dirname}/{method}_cv{model_index}.pt'):
+            #     raise ValueError(f'Please put {method}_cv{model_index}.pt under $MODELSPATH/{method}_model/')
+            return [ani(model_file=f'{model_path}/cv{model_index}.pt', verbose=0)]
             
     @doc_inherit
     def predict(
@@ -1740,6 +1741,10 @@ class ani_methods(torchani_model, method_model):
             file_to_save_model = None
         if 'reset_energy_shifter' not in kwargs:
             kwargs['reset_energy_shifter'] = True
+        if 'verbose' not in kwargs:
+            verbose = 0
+        else:
+            verbose = kwargs['verbose']
 
         if 'hyperparameters' in kwargs:
             _hyperparameters = kwargs['hyperparameters']
@@ -1756,12 +1761,14 @@ class ani_methods(torchani_model, method_model):
         kwargs['hyperparameters'] = _hyperparameters
         
         pretrained_models = []
-        if 'gelu'.casefold() in self.method.casefold():
+        if 'ANI-1xnr'.casefold() in self.method.casefold():
+            raise ValueError('Currently ANI-1xnr can not be retrained on')
+        elif 'gelu'.casefold() in self.method.casefold():
             if 'ANI-1ccx-gelu'.casefold() in self.method.casefold():
-                pretrained_models = self.load_ani_gelu_model(method='ani1ccx_gelu')
+                pretrained_models = self.load_ani_gelu_model(method='ani_1ccx_gelu', model_index=self.model_index)
             elif 'ANI-1x-gelu'.casefold() in self.method.casefold():
-                pretrained_models = self.load_ani_gelu_model(method='ani1x_gelu')
-        elif 'ANI-1xnr'.casefold() not in self.method.casefold():
+                pretrained_models = self.load_ani_gelu_model(method='ani_1x_gelu', model_index=self.model_index)
+        else:
             animodel = ani()
             if 'ANI-1ccx'.casefold() in self.method.casefold():
                 animodel.load_ani_model('ANI-1ccx')
@@ -1769,42 +1776,66 @@ class ani_methods(torchani_model, method_model):
                 animodel.load_ani_model('ANI-1x')
             elif 'ANI-2x'.casefold() in self.method.casefold():
                 animodel.load_ani_model('ANI-2x')
-            for ii in range(8):
-                pmodel = ani()
+            else:
+                raise ValueError('Not supported pretrained model type')
+
+            if self.model_index == None:
+                for ii in range(8):
+                    pmodel = ani(verbose=verbose)
+                    pmodel.species_order = animodel.species_order
+                    pmodel.aev_computer = animodel.aev_computer
+                    pmodel.networkdict = animodel.networkdict[ii]
+                    pmodel.neurons = animodel.neurons[ii]
+                    pmodel.nn = animodel.nn[ii]
+                    pmodel.energy_shifter = animodel.energy_shifter
+                    pmodel.optimizer_setup(**pmodel.hyperparameters)
+                    pmodel.model = torchani.nn.Sequential(
+                        animodel.aev_computer, animodel.nn[ii]).to(pmodel.device).float()
+                    pretrained_models.append(pmodel)
+            else:
+                pmodel = ani(verbose=verbose)
                 pmodel.species_order = animodel.species_order
                 pmodel.aev_computer = animodel.aev_computer
-                pmodel.networkdict = animodel.networkdict[ii]
-                pmodel.neurons = animodel.neurons[ii]
-                pmodel.nn = animodel.nn[ii]
+                pmodel.networkdict = animodel.networkdict[self.model_index]
+                pmodel.neurons = animodel.neurons[self.model_index]
+                pmodel.nn = animodel.nn[self.model_index]
                 pmodel.energy_shifter = animodel.energy_shifter
                 pmodel.optimizer_setup(**pmodel.hyperparameters)
 
-                pmodel.model = torchani.nn.Sequential(animodel.aev_computer, animodel.nn[ii]).to(pmodel.device).float()
-                
+                pmodel.model = torchani.nn.Sequential(
+                    animodel.aev_computer, animodel.nn).to(pmodel.device).float()
                 pretrained_models.append(pmodel)
-        else:
-            raise ValueError('Currently ANI-1xnr can not be retrained on')
 
         retrained_models = []
         modelname = self.method.lower().replace('-','')
-        for ii, pmodel in enumerate(pretrained_models):
-            print(f'\nStart retraining on model {ii}...')
-            sys.stdout.flush()
-            if file_to_save_model:
-                kwargs['file_to_save_model'] = file_to_save_model + f'.cv{ii}'
-            else:
-                kwargs['file_to_save_model'] = f'{modelname}_retrained.pt.cv{ii}'
-            pmodel.train(**kwargs)
-            retrained_models.append(pmodel)
 
-        self.children = [
+        if isinstance(self.model_index, int):
+            print(f'\nStart retraining on model {self.model_index}...')
+            if file_to_save_model:
+                kwargs['file_to_save_model'] = file_to_save_model + f'.cv{self.model_index}'
+            else:
+                kwargs['file_to_save_model'] = f'{modelname}_retrained.pt.cv{self.model_index}'
+            pretrained_models[0].train(**kwargs)
+            retrained_models.append(pretrained_models[0])
+        else:
+            for ii, pmodel in enumerate(pretrained_models):
+                print(f'\nStart retraining on model {ii}...')
+                sys.stdout.flush()
+                if file_to_save_model:
+                    kwargs['file_to_save_model'] = file_to_save_model + f'.cv{ii}'
+                else:
+                    kwargs['file_to_save_model'] = f'{modelname}_retrained.pt.cv{ii}'
+                pmodel.train(**kwargs)
+                retrained_models.append(pmodel)
+
+        children = [
             model_tree_node(
                 name=f'{modelname}_nn{ii}', 
                 model=rmodel, 
                 operator='predict') for ii, rmodel in enumerate(retrained_models)]
         self.model = model_tree_node(
             name=modelname, 
-            children=self.children, 
+            children=children, 
             operator='average')
 
 def load_ani1xnr_model():
