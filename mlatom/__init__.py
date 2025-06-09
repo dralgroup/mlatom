@@ -10,5 +10,6 @@ from .al import al
 from .gap_md import gap_md, gap_model
 # add-ons
 from .models import uaiqm, omnip2x, vecmsani
+from .EEEDDDD import EEEDDDD as MDtrajNet
 
-__version__ = '3.17.3'
+__version__ = '3.18.0'

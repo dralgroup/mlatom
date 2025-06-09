@@ -6,6 +6,7 @@
   ! data: Module for working with data                                        ! 
   ! Implementations by: Pavlo O. Dral, Fuchun Ge,                             !
   !                     Shuang Zhang, Yi-Fan Hou, Yanchi Ou, Mikołaj Martyka  !
+  !                     Jakub Martinka                                        !
   !---------------------------------------------------------------------------! 
 '''
 
@@ -18,6 +19,161 @@ import h5py
 import functools
 from . import constants
 from . import conversions
+
+class entry(): # To-do - check whether it is not some typical Python variable name
+    def __init__(self, x: Union[np.ndarray, None] = None, y: Union[float, np.ndarray, None] = None): 
+        self.id = str(uuid.uuid4())
+        self.x = x
+        self.y = y
+
+    def __add__(self,obj):
+        if isinstance(obj,ml_database):
+            return ml_database([self] + obj.entry)
+        elif isinstance(obj,entry):
+            return ml_database([self]+[obj])
+    
+    def __str__(self):
+        return f"entry"
+
+class ml_database():
+    def __init__(self, entries: List[entry] = None):
+        if entries is None:
+            entries = []
+        elif isinstance(entries, entry):
+            entries = [entries]
+        elif isinstance(entries, ml_database):
+            entries = entries.entries
+
+        self.entries = entries
+
+    @classmethod 
+    def from_x_file(cls, filename: str) -> ml_database:
+        return cls().read_from_x_file(filename)
+    
+    # To-do: implement it properly for multi-valued strings and save as ndarray
+    def read_from_x_file(self, filename: str) -> None:
+        '''
+        Add scalar properties from a file to the entries.
+
+        Arguments:
+            filename (str): Specify the text file that contains properties.
+        '''
+        self.entries = []
+        with open(filename, 'r') as fx:
+            for line in fx:
+                xx = line.strip().split() 
+                if len(xx) == 0:
+                    continue 
+                else:
+                    self.entries.append(entry(x=np.array([float(each) for each in xx])))
+
+    # To-do: implement it properly for multi-valued strings and save as ndarray or float
+    def read_from_y_file(self, filename: str, property_name: str = 'y') -> None:
+        '''
+        Add scalar properties from a file to the molecules.
+
+        Arguments:
+            filename (str): Specify the text file that contains properties.
+            property_name (str, optional): The name assign to the scalar property.
+        '''
+        with open(filename, 'r') as fy:
+            ii = -1
+            for line in fy:
+                ii += 1
+                yy = line.strip().split()
+                if len(yy) == 0:
+                    continue 
+                elif len(yy) == 1:
+                    self.entries[ii].__dict__[property_name] = float(yy[0])
+                else:
+                    self.entries[ii].__dict__[property_name] = np.array([float(each) for each in yy])
+
+    def get_x(self) -> np.ndarray:
+        return np.array([each.x for each in self.entries])
+    
+    def get_property(self,property_name: str) -> np.ndarray:
+        return np.array([each.__dict__[property_name] for each in self.entries])
+
+    def add_property(self,property,property_name='y') -> None:
+        for ii in range(len(self)):
+            self.entries[ii].__dict__[property_name] = property[ii]
+    
+    @property 
+    def x(self) -> np.ndarray:
+        return self.get_x()
+
+    # NOTE: new x.setter to load x like this: db.x = x
+    @x.setter
+    def x(self,value):
+        # JULIA: BoundsError: attempt to access Tuple{Int64} at index [2]
+        #value = [value]
+        if not self.entries:
+            self.entries = [entry(x=value[i]) for i in range(len(value))]
+        else:
+            for ii in range(len(self.entries)):
+                # if x is loaded from file and then from X, there is out of range error
+                self.entries[ii].x = value[ii]
+    
+    #@x.setter 
+    #def x(self,value):
+    #    for ii in range(len(self.entries)):
+    #        self.entries[ii].x = value[ii]
+    
+    @property 
+    def y(self) -> np.ndarray:
+        return self.get_property(property_name='y')
+    
+    @y.setter 
+    def y(self,value):
+        for ii in range(len(self.entries)):
+            self.entries[ii].y = value[ii]
+
+    def split(self, sampling='random', number_of_splits=2, split_equally=None, fraction_of_points_in_splits=None, indices=None):
+        return sample(molecular_database_to_split=self, sampling=sampling, number_of_splits=number_of_splits, split_equally=split_equally, fraction_of_points_in_splits=fraction_of_points_in_splits, indices=indices)
+
+    @property 
+    def size(self):
+        return len(self)
+    
+    def append(self,obj):
+        '''
+        Append an entry or a ml database
+        '''
+        if isinstance(obj, ml_database):
+            self.entries += obj.entries 
+        elif isinstance(obj, entry):
+            self.entries += [obj]
+
+    def __add__(self,obj):
+        if isinstance(obj,entry):
+            return ml_database(self.entries + [obj])
+        elif isinstance(obj,ml_database):
+            return ml_database(self.entries + obj.entries)
+        
+    def __str__(self):
+        return f"ml database of {len(self)} entry(ies)"
+        
+    def __iter__(self):
+        for each in self.entries:
+            yield each  
+
+    def __len__(self):
+        return len(self.entries)
+    
+    def __getitem__(self,item):
+        if item is None:
+            return None 
+        elif isinstance(item,list):
+            return ml_database([self.entries[ii] for ii in item])
+        elif isinstance(item,np.ndarray):
+            if item.dtype == 'bool':
+                return ml_database([self.entries[ii] for ii in range(len(self)) if item[ii]])
+            else:
+                return ml_database([self.entries[ii] for ii in item])
+        elif isinstance(item,slice):
+            return ml_database(self.entries[item])
+        else:
+            return self.entries[item]
 
 periodic_table = """ X
   H                                                                                                                           He
@@ -616,11 +772,11 @@ class molecule:
         return self.get_nuclear_masses()
     
     def calculate_kinetic_energy(self):
-        velocity = np.copy(self.get_xyz_vectorial_properties('xyz_velocities'))
+        velocities = np.copy(self.get_xyz_vectorial_properties('xyz_velocities'))
         Natoms = len(self.atoms)
         masses = self.nuclear_masses
         mass = masses.reshape(Natoms,1)
-        return np.sum(velocity**2 * mass) / 2.0 * constants.ram2au * (constants.au2fs / constants.Bohr2Angstrom)**2 #
+        return np.sum(velocities**2 * mass) / 2.0 * constants.ram2au * (constants.au2fs / constants.Bohr2Angstrom)**2 #
     
     @property 
     def kinetic_energy(self) -> float:
@@ -629,21 +785,47 @@ class molecule:
         '''
         return self.calculate_kinetic_energy()
 
-    def rescale_velocities(self, kinetic_energy_change=None, if_not_enough_kinetic_energy='zero velocities'):
-        initial_kinetic_energy = self.kinetic_energy
-        target_kinetic_energy = initial_kinetic_energy + kinetic_energy_change
-        if target_kinetic_energy < 0:
-            if if_not_enough_kinetic_energy == 'zero velocities':
-                factor = 0.0
-            elif if_not_enough_kinetic_energy == 'do not change velocities':
-                factor = 1.0
-            elif if_not_enough_kinetic_energy == 'raise error':
-                raise ValueError('Not enough kinetic energy to rescale velocities to obtain the requested change in energy')
+    def rescale_velocities(self,
+                           kinetic_energy_change=None,
+                           vector=None,
+                           if_not_enough_kinetic_energy='zero velocities'):
+        velocities = np.array(self.get_xyz_vectorial_properties('xyz_velocities')) * constants.Angstrom2Bohr / constants.fs2au
+        mass = self.nuclear_masses * constants.amu2kg / constants.au2kg
+
+        if vector is None:
+            vector = 'velocities'
+        if type(vector) is str:
+            if vector.casefold() in ['velocities']:
+                u = velocities * mass[:, np.newaxis]
+            else:
+                raise ValueError(f"vector='{vector}' is not supported. Try 'velocities'.")
+        elif type(vector) is np.ndarray:
+            u = vector
         else:
-            factor = (target_kinetic_energy/initial_kinetic_energy)**0.5
-        for atom in self.atoms:
-            atom.xyz_velocities *= factor
-    
+            raise ValueError(f"Type {type(vector)} for 'vector' argument is not supported. Try None, 'velocities', or a numpy array.")
+
+        a = 0.5 * np.sum(np.sum(u * u, axis=1) / mass)
+        b = np.sum(np.sum(velocities * u, axis=1))
+        c = kinetic_energy_change
+        if b**2 - 4 * a * c > 0.0:
+            if b > 0.0:
+                gamma = (-b + np.sqrt(b**2 - 4 * a * c)) / (2 * a)
+            else:
+                gamma = (-b - np.sqrt(b**2 - 4 * a * c)) / (2 * a)
+        else:   
+            if if_not_enough_kinetic_energy == 'zero velocities':
+                for iAtom in range(len(self.atoms)):
+                    self.atoms[iAtom].xyz_velocities = [0, 0, 0]
+                return
+            elif if_not_enough_kinetic_energy == 'do not change velocities':
+                gamma = 0.0
+            elif if_not_enough_kinetic_energy == 'raise error':
+                raise ValueError('Not enough kinetic energy to rescale velocities')
+        
+        velocities += gamma * u / mass[:, np.newaxis]
+        for iAtom in range(len(self.atoms)):
+            self.atoms[iAtom].xyz_velocities = velocities[iAtom] * constants.Bohr2Angstrom / constants.au2fs
+
     def update_xyz_vectorial_properties(self, property_name, vectorial_properties):
         for iatom in range(len(self.atoms)):
             self.atoms[iatom].__dict__[property_name] = vectorial_properties[iatom]
@@ -1069,6 +1251,73 @@ class molecule:
         else:
             animate(normal_mode)
 
+    @property
+    def velocities(self):
+        return self.get_xyz_vectorial_properties('xyz_velocities')
+    
+    @velocities.setter
+    def velocities(self, v):
+        self.add_xyz_vectorial_property(v, 'xyz_velocities')
+
+    @property
+    def CoM(self):
+        return np.sum(self.xyz_coordinates * self.nuclear_masses[:,np.newaxis], axis=-2,keepdims=True) / np.sum(self.nuclear_masses)
+        
+    @property
+    def linear_momoentum(self):
+        return np.sum(self.velocities * self.nuclear_masses[:,np.newaxis], axis=-2,keepdims=True) / np.sum(self.nuclear_masses)
+
+    @property
+    def angular_momoentum(self):
+        return self.get_angular_momoentum()
+    
+    def get_angular_momoentum(self, center=None):
+        if center is None:
+            centered=self.xyz_coordinates-self.CoM
+        else:
+            centered=self.xyz_coordinates-center
+        L=np.sum(self.nuclear_masses[:,np.newaxis]*np.cross(centered,self.velocities),axis=-2)
+        return L#*1822.888515*24.188843265e-3/0.529177210903
+
+    @property
+    def moment_of_inertia_tensor(self):
+        return self.get_moment_of_inertia_tensor
+
+    def get_moment_of_inertia_tensor(self, center=None):
+        if center is None:
+            center = self.CoM
+        centered=self.xyz_coordinates-center
+        I=np.zeros((3,3))
+        for i in range(3):
+            for j in range(3):
+                for k in range(len(self)):
+                    I[i,j]+=self.nuclear_masses[k]*(np.sum(centered[k]**2)-centered[k,i]*centered[k,j]) if i==j else self.nuclear_masses[k]*(-centered[k,i]*centered[k,j])
+        return I
+    
+    @property
+    def angular_velocities(self):
+        return self.get_angular_velocities()
+        
+    def get_angular_velocities(self, center=None):
+        L=self.angular_momoentum
+        I=self.moment_of_inertia_tensor
+        omega=np.linalg.inv(I).dot(L)
+        return omega
+
+    def zero_angular_momentum(self,center=None):
+        if center is None:
+            center=self.CoM
+        omega=self.angular_velocities(center)
+        self.velocities-=np.cross(omega, self.xyz_coordinates-center)
+    
+    def adjust_momenta(self, center=None, P=np.zeros(3),L=np.zeros(3)):
+        if center is None:
+            center=self.CoM
+        L0=self.get_angular_momoentum(center)
+        I=self.get_moment_of_inertia_tensor(center)
+        omega=np.dot(np.linalg.inv(I),(L-L0))
+        self.velocities+=np.cross(omega,self.xyz_coordinates-center)-self.linear_momoentum+P/np.sum(self.nuclear_masses)
+
 class properties_tree_node():
     def __init__(self, name=None, parent=None, children=None, properties=None):
         self.name = name
@@ -1405,7 +1654,6 @@ class molecular_database:
 
                 update_h5file(h5file, str(na), prop, prop_value)
         h5file.close() 
-
 
     @classmethod
     def from_xyz_file(cls, filename: str) -> molecular_database:
@@ -1816,7 +2064,7 @@ class molecular_database:
             jsonfile.close()
         if format.casefold() == 'npz'.casefold():
             np.savez(filename, **class_instance_to_dict(self))
-            
+    
     def _load(self, filename=None, format=None):
         if format.casefold() == 'json'.casefold():
             jsonfile = open(filename, 'r')
@@ -1915,6 +2163,14 @@ class molecular_database:
         for i, mol in enumerate(self):
             mol.xyz_coordinates = value[i]
     
+    @property
+    def energy(self):
+        return self.get_properties('energy')
+            
+    @property
+    def kinetic_energy(self):
+        return self.get_properties('kinetic_energy')
+
     def _is_uniform_cell(self):
         cells = self.get_properties('cell')
         pbcs = self.get_properties('pbc')
@@ -1968,6 +2224,109 @@ class molecular_database:
         viewer.zoomTo()
         viewer.animate({'loop': 'forward'})
         viewer.show()
+    
+    def groupby(self, property_name):
+        '''
+        group molecular database according to the values of the property
+        '''
+        property_values = self.get_properties(property_name)
+        unique_property_values = np.unique(property_values)
+        groups = []
+        for vv in unique_property_values:
+            _ids = np.argwhere(property_values==vv).reshape((-1,))
+            groups.append(self[_ids])
+        return groups
+
+class reaction_step():
+    def __init__(self, **kwargs):
+        if 'coefficients' in kwargs:
+            self.coefficients = kwargs['coefficients']
+        else:
+            self.coefficients = []
+
+        if 'molecules' in kwargs:
+            self.molecules = kwargs['molecules']
+        else:
+            self.molecules = []
+
+        if 'chemical_label' in kwargs:
+            self.chemical_label = kwargs['chemical_label']
+        else:
+            self.chemical_label = ''
+
+    def get_chemical_label(self, **kwargs):
+        if 'chemical_label' in self.molecules[0].__dict__.keys():
+            for imol in range(0,len(self.molecules)):
+                self.chemical_label = self.chemical_label + " + " + f'{int(self.coefficients[imol])}*{self.molecules[imol].chemical_label}'
+        else:
+            print('no chemical label for molecules')
+
+    def copy(self, **kwargs):
+        molecule_list = []
+        for mol in self.molecules:
+            mol_new = mol.copy()
+            molecule_list.append(mol_new) 
+        reaction_copy = reaction_step(molecules=molecule_list)
+        if self.chemical_label != '':
+            reaction_copy.chemical_label = self.chemical_label
+        if self.coefficients != []:
+            reaction_copy.coefficients = self.coefficients
+        if 'properties' in kwargs.keys():
+            for prop in kwargs['properties']:
+                if prop in self.__dict__:
+                    reaction_copy.__dict__[prop] = self.__dict__[prop]
+        return reaction_copy 
+   
+    def absolute_energy(self, **kwargs) -> float:
+        if 'method' in kwargs:
+            self.method = kwargs['method']
+        else:
+            self.method = 'energy'
+        self.energy = 0.0
+        for ii in range(len(self.molecules)):
+            self.energy += self.coefficients[ii] * \
+                self.molecules[ii].__dict__[self.method]
+        return self.energy
+
+class reaction():
+    def __init__(self, **kwargs):
+        if 'steps' in kwargs:
+            self.steps = kwargs['steps']
+        else:
+            self.steps = []
+
+    def calculate_relative_energies(self, **kwargs):
+        if 'reference_step' in kwargs:
+            self.reference_step = kwargs['reference_step']
+        else:
+            self.reference_step = 0
+        if 'method' in kwargs:
+            self.method = kwargs['method']
+        else:
+            self.method = 'energy'
+        reference_absolute_energy = self.steps[self.reference_step].absolute_energy(
+            method=self.method)
+        for step in self.steps:
+            step.relative_energy = step.absolute_energy(
+                method=self.method) - reference_absolute_energy
+
+class reactions_database():
+    def __init__(self):
+        self.reactions = []  # list of reaction class instances
+
+    def dump(self, filename=None, format='json'):
+        if format.casefold() == 'json'.casefold():
+            jsonfile = open(filename, 'w')
+            json.dump(class_instance_to_dict(self), jsonfile, indent=4)
+            jsonfile.close()
+        
+    def load(self, filename=None, format='json'):
+        if format.casefold() == 'json'.casefold():
+            jsonfile = open(filename, 'r')
+            reactionsdict = json.load(jsonfile)['reactions']
+            for reactiondict in reactionsdict:
+                newreaction = dict_to_reaction_step_class_instance(reactiondict)
+                self.reactions.append(newreaction)
 
     def groupby(self, property_name):
         '''
@@ -2086,7 +2445,8 @@ def class_instance_to_dict(inst):
         elif type(dd[key]) == np.int16: dd[key] = dd[key].item()
         elif type(dd[key]) == np.int32: dd[key] = dd[key].item()
         elif type(dd[key]) == np.int64: dd[key] = dd[key].item()
-        elif type(dd[key]) == np.cfloat: dd[key] = dd[key].item()
+        elif type(dd[key]) == np.complex128: dd[key] = dd[key].item()
+		#elif type(dd[key]) == np.cfloat: dd[key] = dd[key].item()
         elif key == 'parent':
             if dd[key] != None: dd[key] = dd[key].name
         elif key == 'children':
@@ -2233,9 +2593,22 @@ class molecular_trajectory():
             data['state_energies'] = []
             data['aux_state_energies'] = []
             data['state_gradients'] = []
-            if 'nonadiabatic_coupling_vectors' in self.steps[0].molecule.atoms[0].__dict__: data['nonadiabatic_coupling_vectors'] = []
+            if 'nacv' in self.steps[0].molecule[0].__dict__: data['nacv'] = []
             data['random_number'] = []
             data['hopping_probabilities'] = []
+            if 'state_coefficients' in self.steps[0].__dict__: data['state_coefficients_r'] = []
+            if 'state_coefficients' in self.steps[0].__dict__: data['state_coefficients_i'] = []
+            if 'substep_potential_energy' in self.steps[0].__dict__: data['substep_potential_energy'] = []
+            if 'substep_velocities' in self.steps[0].__dict__: data['substep_velocities'] = []
+            if 'substep_nonadiabatic_coupling_vectors' in self.steps[0].__dict__: data['substep_nonadiabatic_coupling_vectors'] = []
+            if 'substep_time_derivative_coupling' in self.steps[0].__dict__: data['substep_time_derivative_coupling'] = []
+            if 'substep_phase' in self.steps[0].__dict__: data['substep_phase'] = []
+            if 'substep_state_coefficients' in self.steps[0].__dict__: data['substep_state_coefficients_r'] = []
+            if 'substep_state_coefficients' in self.steps[0].__dict__: data['substep_state_coefficients_i'] = []
+            if 'substep_state_coefficients_dot' in self.steps[0].__dict__: data['substep_state_coefficients_dot_r'] = []
+            if 'substep_state_coefficients_dot' in self.steps[0].__dict__: data['substep_state_coefficients_dot_i'] = []
+            if 'substep_random_numbers' in self.steps[0].__dict__: data['substep_random_numbers'] = []
+            if 'substep_hopping_probabilities' in self.steps[0].__dict__: data['substep_hopping_probabilities'] = []
             data['need_to_be_labeled'] = []
             if 'current_state' in self.steps[0].__dict__: data['current_state'] = []
             if 'uncertain' in self.steps[0].molecule.__dict__: data['uncertain'] = []
@@ -2274,8 +2647,8 @@ class molecular_trajectory():
                         for i in range(0, len(istep.molecule.electronic_states)):
                             aux_state_energies.append(istep.molecule.electronic_states[i].aux_energy)
                         data['aux_state_energies'].append(np.array(aux_state_energies))
-                        
-                if 'nonadiabatic_coupling_vectors' in data.keys(): data['nonadiabatic_coupling_vectors'].append(istep.molecule.get_xyz_vectorial_properties('nonadiabatic_coupling_vectors'))
+                if 'nacv' in data.keys(): data['nacv'].append(istep.molecule.get_xyz_vectorial_properties('nacv'))
+                
                 data['kinetic_energy'].append(istep.molecule.kinetic_energy)
                 data['potential_energy'].append(istep.molecule.energy)
                 data['total_energy'].append(istep.molecule.kinetic_energy+istep.molecule.energy)
@@ -2289,6 +2662,63 @@ class molecular_trajectory():
                         data['hopping_probabilities'].append(max(istep.hopping_probabilities))
                     except AttributeError:
                         data['hopping_probabilities'].append(np.nan)
+                # NOTE: substep data is dumped in atomic units
+                if 'state_coefficients_r' in data.keys():
+                    try:
+                        data['state_coefficients_r'].append(np.real(istep.state_coefficients))
+                        data['state_coefficients_i'].append(np.imag(istep.state_coefficients))
+                    except AttributeError:
+                        data['state_coefficients_r'].append(np.full_like(data['state_coefficients_r'][0], np.nan))
+                        data['state_coefficients_i'].append(np.full_like(data['state_coefficients_i'][0], np.nan))
+                if 'substep_phase' in data.keys():
+                    try:
+                        data['substep_phase'].append(np.array(istep.substep_phase))
+                    except AttributeError:
+                        data['substep_phase'].append(np.full_like(data['substep_phase'][0], np.nan))
+                if 'substep_potential_energy' in data.keys():
+                    try:
+                        data['substep_potential_energy'].append(np.array(istep.substep_potential_energy))
+                    except AttributeError:
+                        data['substep_potential_energy'].append(np.full_like(data['substep_potential_energy'][0], np.nan))
+                if 'substep_velocities' in data.keys():
+                    try:
+                        data['substep_velocities'].append(np.array(istep.substep_velocities))
+                    except AttributeError:
+                        data['substep_velocities'].append(np.full_like(data['substep_velocities'][0], np.nan))
+                if 'substep_nonadiabatic_coupling_vectors' in data.keys():
+                    try:
+                        data['substep_nonadiabatic_coupling_vectors'].append(np.array(istep.substep_nonadiabatic_coupling_vectors))
+                    except AttributeError:
+                        data['substep_nonadiabatic_coupling_vectors'].append(np.full_like(data['substep_nonadiabatic_coupling_vectors'][0], np.nan))
+                if 'substep_time_derivative_coupling' in data.keys():
+                    try:
+                        data['substep_time_derivative_coupling'].append(np.array(istep.substep_time_derivative_coupling))
+                    except AttributeError:
+                        data['substep_time_derivative_coupling'].append(np.full_like(data['substep_time_derivative_coupling'][0], np.nan))
+                if 'substep_random_numbers' in data.keys():
+                    try:
+                        data['substep_random_numbers'].append(np.array(istep.substep_random_numbers))
+                    except AttributeError:
+                        data['substep_random_numbers'].append(np.full_like(data['substep_random_numbers'][0], np.nan))
+                if 'substep_state_coefficients_r' in data.keys():
+                    try:
+                        data['substep_state_coefficients_r'].append(np.real(istep.substep_state_coefficients))
+                        data['substep_state_coefficients_i'].append(np.imag(istep.substep_state_coefficients))
+                    except AttributeError:
+                        data['substep_state_coefficients_r'].append(np.full_like(data['substep_state_coefficients_r'][0], np.nan))
+                        data['substep_state_coefficients_i'].append(np.full_like(data['substep_state_coefficients_i'][0], np.nan))
+                if 'substep_state_coefficients_dot_r' in data.keys():
+                    try:
+                        data['substep_state_coefficients_dot_r'].append(np.real(istep.substep_state_coefficients_dot))
+                        data['substep_state_coefficients_dot_i'].append(np.imag(istep.substep_state_coefficients_dot))
+                    except AttributeError:
+                        data['substep_state_coefficients_dot_r'].append(np.full_like(data['substep_state_coefficients_dot_r'][0], np.nan))
+                        data['substep_state_coefficients_dot_i'].append(np.full_like(data['substep_state_coefficients_dot_i'][0], np.nan))
+                if 'substep_hopping_probabilities' in data.keys():
+                    try:
+                        data['substep_hopping_probabilities'].append(np.array(istep.substep_hopping_probabilities))
+                    except AttributeError:
+                        data['substep_hopping_probabilities'].append(np.full_like(data['substep_hopping_probabilities'][0], np.nan))
                 if 'current_state' in data.keys():
                     try:
                         data['current_state'].append(istep.current_state)
@@ -2325,6 +2755,22 @@ class molecular_trajectory():
         
         elif format.casefold() == 'json'.casefold():
             jsonfile = open(filename, 'w')
+            for istep in self.steps:
+                if 'state_coefficients' in istep.__dict__:
+                    try:
+                        istep.state_coefficients = np.stack((np.real(istep.state_coefficients), np.imag(istep.state_coefficients)), axis=-1)
+                    except AttributeError:
+                        istep.state_coefficients = np.full_like(self.steps[0].state_coefficients, np.nan)
+                if 'substep_state_coefficients' in istep.__dict__:
+                    try:
+                        istep.substep_state_coefficients = np.stack((np.real(istep.substep_state_coefficients), np.imag(istep.substep_state_coefficients)), axis=-1)
+                    except AttributeError:
+                        istep.substep_state_coefficients = np.full_like(self.steps[0].substep_state_coefficients, np.nan)
+                if 'substep_state_coefficients_dot' in istep.__dict__:
+                    try:
+                        istep.substep_state_coefficients_dot = np.stack((np.real(istep.substep_state_coefficients_dot), np.imag(istep.substep_state_coefficients_dot)), axis=-1)
+                    except AttributeError:
+                        istep.substep_state_coefficients_dot = np.full_like(self.steps[0].substep_state_coefficients_dot, np.nan)
             json.dump(class_instance_to_dict(self), jsonfile, indent=4)
             jsonfile.close()
         
@@ -2378,10 +2824,9 @@ class molecular_trajectory():
                         if data['state_gradients'][istep][i] is not None:
                             molecule_istep.electronic_states[i].add_xyz_derivative_property(np.array(data['state_gradients'][istep][i]).astype(float), 'energy', 'energy_gradients')
                      
+                if 'nacv' in data.keys():
+                    molecule_istep.nacv = data['nacv'][istep]
                     
-                if 'nonadiabatic_coupling_vectors' in data.keys():
-                    for iatom in range(Natoms):
-                        molecule_istep.atoms[iatom].nonadiabatic_coupling_vectors = data['nonadiabatic_coupling_vectors'][istep][iatom]
                 # kinetic_energy 
                 # molecule_istep.kinetic_energy = data['kinetic_energy'][istep]
                 # potential_energy 
@@ -2400,6 +2845,26 @@ class molecular_trajectory():
                 # prob
                 if 'hopping_probabilities' in data.keys():
                     trajectory_step.hopping_probabilities = data['hopping_probabilities'][istep]
+                if 'state_coefficients_r' in data.keys():
+                    trajectory_step.state_coefficients = data['state_coefficients_r'][istep]+1j*data['state_coefficients_i'][istep]
+                if 'substep_phase' in data.keys():
+                    trajectory_step.substep_phase = data['substep_phase'][istep]
+                if 'substep_potential_energy' in data.keys():
+                    trajectory_step.substep_potential_energy = data['substep_potential_energy'][istep]
+                if 'substep_velocities' in data.keys():
+                    trajectory_step.substep_velocities = data['substep_velocities'][istep]
+                if 'substep_nonadiabatic_coupling_vectors' in data.keys():
+                    trajectory_step.substep_nonadiabatic_coupling_vectors = data['substep_nonadiabatic_coupling_vectors'][istep]
+                if 'substep_time_derivative_coupling' in data.keys():
+                    trajectory_step.substep_time_derivative_coupling = data['substep_time_derivative_coupling'][istep]
+                if 'substep_random_numbers' in data.keys():
+                    trajectory_step.substep_random_numbers = data['substep_random_numbers'][istep]
+                if 'substep_hopping_probabilities' in data.keys():
+                    trajectory_step.substep_hopping_probabilities = data['substep_hopping_probabilities'][istep]
+                if 'substep_state_coefficients_r' in data.keys():
+                    trajectory_step.substep_state_coefficients = data['substep_state_coefficients_r'][istep]+1j*data['substep_state_coefficients_i'][istep]
+                if 'substep_state_coefficients_dot_r' in data.keys():
+                    trajectory_step.substep_state_coefficients_dot = data['substep_state_coefficients_dot_r'][istep]+1j*data['substep_state_coefficients_dot_i'][istep]
                 # current_state
                 if 'current_state' in data.keys():
                     trajectory_step.current_state = data['current_state'][istep]
@@ -2410,6 +2875,12 @@ class molecular_trajectory():
             data = json.load(jsonfile)
             self.steps = []
             for step in data['steps']:
+                if 'state_coefficients_r' in step.keys():
+                    self.steps[-1].__dict__[key] = step.state_coefficients_r+1j*step.state_coefficients_i
+                if 'substep_state_coefficients_r' in step.keys():
+                    self.steps[-1].__dict__[key] = step.substep_state_coefficients_r+1j*step.substep_state_coefficients_i
+                if 'substep_state_coefficients_dot_r' in step.keys():
+                    self.steps[-1].__dict__[key] = step.substep_state_coefficients_dot_r+1j*step.substep_state_coefficients_dot_i
                 self.steps.append(molecular_trajectory_step(step=step['step'],
                                                             molecule=dict_to_molecule_class_instance(step['molecule'])))
                 for key in step.keys():
@@ -2657,7 +3128,7 @@ class h5dataloader:
             count = count + len(g['coordinates'][:])
         return count
 
-def sample(molecular_database_to_split=None, sampling='random', number_of_splits=2, split_equally=None, fraction_of_points_in_splits=None):
+def sample(molecular_database_to_split=None, sampling='random', number_of_splits=2, split_equally=None, fraction_of_points_in_splits=None, indices=None):
     molDB = molecular_database_to_split
     Ntot = len(molDB)
     if number_of_splits==2 and fraction_of_points_in_splits==None and split_equally==None:
@@ -2704,9 +3175,9 @@ def sample(molecular_database_to_split=None, sampling='random', number_of_splits
         split_indices.append(all_indices[istart:iend])
 
     for isplit in split_indices:
-        splits_DBs.append(molecular_database())
+        splits_DBs.append(type(molDB)()) # Make it work for all kinds of database
         for ii in isplit:
-            splits_DBs[-1].molecules.append(molDB.molecules[ii])
+            splits_DBs[-1].append(molDB[ii])
 
     return splits_DBs
 
