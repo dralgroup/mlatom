@@ -12,6 +12,8 @@ Bohr2Angstrom =  0.52917721092# Peter J. Mohr, Barry N. Taylor, David B. Newell,
                               # Fundamental Physical Constants: 2010, NIST, 2012.
 Angstrom2Bohr = 1.0 / Bohr2Angstrom
 
+Hartree2cm = 219474.625 # Hartree to cm-1 (from Newton-X source/lib/units_mod.f90)
+cm2Hartree = 1.0 / Hartree2cm
 gas_constant = 8.3142 # Gas constant J K^-1 mol^-1
 cal2Joule = 4.18585182085
 Joule2cal = 1.0 / cal2Joule

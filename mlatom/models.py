@@ -16,119 +16,272 @@ import numpy as np
 from . import data, stopper
 from .model_cls import model, ml_model, OMP_model, MKL_model, hyperparameter, hyperparameters, model_tree_node
 class krr(ml_model):
-    def train(self, molecular_database=None,
+    def __init__(self, model_file: Union[str, None] = None,
+                kernel_function: str = None, # To-do - either string (e.g., kernel_function='gaussian') or function, e.g., kernel_function=lambda(x^^2)...
+                kernel_function_kwargs = None,
+                 ml_program: str = 'scipy',
+                 nthreads: Union[int, None] = None):
+        self.model_file = model_file
+        self.ml_program = ml_program
+        self.kernel_function = kernel_function
+        self.kernel_function_kwargs = kernel_function_kwargs
+        if self.ml_program.casefold() == 'scipy'.casefold() or self.ml_program.casefold() == 'mlatom.jl'.casefold():
+            if self.model_file == None:
+                self.model_file = f'kreg_{str(uuid.uuid4())}.npz'
+            else:
+                if self.model_file[-4:] != '.npz':
+                    self.model_file += '.npz'
+                if os.path.exists(self.model_file):
+                    from .krr_julia import KRR_julia 
+                    self.krr_model = KRR_julia()
+                    self.krr_model.load_model(self.model_file)
+                    self.kernel_function = self.krr_model.model.getter("kernel")
+                # To-do - implement loading in this class
+                #if os.path.exists(self.model_file):
+                #    self.kreg_api = KREG_API()
+                #    self.kreg_api.load_model(self.model_file)
+        #if self.ml_program.casefold() == 'MLatomF'.casefold():
+        #    from . import interface_MLatomF
+        #    self.interface_mlatomf = interface_MLatomF
+        
+        
+        
+        # To-do - depending on kernel function we need different hyperparameters
+        hyperparameter_candidates = {
+            'sigma' : hyperparameter(value=1.0, minval=2**-5, maxval=2**9, optimization_space='log', name='sigma'),     # Kernel width
+            'lambda': hyperparameter(value=2**-35, minval=2**-35, maxval=1.0, optimization_space='log', name='lambda'), # Regularization parameter
+            'sigmap': hyperparameter(value=100.0, minval=2**-5, maxval=2**9, optimization_space='log', name='sigmap'),    # Kernel width for the periodic kernel
+            'period': hyperparameter(value=1.0, minval=2**-5, maxval=2**9, optimization_space='log', name='period'),    # Period in the periodic kenrel
+            'nn'    : hyperparameter(value=2, minval=1, maxval=50, optimization_space='linear', name='nn')              # n in the Matern kernel
+        }
+        self.hyperparameters = hyperparameters()
+        self.hyperparameters['lambda'] = hyperparameter_candidates['lambda']
+        
+        if self.kernel_function.casefold() == 'Gaussian'.casefold():
+            self.hyperparameters['sigma'] = hyperparameter_candidates['sigma']
+        elif self.kernel_function.casefold() == 'periodic_Gaussian'.casefold():
+            self.hyperparameters['sigma'] = hyperparameter_candidates['sigma']
+            self.hyperparameters['period'] = hyperparameter_candidates['period']
+        elif self.kernel_function.casefold() == 'decaying_periodic_Gaussian'.casefold():
+            self.hyperparameters['sigma'] = hyperparameter_candidates['sigma']
+            self.hyperparameters['period'] = hyperparameter_candidates['period']
+            self.hyperparameters['sigmap'] = hyperparameter_candidates['sigmap']
+        elif self.kernel_function.casefold() == 'Matern'.casefold():
+            self.hyperparameters['sigma'] = hyperparameter_candidates['sigma']
+            self.hyperparameters['nn'] = hyperparameter_candidates['nn']
+        else:
+            stopper.stopMLatom(f'Unsupported kernel function: {self.kernel_function}')
+        self.nthreads = nthreads
+    
+    def train(self, 
+              ml_database=None, # To-do: implement general model training on any ml_database.entries[ii].x and ml_database.entries[ii].y
+              molecular_database=None, # To-do: implement general handling of any descriptor molecule.descriptor and data molecule.y
               property_to_learn='y',
               xyz_derivative_property_to_learn = None,
               save_model=True,
               invert_matrix=False,
               matrix_decomposition=None,
-              kernel_function_kwargs=None,prior=None):
+              prior=None): # To-do: 'mlatom.jl' - should be default
+
+        # if save_model:
+        #     if self.model_file == None:
+        #         self.model_file = f'kreg_{str(uuid.uuid4())}.npz'
+        #     else:
+        #         if self.model_file[-4:] != '.npz':
+        #             self.model_file += '.npz'
         
-        xyz = np.array([mol.xyz_coordinates for mol in molecular_database.molecules]).astype(float)
-        yy = molecular_database.get_properties(property_name=property_to_learn)
+        # Load xyz, xx, yy from molecular_database or ml_database
+        if not molecular_database is None:
+            xyz = np.array([mol.xyz_coordinates for mol in molecular_database.molecules]).astype(float)
+            xx = np.array([mol.descriptor for mol in molecular_database.molecules]).astype(float)
+            yy = molecular_database.get_properties(property_name=property_to_learn)
+            Natoms = len(xyz[0])
+            self.Natoms = Natoms 
+            self.train_xyz = xyz 
+        elif not ml_database is None:
+            xx = ml_database.x 
+            yy = ml_database.y
+            # xx = np.array([entry.x for entry in ml_database.entries]).astype(float)
+            # yy = np.array([entry.y for entry in ml_database.entries]).astype(float)
+        
         if prior == None:
             self.prior = 0.0
         elif type(prior) == float or type(prior) == int:
             self.prior = prior 
+        elif type(prior) == list or type(prior) == np.ndarray:
+            self.prior = np.array(prior).astype(float)
+            # check size 
+            if self.prior.ndim == 0:
+                self.prior = float(self.prior)
+            elif self.prior.ndim >=2:
+                stopper.stopMLatom(f"prior of 1-dimension is expected, but {self.prior.ndim} were given")
+
         elif prior.casefold() == 'mean'.casefold():
-            self.prior = np.mean(yy)
+            if yy.ndim == 1:
+                self.prior = np.mean(yy)
+            elif yy.ndim == 2:
+                self.prior = np.mean(yy,axis=0)
         else:
             stopper.stopMLatom(f'Unsupported prior: {prior}')
-        yy = yy - self.prior
-        #self.train_x = xx
-        self.Ntrain = len(xyz) 
-        self.train_xyz = xyz 
-        self.kernel_function = self.gaussian_kernel_function
-        self.kernel_function_kwargs = kernel_function_kwargs
-        self.kernel_matrix_size = 0 
-        Natoms = len(xyz[0])
-        self.Natoms = Natoms 
+         
+        
+        
 
-        self.train_property = False 
-        self.train_xyz_derivative_property = False 
-        yyref = np.array([])
-        if property_to_learn != None:
-            self.train_property = True
-            self.kernel_matrix_size += len(yy)
-            yyref = np.concatenate((yyref,yy))
-        if xyz_derivative_property_to_learn != None:
-            self.train_xyz_derivative_property = True
-            self.kernel_matrix_size += 3*Natoms*len(yy)
-            yygrad = molecular_database.get_xyz_derivative_properties().reshape(3*Natoms*len(yy))
-            yyref = np.concatenate((yyref,yygrad))
+        if self.ml_program == 'mlatom.jl':
+            from .krr_julia import KRR_julia 
+            self.krr_model = KRR_julia()
+            if self.kernel_function.casefold() == 'Gaussian'.casefold():
+                # To-do - make this work with existing implementation of KREG.jl
+                self.krr_model.train(xx,yy,kernel=self.kernel_function,prior=self.prior,
+                                     sigma=self.hyperparameters['sigma'].value,
+                                     lmbd=self.hyperparameters['lambda'].value)
+            elif self.kernel_function.casefold() == 'periodic_Gaussian'.casefold():
+                self.krr_model.train(xx,yy,kernel=self.kernel_function,prior=self.prior,
+                                     sigma=self.hyperparameters['sigma'].value,
+                                     lmbd=self.hyperparameters['lambda'].value,
+                                     period=self.hyperparameters['period'].value)
+            elif self.kernel_function.casefold() == 'decaying_periodic_Gaussian'.casefold():
+                self.krr_model.train(xx,yy,kernel=self.kernel_function,prior=self.prior,
+                                     sigma=self.hyperparameters['sigma'].value,
+                                     lmbd=self.hyperparameters['lambda'].value,
+                                     period=self.hyperparameters['period'].value,
+                                     sigmap=self.hyperparameters['sigmap'].value)
+            elif self.kernel_function.casefold() == 'Matern'.casefold():
+                self.krr_model.train(xx,yy,kernel=self.kernel_function,prior=self.prior,
+                                     sigma=self.hyperparameters['sigma'].value,
+                                     lmbd=self.hyperparameters['lambda'].value,
+                                     nn=self.hyperparameters['nn'].value)
+            if save_model:
+                self.krr_model.save_model(self.model_file)
+            # self.alpha = Main.krr_train_gaussian(x=xx, y=yyref,lmbd=self.hyperparameters['lambda'],sigma=self.hyperparameters['sigma'])
+        elif self.ml_program == 'scipy':
+            yy = yy - self.prior
+            #self.train_x = xx
+            self.Ntrain = len(xx)
+            self.kernel_matrix_size = 0 
+            self.train_property = False 
+            self.train_xyz_derivative_property = False 
+            yyref = np.array([])
+            if property_to_learn != None:
+                self.train_property = True
+                self.kernel_matrix_size += len(yy)
+                yyref = np.concatenate((yyref,yy))
+            if xyz_derivative_property_to_learn != None:
+                self.train_xyz_derivative_property = True
+                self.kernel_matrix_size += 3*Natoms*len(yy)
+                yygrad = molecular_database.get_xyz_derivative_properties().reshape(3*Natoms*len(yy))
+                yyref = np.concatenate((yyref,yygrad))
+            if self.kernel_function.casefold() == 'Gaussian'.casefold():
+                self.kernel_function = self.gaussian_kernel_function
+            kernel_matrix = np.zeros((self.kernel_matrix_size,self.kernel_matrix_size))
 
-        kernel_matrix = np.zeros((self.kernel_matrix_size,self.kernel_matrix_size))
+            # for ii in range(len(yy)):
+            #     kernel_matrix[ii][ii] = self.kernel_function(xx[ii], xx[ii]) + self.hyperparameters['lambda']
+            #     for jj in range(ii+1, len(yy)):
+            #         kernel_matrix[ii][jj] = self.kernel_function(xx[ii], xx[jj])
+            #         kernel_matrix[jj][ii] = kernel_matrix[ii][jj]
 
-        kernel_matrix = kernel_matrix + np.identity(self.kernel_matrix_size)*self.hyperparameters['lambda'].value
-        for ii in range(len(yy)):
-            value_and_derivatives = self.kernel_function(xyz[ii],xyz[ii],calculate_value=self.train_property,calculate_gradients=self.train_xyz_derivative_property,calculate_Hessian=self.train_xyz_derivative_property,**self.kernel_function_kwargs)
-            kernel_matrix[ii][ii] += value_and_derivatives['value']
-            if self.train_xyz_derivative_property:
-                kernel_matrix[ii,len(yy)+ii*3*Natoms:len(yy)+(ii+1)*3*Natoms] += value_and_derivatives['gradients'].reshape(3*Natoms)
-                kernel_matrix[len(yy)+ii*3*Natoms:len(yy)+(ii+1)*3*Natoms,len(yy)+ii*3*Natoms:len(yy)+(ii+1)*3*Natoms] += value_and_derivatives['Hessian']
-            for jj in range(ii+1,len(yy)):
-                value_and_derivatives = self.kernel_function(xyz[ii],xyz[jj],calculate_value=self.train_property,calculate_gradients=self.train_xyz_derivative_property,calculate_Hessian=self.train_xyz_derivative_property,calculate_gradients_j=self.train_xyz_derivative_property,**self.kernel_function_kwargs)
-                kernel_matrix[ii][jj] += value_and_derivatives['value']
-                kernel_matrix[jj][ii] += value_and_derivatives['value']
+            kernel_matrix = kernel_matrix + np.identity(self.kernel_matrix_size)*self.hyperparameters['lambda'].value
+            for ii in range(len(yy)):
+                value_and_derivatives = self.kernel_function(xyz[ii],xyz[ii],calculate_value=self.train_property,calculate_gradients=self.train_xyz_derivative_property,calculate_Hessian=self.train_xyz_derivative_property,**self.kernel_function_kwargs)
+                kernel_matrix[ii][ii] += value_and_derivatives['value']
                 if self.train_xyz_derivative_property:
-                    kernel_matrix[jj,len(yy)+ii*3*Natoms:len(yy)+(ii+1)*3*Natoms] = value_and_derivatives['gradients'].reshape(3*Natoms)
-                    kernel_matrix[ii,len(yy)+jj*3*Natoms:len(yy)+(jj+1)*3*Natoms] = value_and_derivatives['gradients_j'].reshape(3*Natoms)
-                    kernel_matrix[len(yy)+ii*3*Natoms:len(yy)+(ii+1)*3*Natoms,len(yy)+jj*3*Natoms:len(yy)+(jj+1)*3*Natoms] += value_and_derivatives['Hessian']
-                    kernel_matrix[len(yy)+jj*3*Natoms:len(yy)+(jj+1)*3*Natoms,len(yy)+ii*3*Natoms:len(yy)+(ii+1)*3*Natoms] += value_and_derivatives['Hessian']
-        if self.train_xyz_derivative_property:
-            kernel_matrix[len(yy):,:len(yy)] = kernel_matrix[:len(yy),len(yy):].T
+                    kernel_matrix[ii,len(yy)+ii*3*Natoms:len(yy)+(ii+1)*3*Natoms] += value_and_derivatives['gradients'].reshape(3*Natoms)
+                    kernel_matrix[len(yy)+ii*3*Natoms:len(yy)+(ii+1)*3*Natoms,len(yy)+ii*3*Natoms:len(yy)+(ii+1)*3*Natoms] += value_and_derivatives['Hessian']
+                for jj in range(ii+1,len(yy)):
+                    value_and_derivatives = self.kernel_function(xyz[ii],xyz[jj],calculate_value=self.train_property,calculate_gradients=self.train_xyz_derivative_property,calculate_Hessian=self.train_xyz_derivative_property,calculate_gradients_j=self.train_xyz_derivative_property,**self.kernel_function_kwargs)
+                    kernel_matrix[ii][jj] += value_and_derivatives['value']
+                    kernel_matrix[jj][ii] += value_and_derivatives['value']
+                    if self.train_xyz_derivative_property:
+                        kernel_matrix[jj,len(yy)+ii*3*Natoms:len(yy)+(ii+1)*3*Natoms] = value_and_derivatives['gradients'].reshape(3*Natoms)
+                        kernel_matrix[ii,len(yy)+jj*3*Natoms:len(yy)+(jj+1)*3*Natoms] = value_and_derivatives['gradients_j'].reshape(3*Natoms)
+                        kernel_matrix[len(yy)+ii*3*Natoms:len(yy)+(ii+1)*3*Natoms,len(yy)+jj*3*Natoms:len(yy)+(jj+1)*3*Natoms] += value_and_derivatives['Hessian']
+                        kernel_matrix[len(yy)+jj*3*Natoms:len(yy)+(jj+1)*3*Natoms,len(yy)+ii*3*Natoms:len(yy)+(ii+1)*3*Natoms] += value_and_derivatives['Hessian']
+            if self.train_xyz_derivative_property:
+                kernel_matrix[len(yy):,:len(yy)] = kernel_matrix[:len(yy),len(yy):].T
 
 
-        if invert_matrix:
-            self.alphas = np.dot(np.linalg.inv(kernel_matrix), yyref)
-        else:
-            from scipy.linalg import cho_factor, cho_solve, lu_factor, lu_solve
-            if matrix_decomposition==None:
-                try:
+            if invert_matrix:
+                self.alphas = np.dot(np.linalg.inv(kernel_matrix), yyref)
+            else:
+                from scipy.linalg import cho_factor, cho_solve, lu_factor, lu_solve
+                if matrix_decomposition==None:
+                    try:
+                        c, low = cho_factor(kernel_matrix, overwrite_a=True, check_finite=False)
+                        self.alphas = cho_solve((c, low), yyref, check_finite=False)
+                    except:
+                        c, low = lu_factor(kernel_matrix, overwrite_a=True, check_finite=False)
+                        self.alphas = lu_solve((c, low), yyref, check_finite=False)
+                elif matrix_decomposition.casefold()=='Cholesky'.casefold():
                     c, low = cho_factor(kernel_matrix, overwrite_a=True, check_finite=False)
                     self.alphas = cho_solve((c, low), yyref, check_finite=False)
-                except:
+                elif matrix_decomposition.casefold()=='LU'.casefold():
                     c, low = lu_factor(kernel_matrix, overwrite_a=True, check_finite=False)
                     self.alphas = lu_solve((c, low), yyref, check_finite=False)
-            elif matrix_decomposition.casefold()=='Cholesky'.casefold():
-                c, low = cho_factor(kernel_matrix, overwrite_a=True, check_finite=False)
-                self.alphas = cho_solve((c, low), yyref, check_finite=False)
-            elif matrix_decomposition.casefold()=='LU'.casefold():
-                c, low = lu_factor(kernel_matrix, overwrite_a=True, check_finite=False)
-                self.alphas = lu_solve((c, low), yyref, check_finite=False)
-            
-    def predict(self, molecular_database=None, molecule=None,
+            yy = yy + self.prior
+        else:
+            stopper.stopMLatom(f"Unsupported KRR solver: {self.ml_program}")
+
+        
+        
+    # To-do: make it work for ml_database and single- and multi-outputs
+    def predict(self, 
+                ml_database=None, entry=None, # To-do: entry.x should be provided, and entry.y is returned.
+                molecular_database=None, molecule=None,
                 calculate_energy=False, calculate_energy_gradients=False,  calculate_hessian=False, # arguments if KREG is used as MLP ; hessian not implemented (possible with numerical differentiation)
                property_to_predict = None, xyz_derivative_property_to_predict = None,
                 hessian_to_predict=None,):
-        molDB, property_to_predict, xyz_derivative_property_to_predict, hessian_to_predict = \
-            super().predict(molecular_database=molecular_database, molecule=molecule, calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, property_to_predict = property_to_predict, xyz_derivative_property_to_predict = xyz_derivative_property_to_predict, hessian_to_predict = hessian_to_predict)
+        
+        if self.ml_program == 'mlatom.jl':
+            if not ml_database is None:
+                xpredict = ml_database.x
+            if not molecular_database is None:
+                stopper.stopMLatom("Using molecular database in Julia KRR is not implemented. Try ml database.")
+            # if self.kernel_function.casefold() == 'Gaussian'.casefold():
+            yest = self.krr_model.predict(xpredict,calcVal=True)
+            ml_database.add_property(yest,property_to_predict)
+        elif self.ml_program == 'scipy':
+            molDB, property_to_predict, xyz_derivative_property_to_predict, hessian_to_predict = \
+                super().predict(molecular_database=molecular_database, molecule=molecule, calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, property_to_predict = property_to_predict, xyz_derivative_property_to_predict = xyz_derivative_property_to_predict, hessian_to_predict = hessian_to_predict)
+            Natoms = len(molDB.molecules[0].atoms)
+            kk_size = 0 
+            if self.train_property:
+                kk_size += self.Ntrain 
+            if self.train_xyz_derivative_property:
+                kk_size += self.Ntrain * Natoms*3
+                
+            # for mol in molDB.molecules:
+            #     xx = mol.descriptor
+            #     kk = [self.kernel_function(xx, self.train_x[ii]) for ii in range(len(self.train_x))]
+            #     mol.__dict__[property_to_predict] = np.sum(np.multiply(self.alphas, kk))
 
-        Natoms = len(molDB.molecules[0].atoms)
-        kk_size = 0 
-        if self.train_property:
-            kk_size += self.Ntrain 
-        if self.train_xyz_derivative_property:
-            kk_size += self.Ntrain * Natoms*3
+            for mol in molDB.molecules:
+                kk = np.zeros(kk_size)
+                kk_der = np.zeros((kk_size,3*Natoms))
+                for ii in range(self.Ntrain):
+                    value_and_derivatives = self.kernel_function(self.train_xyz[ii],mol.xyz_coordinates,calculate_gradients=self.train_xyz_derivative_property,**self.kernel_function_kwargs)
+                    kk[ii] = value_and_derivatives['value']
+                    if self.train_xyz_derivative_property:
+                        #print(self.Ntrain+ii*3*Natoms,self.Ntrain+(ii+1)*3*Natoms)
+                        kk[self.Ntrain+ii*3*Natoms:self.Ntrain+(ii+1)*3*Natoms] = value_and_derivatives['gradients'].reshape(3*Natoms)
 
-        for mol in molDB.molecules:
-            kk = np.zeros(kk_size)
-            kk_der = np.zeros((kk_size,3*Natoms))
-            for ii in range(self.Ntrain):
-                value_and_derivatives = self.kernel_function(self.train_xyz[ii],mol.xyz_coordinates,calculate_gradients=self.train_xyz_derivative_property,**self.kernel_function_kwargs)
-                kk[ii] = value_and_derivatives['value']
-                if self.train_xyz_derivative_property:
-                    kk[self.Ntrain+ii*3*Natoms:self.Ntrain+(ii+1)*3*Natoms] = value_and_derivatives['gradients'].reshape(3*Natoms)
-
-                if xyz_derivative_property_to_predict:
-                    value_and_derivatives = self.kernel_function(mol.xyz_coordinates,self.train_xyz[ii],calculate_gradients=bool(xyz_derivative_property_to_predict),calculate_Hessian=self.train_xyz_derivative_property,**self.kernel_function_kwargs)
-                    kk_der[ii] = value_and_derivatives['gradients'].reshape(3*Natoms)
-                if self.train_xyz_derivative_property:
-                    kk_der[self.Ntrain+ii*3*Natoms:self.Ntrain+(ii+1)*3*Natoms,:] = value_and_derivatives['Hessian'].T
-            gradients = np.matmul(self.alphas.reshape(1,len(self.alphas)),kk_der)[0]
-            mol.__dict__[property_to_predict] = np.sum(np.multiply(self.alphas, kk))+self.prior
-            for iatom in range(len(mol.atoms)):
-                mol.atoms[iatom].__dict__[xyz_derivative_property_to_predict] = gradients[3*iatom:3*iatom+3]
+                    if xyz_derivative_property_to_predict:
+                        value_and_derivatives = self.kernel_function(mol.xyz_coordinates,self.train_xyz[ii],calculate_gradients=bool(xyz_derivative_property_to_predict),calculate_Hessian=self.train_xyz_derivative_property,**self.kernel_function_kwargs)
+                        kk_der[ii] = value_and_derivatives['gradients'].reshape(3*Natoms)
+                    if self.train_xyz_derivative_property:
+                        kk_der[self.Ntrain+ii*3*Natoms:self.Ntrain+(ii+1)*3*Natoms,:] = value_and_derivatives['Hessian'].T
+                    #kk_der.append(value_and_derivatives['gradients'])
+                #kk_der = np.array(kk_der).reshape(kk_size,3*Natoms)
+                gradients = np.matmul(self.alphas.reshape(1,len(self.alphas)),kk_der)[0]
+                #kk = [self.kernel_function(xx, self.train_x[ii])['value'] for ii in range(len(self.train_x))]
+                mol.__dict__[property_to_predict] = np.sum(np.multiply(self.alphas, kk))+self.prior
+                # print(mol.__dict__[property_to_predict])
+                # print(gradients)
+                for iatom in range(len(mol.atoms)):
+                    mol.atoms[iatom].__dict__[xyz_derivative_property_to_predict] = gradients[3*iatom:3*iatom+3]
+        
+    # def gaussian_kernel_function(self, xi, xj):
+    #     return np.exp(np.sum(np.square(xi - xj))/(-2*self.hyperparameters['sigma']**2))
     
     def gaussian_kernel_function(self,coordi,coordj,calculate_value=True,calculate_gradients=False,calculate_gradients_j=False,calculate_Hessian=False,**kwargs):
         import torch

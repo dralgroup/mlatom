@@ -4,7 +4,7 @@
   !---------------------------------------------------------------------------!
   !                                                                           !
   !     MLatom: a Package for Atomistic Simulations with Machine Learning     !
-  !                             MLatom 3.17.3                                 !
+  !                             MLatom 3.18.0                                 !
   !                                   @                                       !
   !                 Xiamen Atomistic Computing Suite (XACS)                   !
   !                                                                           !
@@ -32,13 +32,13 @@
   ! Shuang Zhang, Arif Ullah, Quanhao Zhang, Yanchi Ou.                       !
   ! J. Chem. Theory Comput. 2024, 20, 1193-1213.                              !
   !                                                                           !
-  ! Pavlo O. Dral, Fuchun Ge, Yi-Fan Hou, Peikun Zheng, Yuxinxin Chen,        !
-  ! Bao-Xin Xue, Mikolaj Martyka, Max Pinheiro Jr, Yuming Su, Yiheng Dai,     !
-  ! Yangtao Chen, Shuang Zhang, Lina Zhang, Arif Ullah, Quanhao Zhang,        !
-  ! Sebastian V. Pios, Yanchi Ou, Matheus O. Bispo, Vignesh B. Kumar,         !
-  ! Xin-Yu Tong,                                                              !
+  ! Pavlo O. Dral, Fuchun Ge, Yi-Fan Hou, Yuxinxin Chen, Peikun Zheng,        !
+  ! Bao-Xin Xue, Mikolaj Martyka, Lina Zhang, Jakub Martinka, Quanhao Zhang,  !
+  ! Xin-Yu Tong, Arif Ullah, Sebastian V. Pios, Vignesh B. Kumar, Yanchi Ou,  !
+  ! Max Pinheiro Jr, Yuming Su, Yiheng Dai, Yangtao Chen, Shuang Zhang,       !
+  ! Matheus O. Bispo                                                          !
   ! MLatom: A Package for Atomistic Simulations with Machine Learning,        !
-  ! version 3.17.3, Xiamen University, Xiamen, China, 2013-2024.              !
+  ! version 3.18.0, Xiamen University, Xiamen, China, 2013-2025.              !
   !                                                                           !
   ! The citations for MLatom's interfaces and features shall be eventually    !
   ! included too. See header.py, ref.json and http://mlatom.com.              !
@@ -84,7 +84,7 @@ def run(argv = []):
         if arg in ['-v', '--version']: 
             version = mlatom_with_this_file.__version__
             print(f'Current mlatom version: {version}')
-            if 'dev' not in version: 
+            if 'xx.x' not in version: 
                 # get latest version from pypi
                 import requests 
                 url = f"https://pypi.org/pypi/mlatom/json"

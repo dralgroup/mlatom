@@ -15,7 +15,7 @@ from .md import md as md
 from .md_parallel import md_parallel as md_parallel
 from .initial_conditions import generate_initial_conditions
 from .md2vibr import vibrational_spectrum
-import os, sys, math
+import os, sys, math, shutil
 import numpy as np
 import warnings
 warnings.filterwarnings("ignore")
@@ -116,7 +116,7 @@ class optimize_geometry():
                  model=None,  model_predict_kwargs={},
                  initial_molecule=None, molecule=None,
                  ts=False, reactants=None, products=None,
-                 program=None, program_kwargs={},
+                 program=None, program_kwargs=None,
                  optimization_algorithm=None, maximum_number_of_steps=None, convergence_criterion_for_forces=None,working_directory=None, 
     print_properties=None,
     dump_trajectory_interval=None, # Only None and 1 are supported at the moment
@@ -159,7 +159,8 @@ class optimize_geometry():
                         self.program = 'scipy'
                     except: raise ValueError('please set $GAUSS_EXEDIR or install geometric or install scipy')
         
-        self.program_kwargs = program_kwargs
+        if not program_kwargs: self.program_kwargs = {}
+        else: self.program_kwargs = program_kwargs
         self.optimization_algorithm = optimization_algorithm
         if self.optimization_algorithm is not None:
             if self.optimization_algorithm.casefold() in ['dimer', 'neb']:
@@ -420,6 +421,40 @@ class optimize_geometry():
             self.optimized_molecule = self.initial_molecule
             self.model.predict(molecule=self.optimized_molecule, calculate_energy=True)
 
+def gen_ts(
+        init_ts:data.molecule=None, reactant:data.molecule=None, product:data.molecule=None,
+        n_ts:int=1,avg_ts:bool=True,
+        path:bool=False, n_path:int=1, avg_path:bool=False,
+        model=None, model_predict_kwargs:dict={},
+        program:str=None, program_kwargs:dict={}, program_kwargs_json:str=None,
+        working_directory:str=None,
+):
+
+    if program_kwargs_json:
+        import json 
+        program_kwargs.update(json.load(open(program_kwargs_json,'r')))
+
+    if working_directory: 
+        working_directory = os.path.abspath(working_directory)
+        if os.path.exists(working_directory):
+            print('WARNING: Working directory found and will be overwritten.')
+            shutil.rmtree(working_directory)
+        os.makedirs(working_directory)
+    
+    if program.lower() == 'ects':
+        from .gen_ts_methods import gen_ts_ects
+        results = gen_ts_ects(
+            reactant=reactant, product=product, 
+            path=path,
+            n_ts=n_ts, n_path=n_path, avg_ts=avg_ts, avg_path=avg_path,
+            program_kwargs=program_kwargs, 
+            working_directory=working_directory)
+        return results
+         
+    else:
+        raise ValueError(f"program {program} is not supported in gen_ts() to generate transition state and reaction path")
+
+
 class irc():
     def __init__(self, **kwargs):
         if 'model' in kwargs:
@@ -476,9 +511,10 @@ class freq():
 
 
     """
-    def __init__(self, model=None, model_predict_kwargs={}, molecule=None, program=None, ir=False, raman=False, normal_mode_normalization='mass deweighted normalized', anharmonic=False, anharmonic_kwargs={}, working_directory=None,program_kwargs={}):
+    def __init__(self, model=None, model_predict_kwargs=None, molecule=None, program=None, ir=False, raman=False, normal_mode_normalization='mass deweighted normalized', anharmonic=False, anharmonic_kwargs={}, working_directory=None,program_kwargs={}):
         self.model = model
-        self.model_predict_kwargs = model_predict_kwargs
+        if not model_predict_kwargs: self.model_predict_kwargs = {}
+        else: self.model_predict_kwargs = model_predict_kwargs
         self.molecule = molecule
         self.ir = ir
         self.raman = raman

@@ -206,7 +206,8 @@ class downloadable_model(model):
         'aiqm2_dft_model':'https://zenodo.org/records/15383333/files/aiqm2_dft_model.zip?download=1',
         'aiqm2_model':'https://zenodo.org/records/15383333/files/aiqm2_cc_model.zip?download=1',
         'ani_1ccx_gelu_model':'https://zenodo.org/records/15383363/files/ani1ccx_gelu_model.zip?download=1',
-        'ani_1x_gelu_model':'https://zenodo.org/records/15383363/files/ani1x_gelu_model.zip?download=1'
+        'ani_1x_gelu_model':'https://zenodo.org/records/15383363/files/ani1x_gelu_model.zip?download=1',
+        'mdtrajnet1_model':None,
     }
     model_downloadable_files = {
         'aiqm1_dft_model':[f'cv{ii}.pt' for ii in range(8)],
@@ -215,6 +216,7 @@ class downloadable_model(model):
         'aiqm2_model':[f'cv{ii}.pt' for ii in range(8)],
         'ani_1ccx_gelu_model':[f'cv{ii}.pt' for ii in range(8)],
         'ani_1x_gelu_model':[f'cv{ii}.pt' for ii in range(8)],
+        'mdtrajnet1_model':[f'MDtrajNet-1.{ii}.pt' for ii in range(4)],
     }
 
     enable_link1=True; enable_link2=True # for test and debug
@@ -348,6 +350,7 @@ class ml_model(model):
     '''
     def train(
         self,
+        ml_database: data.ml_database,
         molecular_database: data.molecular_database,
         property_to_learn: Union[str, None] = 'y',
         xyz_derivative_property_to_learn: str = None,
@@ -366,6 +369,7 @@ class ml_model(model):
     @doc_inherit
     def predict(
         self, 
+        ml_database: data.ml_database = None, entry: data.entry = None,
         molecular_database: data.molecular_database = None, molecule: data.molecule = None,
         calculate_energy: bool = False, property_to_predict: Union[str, None] = 'estimated_y',
         calculate_energy_gradients: bool = False, xyz_derivative_property_to_predict: Union[str, None] = 'estimated_xyz_derivatives_y', 
@@ -450,7 +454,9 @@ class ml_model(model):
     def calculate_validation_loss(self,
                                  training_kwargs=None,
                                  prediction_kwargs=None,
+                                 cv_splits_ml_databases=None,
                                  cv_splits_molecular_databases=None, calculate_CV_split_errors=False,
+                                 subtraining_ml_database=None, validation_ml_database=None,
                                  subtraining_molecular_database=None, validation_molecular_database=None,
                                  validation_loss_function=None, validation_loss_function_kwargs={},
                                  debug=False):
@@ -493,42 +499,84 @@ class ml_model(model):
         estimated_y=None; y=None; estimated_xyz_derivatives=None; xyz_derivatives=None
 
         if type(cv_splits_molecular_databases) == type(None):
-            self.holdout_validation(subtraining_molecular_database=subtraining_molecular_database,
+            self.holdout_validation(subtraining_ml_database=subtraining_ml_database,
+                                    validation_ml_database=validation_ml_database,
+                                    subtraining_molecular_database=subtraining_molecular_database,
                                     validation_molecular_database=validation_molecular_database,
                                     training_kwargs=training_kwargs,
                                     prediction_kwargs=prediction_kwargs)
-            if property_to_learn != None:
-                y = validation_molecular_database.get_properties(property_name=property_to_learn)
-                estimated_y = validation_molecular_database.get_properties(property_name=property_to_predict)
-            if xyz_derivative_property_to_learn != None:
-                xyz_derivatives = validation_molecular_database.get_xyz_vectorial_properties(property_name=xyz_derivative_property_to_learn)
-                estimated_xyz_derivatives = validation_molecular_database.get_xyz_vectorial_properties(property_name=xyz_derivative_property_to_predict)
+            if not subtraining_ml_database is None and not validation_ml_database is None:
+                if all(isinstance(val, (list, np.ndarray)) for val in validation_ml_database.y) and xyz_derivative_property_to_learn == None:
+                    xyz_derivative_property_to_learn = property_to_learn
+                    property_to_learn = None
+                    y = None
+                    estimated_y = None
+                    xyz_derivatives = validation_ml_database.y 
+                    estimated_xyz_derivatives = validation_ml_database.get_property(property_name=property_to_predict)
+                else:
+                    y = validation_ml_database.y 
+                    estimated_y = validation_ml_database.get_property(property_name=property_to_predict)
+                    xyz_derivatives = None 
+                    estimated_xyz_derivatives = None
+            if not subtraining_molecular_database is None and not validation_molecular_database is None:
+                if property_to_learn != None:
+                    y = validation_molecular_database.get_properties(property_name=property_to_learn)
+                    estimated_y = validation_molecular_database.get_properties(property_name=property_to_predict)
+                if xyz_derivative_property_to_learn != None:
+                    xyz_derivatives = validation_molecular_database.get_xyz_vectorial_properties(property_name=xyz_derivative_property_to_learn)
+                    estimated_xyz_derivatives = validation_molecular_database.get_xyz_vectorial_properties(property_name=xyz_derivative_property_to_predict)
         else:
-            self.cross_validation(cv_splits_molecular_databases=cv_splits_molecular_databases,
+            self.cross_validation(cv_splits_ml_databases=cv_splits_ml_databases,
+                                    cv_splits_molecular_databases=cv_splits_molecular_databases,
                                     training_kwargs=training_kwargs,
                                     prediction_kwargs=prediction_kwargs)
-            training_molecular_database = data.molecular_database()
-            if calculate_CV_split_errors:
-                nsplits = len(cv_splits_molecular_databases)
-                CV_y=[None for ii in range(nsplits)]; CV_yest=[None for ii in range(nsplits)]; CV_xyz_derivatives=[None for ii in range(nsplits)]; CV_estimated_xyz_derivatives=[None for ii in range(nsplits)]
-            for CVsplit in cv_splits_molecular_databases:
-                training_molecular_database.molecules += CVsplit.molecules
-            if property_to_learn != None:
-                y = training_molecular_database.get_properties(property_name=property_to_learn)
-                estimated_y = training_molecular_database.get_properties(property_name=property_to_predict)
+            if not cv_splits_ml_databases is None:
+                training_ml_database = data.ml_database()
                 if calculate_CV_split_errors:
-                    CV_y = [] ; CV_yest = []
-                    for ii in range(nsplits):
-                        CV_y.append(cv_splits_molecular_databases[ii].get_properties(property_name=property_to_learn))
-                        CV_yest.append(cv_splits_molecular_databases[ii].get_properties(property_name=property_to_predict))
-            if xyz_derivative_property_to_learn != None:
-                xyz_derivatives = training_molecular_database.get_xyz_vectorial_properties(property_name=xyz_derivative_property_to_learn)
-                estimated_xyz_derivatives = training_molecular_database.get_xyz_vectorial_properties(property_name=xyz_derivative_property_to_predict)
+                    nsplits = len(cv_splits_ml_databases)
+                    CV_y=[None for ii in range(nsplits)]; CV_yest=[None for ii in range(nsplits)]; CV_xyz_derivatives=[None for ii in range(nsplits)]; CV_estimated_xyz_derivatives=[None for ii in range(nsplits)]
+                for CVsplit in cv_splits_ml_databases:
+                    training_molecular_database += CVsplit 
+                if all(isinstance(val, (list, np.ndarray)) for val in training_ml_database.y) and xyz_derivative_property_to_learn == None:
+                    xyz_derivative_property_to_learn = property_to_learn
+                    property_to_learn = None
+                    y = None
+                    estimated_y = None
+                    xyz_derivatives = training_ml_database.y 
+                    estimated_xyz_derivatives = training_ml_database.get_property(property_name=property_to_predict)
+                else:
+                    y = training_ml_database.y 
+                    estimated_y = training_ml_database.get_property(property_name=property_to_predict)
+                    xyz_derivatives = None 
+                    estimated_xyz_derivatives = None
                 if calculate_CV_split_errors:
-                    CV_xyz_derivatives = [] ; CV_estimated_xyz_derivatives = []
+                    CV_y = []; CV_yest = [] 
                     for ii in range(nsplits):
-                        CV_xyz_derivatives.append(cv_splits_molecular_databases[ii].get_xyz_vectorial_properties(property_name=xyz_derivative_property_to_learn))
-                        CV_estimated_xyz_derivatives.append(cv_splits_molecular_databases[ii].get_xyz_vectorial_properties(property_name=xyz_derivative_property_to_predict))
+                        CV_y.append(cv_splits_ml_databases[ii].y)
+                        CV_yest.append(cv_splits_ml_databases[ii].get_property(property_name=property_to_predict))
+            if not cv_splits_molecular_databases is None:
+                training_molecular_database = data.molecular_database()
+                if calculate_CV_split_errors:
+                    nsplits = len(cv_splits_molecular_databases)
+                    CV_y=[None for ii in range(nsplits)]; CV_yest=[None for ii in range(nsplits)]; CV_xyz_derivatives=[None for ii in range(nsplits)]; CV_estimated_xyz_derivatives=[None for ii in range(nsplits)]
+                for CVsplit in cv_splits_molecular_databases:
+                    training_molecular_database.molecules += CVsplit.molecules
+                if property_to_learn != None:
+                    y = training_molecular_database.get_properties(property_name=property_to_learn)
+                    estimated_y = training_molecular_database.get_properties(property_name=property_to_predict)
+                    if calculate_CV_split_errors:
+                        CV_y = [] ; CV_yest = []
+                        for ii in range(nsplits):
+                            CV_y.append(cv_splits_molecular_databases[ii].get_properties(property_name=property_to_learn))
+                            CV_yest.append(cv_splits_molecular_databases[ii].get_properties(property_name=property_to_predict))
+                if xyz_derivative_property_to_learn != None:
+                    xyz_derivatives = training_molecular_database.get_xyz_vectorial_properties(property_name=xyz_derivative_property_to_learn)
+                    estimated_xyz_derivatives = training_molecular_database.get_xyz_vectorial_properties(property_name=xyz_derivative_property_to_predict)
+                    if calculate_CV_split_errors:
+                        CV_xyz_derivatives = [] ; CV_estimated_xyz_derivatives = []
+                        for ii in range(nsplits):
+                            CV_xyz_derivatives.append(cv_splits_molecular_databases[ii].get_xyz_vectorial_properties(property_name=xyz_derivative_property_to_learn))
+                            CV_estimated_xyz_derivatives.append(cv_splits_molecular_databases[ii].get_xyz_vectorial_properties(property_name=xyz_derivative_property_to_predict))
         
         def geomRMSEloc(estimated_y,y,estimated_xyz_derivatives,xyz_derivatives):
             total_rmse = 1
@@ -566,7 +614,9 @@ class ml_model(model):
                                  hyperparameters=None,
                                  training_kwargs=None,
                                  prediction_kwargs=None,
+                                 cv_splits_ml_databases=None,
                                  cv_splits_molecular_databases=None,
+                                 subtraining_ml_database=None, validation_ml_database=None,
                                  subtraining_molecular_database=None, validation_molecular_database=None,
                                  optimization_algorithm=None, optimization_algorithm_kwargs={},
                                  maximum_evaluations=10000,
@@ -600,7 +650,10 @@ class ml_model(model):
                 self.hyperparameters[hyperparameters[ii]].value = current_hyperparameters[ii]
             return self.calculate_validation_loss(  training_kwargs=training_kwargs,
                                                     prediction_kwargs=prediction_kwargs,
+                                                    cv_splits_ml_databases=cv_splits_ml_databases,
                                                     cv_splits_molecular_databases=cv_splits_molecular_databases,
+                                                    subtraining_ml_database=subtraining_ml_database,
+                                                    validation_ml_database=validation_ml_database,
                                                     subtraining_molecular_database=subtraining_molecular_database,
                                                     validation_molecular_database=validation_molecular_database,
                                                     validation_loss_function=validation_loss_function, validation_loss_function_kwargs=validation_loss_function_kwargs,
@@ -626,6 +679,8 @@ class ml_model(model):
                 import numpy as np
                 grid_slices = []
                 for key in hyperparameters:
+                    # if 'grid_range' in self.hyperparameter[key].__dict__: 
+                    #     grid_slices.append(self.hyperparameter[key].grid_range) #@Yifan
                     if 'grid_size' in optimization_algorithm_kwargs.keys(): 
                         grid_size = optimization_algorithm_kwargs['grid_size']
                     else: 
@@ -653,6 +708,7 @@ class ml_model(model):
                 DummyTqdmFile.fileno = fileno
 
                 validation_loss_wraper_for_hyperopt = lambda d: validation_loss([d[k] for k in hyperparameters])
+                # initial_hyperparameters = [{key: self.hyperparameters[key] for key in hyperparameters}]
                 space_mapping = {'linear': hyperopt.hp.uniform, 'log': hyperopt.hp.loguniform, 'normal': hyperopt.hp.normal, 'lognormal': hyperopt.hp.lognormal, 'discrete': hyperopt.hp.quniform, 'discretelog': hyperopt.hp.qloguniform, 'discretelognormal': hyperopt.hp.qlognormal, 'choices': hyperopt.hp.choice}
                 def get_space(key):
                     space_type = self.hyperparameters[key].optimization_space
@@ -674,28 +730,48 @@ class ml_model(model):
         # Use the final hyperparameters to train the model and get the validation errors
         self.validation_loss = validation_loss(np.array([self.hyperparameters[key].value for key in hyperparameters]))
 
-    def holdout_validation(self, subtraining_molecular_database=None, validation_molecular_database=None,
+    def holdout_validation(self, subtraining_ml_database=None, validation_ml_database=None,
+                           subtraining_molecular_database=None, validation_molecular_database=None,
                      training_kwargs=None, prediction_kwargs=None):
         if type(training_kwargs) == type(None): training_kwargs = {}
         if type(prediction_kwargs) == type(None): prediction_kwargs = {}
-        self.train(molecular_database=subtraining_molecular_database, **training_kwargs)
-        self.predict(molecular_database = validation_molecular_database, **prediction_kwargs)
-
-    def cross_validation(self, cv_splits_molecular_databases=None,
-                     training_kwargs=None, prediction_kwargs=None):
-        
-        if type(training_kwargs) == type(None): training_kwargs = {}
-        if type(prediction_kwargs) == type(None): prediction_kwargs = {}
-        
-        nsplits = len(cv_splits_molecular_databases)
-        for ii in range(nsplits):
-            subtraining_molecular_database = data.molecular_database()
-            for jj in range(nsplits):
-                if ii != jj: subtraining_molecular_database.molecules += cv_splits_molecular_databases[jj].molecules
-            validation_molecular_database = cv_splits_molecular_databases[ii]
-            self.reset()
+        if not subtraining_ml_database is None and not validation_ml_database is None:
+            self.train(ml_database=subtraining_ml_database, **training_kwargs)
+            self.predict(ml_database=validation_ml_database, **prediction_kwargs)
+        elif not subtraining_molecular_database is None and not validation_molecular_database is None:
             self.train(molecular_database=subtraining_molecular_database, **training_kwargs)
             self.predict(molecular_database=validation_molecular_database, **prediction_kwargs)
+        
+
+    def cross_validation(self, cv_splits_ml_databases=None,
+                         cv_splits_molecular_databases=None,
+                     training_kwargs=None, prediction_kwargs=None):
+        
+        if type(training_kwargs) == type(None): training_kwargs = {}
+        if type(prediction_kwargs) == type(None): prediction_kwargs = {}
+        
+        if not cv_splits_ml_databases is None:
+            nsplits = len(cv_splits_ml_databases)
+            for ii in range(nsplits):
+                subtraining_ml_database = data.molecular_database()
+                for jj in range(nsplits):
+                    if ii != jj: subtraining_ml_database += cv_splits_ml_databases[jj]
+                validation_ml_database = cv_splits_ml_databases[ii]
+                self.reset()
+                self.train(**training_kwargs)
+                # self.train(ml_database=subtraining_ml_database, **training_kwargs)
+                self.predict(**prediction_kwargs)
+                # self.predict(ml_database=validation_ml_database, **prediction_kwargs)
+        if not cv_splits_molecular_databases is None:
+            nsplits = len(cv_splits_molecular_databases)
+            for ii in range(nsplits):
+                subtraining_molecular_database = data.molecular_database()
+                for jj in range(nsplits):
+                    if ii != jj: subtraining_molecular_database.molecules += cv_splits_molecular_databases[jj].molecules
+                validation_molecular_database = cv_splits_molecular_databases[ii]
+                self.reset()
+                self.train(molecular_database=subtraining_molecular_database, **training_kwargs)
+                self.predict(molecular_database=validation_molecular_database, **prediction_kwargs)
         
     
     def get_property_to_learn(self, training_kwargs=None):

@@ -344,7 +344,7 @@ class mndo_methods(method_model):
                         if calculate_nacv:
                         # read interstate coupling gradient(s) ⟨ψ_i|∂H/∂R|ψ_j⟩ and calculate nonadiabatic coupling vector(s) ⟨ψ_i|∂H/∂R|ψ_j⟩/(E_i-E_j)
                             if found_ffort15_coupling_flag:
-                                nonadiabatic_coupling_vectors = {}
+                                nacv = {}
                                 for idx in ffort15_coupling_index:
                                     nonadiabatic_coupling_vector = []  
                                     initial_state = int(ffort15_lines[idx-1].split()[6])-1
@@ -356,17 +356,17 @@ class mndo_methods(method_model):
                                     for line in ffort15_lines[idx: idx+natoms]:
                                         nonadiabatic_coupling_per_atom = [float(xx) / (27.21 * 23.061 * gap) for xx in line.split()[-3:]]
                                         nonadiabatic_coupling_vector.append(nonadiabatic_coupling_per_atom)
-                                    nonadiabatic_coupling_vectors[(initial_state, final_state)] = nonadiabatic_coupling_vector
+                                    nacv[(initial_state, final_state)] = nonadiabatic_coupling_vector
                                 
                                 state_comb = [(i, j) for i in range(1, len(output_ens_index)) for j in range(0, i)]
-                                mol.nonadiabatic_coupling_vectors = [[np.tile(np.zeros(3), (natoms, 1)) for ii in range(len(output_ens_index))] for jj in range(len(output_ens_index))]
+                                mol.nacv = [[np.tile(np.zeros(3), (natoms, 1)) for ii in range(len(output_ens_index))] for jj in range(len(output_ens_index))]
                                 for index, (initial_state, final_state) in enumerate(state_comb):
                                     try:
-                                        mol.nonadiabatic_coupling_vectors[initial_state][final_state] = np.array(nonadiabatic_coupling_vectors[(initial_state, final_state)]).astype(float)
-                                        mol.nonadiabatic_coupling_vectors[final_state][initial_state] = -np.array(nonadiabatic_coupling_vectors[(initial_state, final_state)]).astype(float)
+                                        mol.nacv[initial_state][final_state] = np.array(nacv[(initial_state, final_state)]).astype(float)
+                                        mol.nacv[final_state][initial_state] = -np.array(nacv[(initial_state, final_state)]).astype(float)
                                     except KeyError:
-                                        mol.nonadiabatic_coupling_vectors[initial_state][final_state] = None
-                                        mol.nonadiabatic_coupling_vectors[final_state][initial_state] = None
+                                        mol.nacv[initial_state][final_state] = None
+                                        mol.nacv[final_state][initial_state] = None
                             else:
                                 print('There is no interstate coupling gradient information in fort.15. Please check your input!')
                     
