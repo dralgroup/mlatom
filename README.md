@@ -2,8 +2,8 @@
 
 # Updates
 
-- MLatom 3.18.0 - FSSH, KRR in Julia, MDtrajNet-1, ECTS.
--MLatom 3.17.1-3.17.2 (26.03-21.05.2025) - + QST2 and QST3, NEB, more options for RMSD calculations and UV/vis plots, code refactoring for higher efficiency, major bug fixes, etc.
+- MLatom 3.18.0 - FSSH, KRR in Julia, MDtrajNet-1 - universal model for directly predicting MD trajectories, ECTS - a diffusion model for generating TSs.
+- MLatom 3.17.1-3.17.2 (26.03-21.05.2025) - + QST2 and QST3, NEB, more options for RMSD calculations and UV/vis plots, code refactoring for higher efficiency, major bug fixes, etc.
 - MLatom 3.16.2 (18.12.2024) - bug fixes, quality of life improvements (calculation of bond lengths, angles, RMSD, geometry optimization followed by frequency calculations in the same file, etc.).
 - MLatom 3.16.1 (11.12.2024) - DFTB and TD-DFTB via interface to DFTB+.
 - MLatom 3.16.0 (04.12.2024) - TDDFT and TDA calculations via PySCF interface, TDDFT via Gaussian, and parsing of Gaussian output files into MLatom data format ([overview](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-16-0))
