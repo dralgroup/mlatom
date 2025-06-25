@@ -1,4 +1,7 @@
-[![Downloads](https://static.pepy.tech/badge/mlatom)](https://pepy.tech/project/mlatom)  [![Downloads](https://static.pepy.tech/badge/mlatom/month)](https://pepy.tech/project/mlatom)  [![Downloads](https://static.pepy.tech/badge/mlatom/week)](https://pepy.tech/project/mlatom)
+![MLatom-banner](https://github.com/user-attachments/assets/9433ac9a-bcc9-4dd4-9128-d834c85603b0)
+
+[![Downloads](https://static.pepy.tech/badge/mlatom)
+](https://pepy.tech/project/mlatom)  [![Downloads](https://static.pepy.tech/badge/mlatom/month)](https://pepy.tech/project/mlatom)  [![Downloads](https://static.pepy.tech/badge/mlatom/week)](https://pepy.tech/project/mlatom)
 
 # Updates
 
