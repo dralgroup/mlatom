@@ -12,4 +12,4 @@ from .gap_md import gap_md, gap_model
 from .models import uaiqm, omnip2x, vecmsani
 from .EEEDDDD import EEEDDDD as MDtrajNet
 
-__version__ = '3.18.0'
+__version__ = '3.18.1'

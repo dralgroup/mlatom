@@ -8,6 +8,11 @@ import random
 import timeit
 import copy
 
+# check numpy version
+np_ver = np.__version__.split()[0]
+if np_ver == '1': np_cfloat = np.cfloat
+else: np_cfloat = np.complex128
+
 class al():
     '''
     Active learning procedure 
@@ -335,7 +340,8 @@ class al():
             elif type(dd[key]) == np.int16: dd[key] = dd[key].item()
             elif type(dd[key]) == np.int32: dd[key] = dd[key].item()
             elif type(dd[key]) == np.int64: dd[key] = dd[key].item()
-            elif type(dd[key]) == np.cfloat: dd[key] = dd[key].item()
+            # elif type(dd[key]) == np.cfloat: dd[key] = dd[key].item()
+            elif type(dd[key]) == np_cfloat: dd[key] = dd[key].item()
             elif type(dd[key]) == list:
                 for ii in range(len(dd[key])):
                     if type(dd[key][ii]) == list:

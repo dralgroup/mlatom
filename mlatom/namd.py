@@ -345,7 +345,7 @@ class surface_hopping_md():
                 self.current_state = hopping_probabilities.index(max_prob)
 
                 # fssh/lzsh/znsh: rescale_velocity; change en grad in molecular_trajectory; change ekin etot
-                mol_istep_plus1 = self.molecular_trajectory.steps[istep+1].molecule
+                mol_istep_plus1 = self.molecular_trajectory.steps[-2].molecule
                 kinetic_energy_change = mol_istep_plus1.electronic_states[self.current_state].energy - mol_istep_plus1.electronic_states[self.initial_state].energy
                 vector = None
                 if self.rescale_velocity_direction.casefold() in ['nacv', 'nacs']:
@@ -359,7 +359,7 @@ class surface_hopping_md():
                     kinetic_energy_change=kinetic_energy_change,
                     vector=vector,
                     if_not_enough_kinetic_energy=self.insufficient_energy_action)
-                self.change_properties_of_hopping_step(step=istep+1)
+                self.change_properties_of_hopping_step()
                 if self.hopping_algorithm == 'LZBL' or self.hopping_algorithm == 'FSSH':
                     del self.molecular_trajectory.steps[-1]
                     one_step_propagation = True
@@ -401,12 +401,22 @@ class surface_hopping_md():
                         temp_traj_dump.steps.append(self.molecular_trajectory.steps[-1])
                         if self.reduce_memory_usage:
                             temp_traj = data.molecular_trajectory()
-                            temp_traj.steps.append(self.molecular_trajectory.steps[-2])
-                            temp_traj.steps.append(self.molecular_trajectory.steps[-1])
-                            del self.molecular_trajectory.steps[-2:] 
-                            self.molecular_trajectory.dump(filename=self.filename, format=self.format)
-                            del self.molecular_trajectory
-                            self.molecular_trajectory = temp_traj
+                            if self.hopping_algorithm == 'LZBL':
+                                temp_traj.steps.append(self.molecular_trajectory.steps[-2])
+                                temp_traj.steps.append(self.molecular_trajectory.steps[-1])
+                                del self.molecular_trajectory.steps[-2:] 
+                                self.molecular_trajectory.dump(filename=self.filename, format=self.format)
+                                del self.molecular_trajectory
+                                self.molecular_trajectory = temp_traj
+                            if self.hopping_algorithm == 'FSSH':
+                                temp_traj.steps.append(self.molecular_trajectory.steps[-4])
+                                temp_traj.steps.append(self.molecular_trajectory.steps[-3])
+                                temp_traj.steps.append(self.molecular_trajectory.steps[-2])
+                                temp_traj.steps.append(self.molecular_trajectory.steps[-1])
+                                del self.molecular_trajectory.steps[-4:] 
+                                self.molecular_trajectory.dump(filename=self.filename, format=self.format)
+                                del self.molecular_trajectory
+                                self.molecular_trajectory = temp_traj
                         else:
                             temp_traj_dump.dump(filename=self.filename, format=self.format)
                     elif self.format == 'json':
@@ -504,27 +514,27 @@ class surface_hopping_md():
         n_substeps = int(self.time_step / self.time_step_tdse)
 
         # Load energies and interpolate
-        energies = [np.array([self.molecular_trajectory.steps[istep+1].molecule.electronic_states[iState].energy for iState in range(self.nstates)]), np.array([self.molecular_trajectory.steps[istep].molecule.electronic_states[stat].energy for stat in range(self.nstates)])]
+        energies = [np.array([self.molecular_trajectory.steps[-2].molecule.electronic_states[iState].energy for iState in range(self.nstates)]), np.array([self.molecular_trajectory.steps[-3].molecule.electronic_states[stat].energy for stat in range(self.nstates)])]
         if istep == 1:
-            energies.append(np.array([self.molecular_trajectory.steps[istep-1].molecule.electronic_states[iState].energy for iState in range(self.nstates)]))
+            energies.append(np.array([self.molecular_trajectory.steps[-4].molecule.electronic_states[iState].energy for iState in range(self.nstates)]))
         elif istep > 1:
-            energies.append(np.array([self.molecular_trajectory.steps[istep-1].molecule.electronic_states[iState].energy for iState in range(self.nstates)]))
-            energies.append(np.array([self.molecular_trajectory.steps[istep-2].molecule.electronic_states[iState].energy for iState in range(self.nstates)]))
+            energies.append(np.array([self.molecular_trajectory.steps[-4].molecule.electronic_states[iState].energy for iState in range(self.nstates)]))
+            energies.append(np.array([self.molecular_trajectory.steps[-5].molecule.electronic_states[iState].energy for iState in range(self.nstates)]))
         energies_interpolated = [list(ienergy) for ienergy in zip(*self.interpolate_energy(energies, n_substeps))]
 
         # Load velocities
-        velocity_initial = np.array(self.molecular_trajectory.steps[istep].molecule.get_xyz_vectorial_properties('xyz_velocities'))*constants.Angstrom2Bohr/constants.fs2au
-        velocity_final = np.array(self.molecular_trajectory.steps[istep+1].molecule.get_xyz_vectorial_properties('xyz_velocities'))*constants.Angstrom2Bohr/constants.fs2au
+        velocity_initial = np.array(self.molecular_trajectory.steps[-3].molecule.get_xyz_vectorial_properties('xyz_velocities'))*constants.Angstrom2Bohr/constants.fs2au
+        velocity_final = np.array(self.molecular_trajectory.steps[-2].molecule.get_xyz_vectorial_properties('xyz_velocities'))*constants.Angstrom2Bohr/constants.fs2au
 
         # Load NACs
-        nac_initial = np.array(self.molecular_trajectory.steps[istep].molecule.nacv)/constants.Angstrom2Bohr
-        nac_final = np.array(self.molecular_trajectory.steps[istep+1].molecule.nacv)/constants.Angstrom2Bohr
+        nac_initial = np.array(self.molecular_trajectory.steps[-3].molecule.nacv)/constants.Angstrom2Bohr
+        nac_final = np.array(self.molecular_trajectory.steps[-2].molecule.nacv)/constants.Angstrom2Bohr
         for iState in range(self.nstates):
             for jState in range(iState):
                 # Phase alignment within trajectory based on the dot product of NAC(t) and NAC(t+dt)
                 if np.vdot(nac_initial[iState][jState], nac_final[iState][jState]) < 0:
-                    self.molecular_trajectory.steps[istep+1].molecule.nacv[iState][jState] *= -1
-                    self.molecular_trajectory.steps[istep+1].molecule.nacv[jState][iState] *= -1
+                    self.molecular_trajectory.steps[-2].molecule.nacv[iState][jState] *= -1
+                    self.molecular_trajectory.steps[-2].molecule.nacv[jState][iState] *= -1
                     nac_final[iState][jState] *= -1
                     nac_final[jState][iState] *= -1
 
@@ -537,13 +547,13 @@ class surface_hopping_md():
             ss_c = [self.molecular_trajectory.steps[istep].state_coefficients]
             ss_cdot = [self.coeff_dot(ss_c[-1], ss_dt[-1], ss_ph[-1])]
         else:
-            ss_E = self.molecular_trajectory.steps[istep-1].substep_potential_energy[-4:]
-            ss_v = self.molecular_trajectory.steps[istep-1].substep_velocities[-4:]
-            ss_NAC = self.molecular_trajectory.steps[istep-1].substep_nonadiabatic_coupling_vectors[-4:]
-            ss_dt = self.molecular_trajectory.steps[istep-1].substep_time_derivative_coupling[-4:]
-            ss_c = self.molecular_trajectory.steps[istep-1].substep_state_coefficients[-4:]
-            ss_cdot = self.molecular_trajectory.steps[istep-1].substep_state_coefficients_dot[-4:]
-            ss_ph = self.molecular_trajectory.steps[istep-1].substep_phase[-4:]
+            ss_E = self.molecular_trajectory.steps[-4].substep_potential_energy[-4:]
+            ss_v = self.molecular_trajectory.steps[-4].substep_velocities[-4:]
+            ss_NAC = self.molecular_trajectory.steps[-4].substep_nonadiabatic_coupling_vectors[-4:]
+            ss_dt = self.molecular_trajectory.steps[-4].substep_time_derivative_coupling[-4:]
+            ss_c = self.molecular_trajectory.steps[-4].substep_state_coefficients[-4:]
+            ss_cdot = self.molecular_trajectory.steps[-4].substep_state_coefficients_dot[-4:]
+            ss_ph = self.molecular_trajectory.steps[-4].substep_phase[-4:]
         ss_random_numbers = []
         ss_hopping_probabilities = []
 
@@ -613,12 +623,12 @@ class surface_hopping_md():
                 if max(hopping_probabilities) > random_number:
                     hop_occured = True
 
-            ss_c[-1] = self.decoherence_correction(istep, ss_c[-1])
+            ss_c[-1] = self.decoherence_correction(-2, ss_c[-1])
             
             ss_hopping_probabilities.append(hopping_probabilities)
             ss_random_numbers.append(random_number)
 
-        self.molecular_trajectory.steps[istep+1].state_coefficients = ss_c[-1]
+        self.molecular_trajectory.steps[-2].state_coefficients = ss_c[-1]
 
         # Saving substep info: last element of istep is the same as first element of istep+1
         if istep == 0:
@@ -630,15 +640,15 @@ class surface_hopping_md():
             self.molecular_trajectory.steps[istep].substep_state_coefficients_dot = ss_cdot
             self.molecular_trajectory.steps[istep].substep_phase = ss_ph
         else:
-            self.molecular_trajectory.steps[istep].substep_potential_energy = ss_E[3:]
-            self.molecular_trajectory.steps[istep].substep_velocities = ss_v[3:]
-            self.molecular_trajectory.steps[istep].substep_nonadiabatic_coupling_vectors = ss_NAC[3:]
-            self.molecular_trajectory.steps[istep].substep_time_derivative_coupling = ss_dt[3:]
-            self.molecular_trajectory.steps[istep].substep_state_coefficients = ss_c[3:]
-            self.molecular_trajectory.steps[istep].substep_state_coefficients_dot = ss_cdot[3:]
-            self.molecular_trajectory.steps[istep].substep_phase = ss_ph[3:]
-        self.molecular_trajectory.steps[istep].substep_random_numbers = ss_random_numbers
-        self.molecular_trajectory.steps[istep].substep_hopping_probabilities = ss_hopping_probabilities
+            self.molecular_trajectory.steps[-3].substep_potential_energy = ss_E[3:]
+            self.molecular_trajectory.steps[-3].substep_velocities = ss_v[3:]
+            self.molecular_trajectory.steps[-3].substep_nonadiabatic_coupling_vectors = ss_NAC[3:]
+            self.molecular_trajectory.steps[-3].substep_time_derivative_coupling = ss_dt[3:]
+            self.molecular_trajectory.steps[-3].substep_state_coefficients = ss_c[3:]
+            self.molecular_trajectory.steps[-3].substep_state_coefficients_dot = ss_cdot[3:]
+            self.molecular_trajectory.steps[-3].substep_phase = ss_ph[3:]
+        self.molecular_trajectory.steps[-3].substep_random_numbers = ss_random_numbers
+        self.molecular_trajectory.steps[-3].substep_hopping_probabilities = ss_hopping_probabilities
 
         return hopping_probabilities, random_number
 
@@ -742,7 +752,7 @@ class surface_hopping_md():
             coeff[self.current_state] *= np.sqrt((1-coeff_sum)/(np.abs(coeff[self.current_state])**2))
         return coeff
     
-    def change_properties_of_hopping_step(self, step):
+    def change_properties_of_hopping_step(self):
         new_epot = self.molecular_trajectory.steps[-2].molecule.electronic_states[self.current_state].energy
         self.molecular_trajectory.steps[-2].molecule.energy = new_epot
         # for atom in self.molecular_trajectory.steps[step].molecule.atoms:
