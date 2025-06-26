@@ -274,7 +274,7 @@ class EEEDDDD(model_cls.ml_model, model_cls.torch_model,model_cls.downloadable_m
             print(f"model saved in {model_file}")
 
     def _load_model(self, model_file: str):
-        model_dict = torch.load(model_file, map_location=self.device)
+        model_dict = torch.load(model_file, map_location=self.device, weights_only=False)
         self.species = model_dict['args'].pop('species')
         model = self._new_model(model_dict['args'])
         model.load_state_dict(model_dict['state'])
