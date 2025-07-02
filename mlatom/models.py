@@ -588,6 +588,13 @@ def mace(**kwargs):
     from .interfaces.mace_interface import mace
     return mace(**kwargs)
 
+def MDtrajNet(**kwargs):
+    '''
+    Returns an EEEDDDD model object (see :class:`mlatom.EEEDDDD.EEEDDDD`).
+    '''
+    from .EEEDDDD import EEEDDDD 
+    return EEEDDDD(**kwargs)
+
 from .addons.uaiqm.uaiqm             import uaiqm
 from .addons.omnip2x.omnip2x         import omnip2x
 from .addons.omnip2x.vecmsani        import vecmsani
