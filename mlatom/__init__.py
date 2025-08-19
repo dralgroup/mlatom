@@ -12,4 +12,4 @@ from .gap_md import gap_md, gap_model
 # add-ons
 from .models import uaiqm, omnip2x, vecmsani
 
-__version__ = '3.18.2'
+__version__ = '3.18.3'

@@ -2,16 +2,17 @@ import os
 from . import data, models, constants
 from .model_cls import method_model, model_tree_node, downloadable_model
 
-class aiqm2(method_model, downloadable_model):
+class aiqm3(method_model, downloadable_model):
 
     """ 
-    GFN2-xTB based artificial intelligence quantum-mechanical method 2 (AIQM2)
+    GFN2-xTB based artificial intelligence quantum-mechanical method 3 (AIQM3)
 
     Arguments:
 
-        method (str, optional): Currently supports AIQM2, AIQM2@DFT
-        working_directory (str, optional): The path to save temporary calculation file
-        qm_program_kwargs (dict, optional): Keywords passed to GFN2-xTB
+        method (str, optional): Currently supports AIQM3, AIQM3@DFT, AIQM3@DFT*
+        working_directory (str, optional): The path to save temporary calculation file. By default, current directory will be choosed.
+        baseline_kwargs (dict, optional): Keywords passed to GFN2-xTB
+        dispersion_kwargs (dict, optional): 
 
     .. code-block:: 
 
@@ -19,22 +20,22 @@ class aiqm2(method_model, downloadable_model):
         mol = ml.data.molecule()
         mol.read_from_xyz_file(filename='ethanol.xyz')
         # Run AIQM2 calculation
-        aiqm2 = ml.methods(method='aiqm2')
-        aiqm2.predict(molecule=mol, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=True)
+        aiqm3 = ml.methods(method='aiqm3')
+        aiqm3.predict(molecule=mol, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=True)
         # Get energy, gradient, and uncertainty of AIQM2 
         energy = mol.energy
         gradient = mol.get_energy_gradients()
         hess = mol.hessian
-        std = mol.aiqm2_model.energy_standard_deviation
+        std = mol.aiqm3_model_nn.energy_standard_deviation
 
     """ 
     
-    supported_methods = ['AIQM2', 'AIQM2@DFT', 'AIQM2@DFT*']
+    supported_methods = ['AIQM3', 'AIQM3@DFT', 'AIQM3@DFT*']
 
     def __init__(
         self,
-        method: str = 'AIQM2',
-        working_directory: str = '.',
+        method: str = 'AIQM3',
+        working_directory: str = None,
         baseline_kwargs: dict = None,
         dispersion_kwargs: dict = None,
         nthreads: int = 1
@@ -47,6 +48,7 @@ class aiqm2(method_model, downloadable_model):
         else: self.baseline_kwargs = baseline_kwargs
         if dispersion_kwargs is None: self.dispersion_kwargs = {}
         else: self.dispersion_kwargs = dispersion_kwargs
+        
         self.load()
         self.nthreads = nthreads
 
@@ -57,7 +59,7 @@ class aiqm2(method_model, downloadable_model):
     @nthreads.setter
     def nthreads(self, value):
         self._nthreads = value
-        self.aiqm2_model.nthreads = self._nthreads
+        self.aiqm3_model.nthreads = self._nthreads
 
     def predict(
         self, 
@@ -67,13 +69,13 @@ class aiqm2(method_model, downloadable_model):
         calculate_energy_gradients=False, 
         calculate_hessian=False,
         calculate_dipole_derivatives=False,
-        calculate_polarizability_derivatives=False,
     ):
+
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
         for mol in molDB.molecules:
             self.predict_for_molecule(molecule=mol,
                                 calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian,
-                                calculate_dipole_derivatives=calculate_dipole_derivatives,calculate_polarizability_derivatives=calculate_polarizability_derivatives,)
+                                calculate_dipole_derivatives=calculate_dipole_derivatives)
 
     def predict_for_molecule( # no specific treatment to atomic energies currently
         self,
@@ -82,18 +84,17 @@ class aiqm2(method_model, downloadable_model):
         calculate_energy_gradients=False, 
         calculate_hessian=False,
         calculate_dipole_derivatives=False,
-        calculate_polarizability_derivatives=False,
     ):
 
         for atom in molecule.atoms:
-            if not atom.atomic_number in [1, 6, 7, 8]:
-                errmsg = ' * Warning * Molecule contains elements other than CHNO, no calculations performed'
+            if not atom.atomic_number in [1, 6, 7, 8, 9, 16, 17 ]:
+                errmsg = ' * Warning * Molecule contains elements other than H, C, N, O, F, S, Cl, no calculations performed'
                 raise ValueError(errmsg)
 
-        self.aiqm2_model.predict(
+        self.aiqm3_model.predict(
             molecule=molecule,
             calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, 
-            calculate_dipole_derivatives=calculate_dipole_derivatives,calculate_polarizability_derivatives=calculate_polarizability_derivatives,
+            calculate_dipole_derivatives=calculate_dipole_derivatives,
         )
 
         molecule.__dict__[f'{self.model_name}_nn'].standard_deviation(properties=['energy'])
@@ -101,17 +102,18 @@ class aiqm2(method_model, downloadable_model):
     def load(self):
         from .models import methods
 
-        if self.model_name.lower() == 'aiqm2':
+        if self.model_name.lower() == 'aiqm3':
             download_links = [
-                'https://zenodo.org/records/15383333/files/aiqm2_cc_model.zip?download=1',
-                'https://aitomistic.xyz/model/uaiqm_gfn2xtbstar_cc_20240106.zip']
-            model_dir = 'aiqm2_model'
+                'https://zenodo.org/records/15876694/files/aiqm3_cc_model.zip?download=1',
+                'https://aitomistic.xyz/model/uaiqm_gfn2xtbstar_cc_20250115.zip']
+            model_dir = 'aiqm3_model'
             model_files = [f'cv{ii}.pt' for ii in range(8)]
-        elif self.model_name.lower() in ['aiqm2atdft', 'aiqm2atdft*']:
+
+        elif self.model_name.lower() in ['aiqm3atdft', 'aiqm3atdft*']:
             download_links = [
-                'https://zenodo.org/records/15383333/files/aiqm2_dft_model.zip?download=1',
-                'https://aitomistic.xyz/model/uaiqm_gfn2xtbstar_dft_20240106.zip']
-            model_dir = 'aiqm2_dft_model'
+                'https://zenodo.org/records/15876694/files/aiqm3_dft_model.zip?download=1',
+                'https://aitomistic.xyz/model/uaiqm_gfn2xtbstar_dft_20240619.zip']
+            model_dir = 'aiqm3_dft_model'
             model_files = [f'cv{ii}.pt' for ii in range(8)]
 
         mlatom_model_dir, to_download = self.check_model_path(model_dir, model_files)
@@ -121,14 +123,15 @@ class aiqm2(method_model, downloadable_model):
 
         baseline = model_tree_node(
             name='gfn2xtbstar',
-            model=methods(method='GFN2-xTB*', working_directory=self.working_directory,**self.baseline_kwargs),
+            model=methods(method='GFN2-xTB*', working_directory=self.working_directory, **self.baseline_kwargs),
             operator='predict'
         )
-        d4 = model_tree_node(
-            name='d4wb97x',
-            model=methods(method='D4', functional='wb97x', working_directory=self.working_directory, **self.dispersion_kwargs),
+        d3 = model_tree_node(
+            name='d3b973c',
+            model=methods(method='d3bj', functional='b973c', working_directory=self.working_directory, **self.dispersion_kwargs),
             operator='predict'
         )
+
         from .interfaces.torchani_interface import ani
         class ani_wrapper(ani):
             def __init__(self,**kwargs):
@@ -137,17 +140,13 @@ class aiqm2(method_model, downloadable_model):
             def predict(self,**kwargs):
                 if 'calculate_dipole_derivatives' in kwargs.keys():
                     del kwargs['calculate_dipole_derivatives']
-                if 'calculate_polarizability_derivatives' in kwargs.keys():
-                    del kwargs['calculate_polarizability_derivatives']
                 super().predict(**kwargs)
+
         nn = model_tree_node(
             name=f'{self.model_name}_nn',
             children=[
                 model_tree_node(
                     name=f'{self.model_name}_nn_{ii}',
-                    # model=ani(
-                    #     model_file=model_paths[ii],
-                    #     verbose=0),
                     model=ani_wrapper(
                         model_file=model_paths[ii],
                         verbose=0),
@@ -157,9 +156,9 @@ class aiqm2(method_model, downloadable_model):
             operator='average'
         )
 
-        self.aiqm2_model = model_tree_node(
+        self.aiqm3_model = model_tree_node(
             name=self.model_name,
-            children=[baseline, nn, d4],
+            children=[baseline, nn, d3],
             operator='sum'
         )
 

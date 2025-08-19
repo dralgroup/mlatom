@@ -22,6 +22,7 @@ def gen_ts_ects(
 
     # check device and set local rank
     import torch
+    torch.set_default_dtype(torch.float32)
     if 'device' in program_kwargs: device = program_kwargs['device']
     else: device = 'cuda' if torch.cuda.is_available() else 'cpu'
     if device.lower() not in ['cuda', 'cpu']:
@@ -43,7 +44,7 @@ def gen_ts_ects(
     
     # load module
     from EcTs.comparm import GP,Loaddict2obj
-    from EcTs.utils import xyz2mol
+    from EcTs.utils import xyz2mol, xyz2AC
     from EcTs.graphs import RP_pair
     from EcTs.model import EcTs_Model
 
@@ -56,7 +57,13 @@ def gen_ts_ects(
 
     rmol = xyz2mol(ratoms,rxyz,charge=rcharge)[0]
     pmol = xyz2mol(patoms,pxyz,charge=pcharge)[0]
-    rp_pair = RP_pair(rmol=rmol,pmol=pmol,idx='ects')
+    radjs,rmol=xyz2AC(ratoms,rxyz,charge=rcharge)
+    padjs,pmol=xyz2AC(patoms,pxyz,charge=pcharge)
+    rp_pair = RP_pair(
+        rmol=rmol,pmol=pmol,
+        radjs=radjs, padjs=padjs,
+        rcoords=rxyz, pcoords=pxyz,
+        idx='ects')
 
     ects_model = EcTs_Model(modelname="EcTs_Model",local_rank=local_rank)
     

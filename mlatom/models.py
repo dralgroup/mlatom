@@ -601,9 +601,11 @@ from .addons.omnip2x.vecmsani        import vecmsani
 
 from .aiqm1                          import aiqm1
 from .aiqm2                          import aiqm2
+from .aiqm3                          import aiqm3
 from .dens                           import dens
 # from .aimnet2                        import aimnet2_methods
 from .interfaces.aimnet2_interface   import aimnet2_methods
+from .interfaces.mace_methods_interface import mace_methods
 from .interfaces.torchani_interface  import ani_methods
 from .interfaces.gaussian_interface  import gaussian_methods
 from .interfaces.pyscf_interface     import pyscf_methods
@@ -619,7 +621,7 @@ from .interfaces.dftd3_interface     import dftd3_methods
 from .interfaces.dftd4_interface     import dftd4_methods
 
 # The order of classes determines the defaults (i.e., whatever first works, is used)
-known_classes = [aiqm1, aiqm2, dens, ani_methods, aimnet2_methods, ccsdtstarcbs, gaussian_methods, pyscf_methods, orca_methods, turbomole_methods, mndo_methods, sparrow_methods, xtb_methods, dftbplus_methods, columbus_methods, dftd3_methods, dftd4_methods, uaiqm, omnip2x]
+known_classes = [aiqm1, aiqm2, aiqm3, dens, ani_methods, aimnet2_methods, mace_methods, ccsdtstarcbs, gaussian_methods, pyscf_methods, orca_methods, turbomole_methods, mndo_methods, sparrow_methods, xtb_methods, dftbplus_methods, columbus_methods, dftd3_methods, dftd4_methods, uaiqm, omnip2x]
     
 def methods(method: str = None, program: str = None, **kwargs):
     '''

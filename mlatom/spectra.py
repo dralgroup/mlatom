@@ -488,6 +488,51 @@ class ir(spectrum):
         new_spectrum.infrared_intensities = new_spectrum.y 
         return new_spectrum
 
+
+
+
+class raman(spectrum):
+
+    def __init__(self,
+                x=None, y=None,
+                frequencies=None,raman_intensities=None,
+                meta_data=None):
+        if x is not None:
+            self.x = x 
+        elif frequencies is not None:
+            self.x = frequencies 
+            self.frequencies = frequencies
+        if y is not None:
+            self.y = y 
+        elif raman_intensities is not None:
+            self.y = raman_intensities 
+            self.raman_intensities = raman_intensities
+        if 'x' in self.__dict__ and 'y' in self.__dict__:
+            self.xy = np.array([self.x,self.y])
+            self.xy_pairs = self.xy.T 
+        if meta_data is not None:
+            self.meta_data = meta_data 
+        else:
+            self.meta_data = None
+
+    def plot(self,filename,xaxis_caption='Wavenumber (cm$^{-1}$)',yaxis_caption='Intensity (Å⁴/AMU)',title='Raman spectrum'):
+        super().plot(filename=filename,xaxis_caption=xaxis_caption,yaxis_caption=yaxis_caption,title=title,invert_xaxis=True)
+
+    @classmethod 
+    def lorentzian(cls,molecule=None,fwhm=30,spectrum_range=np.arange(500,4001)):
+        frequencies = molecule.frequencies
+        raman_intensities = molecule.raman_intensities 
+        new_spectrum = cls.broaden(line_spectrum=np.array([frequencies,raman_intensities]).T,
+                                   spectrum_range=spectrum_range,
+                                   broadening_func='Lorentzian',
+                                   broadening_func_kwargs={'w':fwhm})
+        new_spectrum.frequencies = new_spectrum.x 
+        new_spectrum.raman_intensities = new_spectrum.y 
+        return new_spectrum
+
+
+
+
 class spectrum_comparison():
     def __init__(self):
         pass 

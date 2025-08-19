@@ -10,7 +10,7 @@
 from __future__ import annotations
 from typing import Any, Union, Dict, List, Callable, Tuple
 from .. import data
-from ..model_cls import ml_model, torch_model, hyperparameter, hyperparameters
+from ..model_cls import ml_model, torch_model, hyperparameter, hyperparameters, method_model, downloadable_model
 from .. import constants
 from ..decorators import doc_inherit
 
@@ -838,6 +838,7 @@ class mace(ml_model, torch_model):
                 -1 / constants.hartree2eV * forces for forces_list in forces_collection for forces in forces_list
             ])
             molDB.add_xyz_vectorial_properties(forces_list, xyz_derivative_property_to_predict)
+         
 
 class CheckpointHandler_modified(tools.CheckpointHandler):
 
