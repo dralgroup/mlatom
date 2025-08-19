@@ -2,7 +2,11 @@
 import mkl
 import numpy as np 
 from . import models
-from .fortran import KREG
+
+np_ver = np.__version__.split('.')[0]
+if np_ver == '1': from .fortran.np1 import KREG
+elif np_ver == '2': from .fortran.np2 import KREG
+else: raise ValueError('Unsupported numpy version for KREG')
 
 class KREG_API(models.model):
     def __init__(self):

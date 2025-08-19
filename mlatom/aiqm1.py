@@ -200,25 +200,30 @@ class ani_nns_in_aiqm1(torchani_model, downloadable_model):
 
     def load_model(self):
         import torch
-        mlatomdir=os.path.dirname(__file__)
-        dirname = os.path.join(mlatomdir, 'aiqm1_model')
+        # mlatomdir = os.path.dirname(__file__)
+        # dirname = os.path.join(mlatomdir, 'aiqm1_model')
         method = 'aiqm1_' + self.level
         self.define_nn()
 
-        # check model file
-        # if 'dft' in method.lower():
-        #     if 'MODELSPATH' in os.environ:
-        #         modelspath = os.environ['MODELSPATH']
-        #     else:
-        #         raise ValueError(f'Please set environment variable MODELSPATH for using this method and put NN model files under $MODELSPATH/{method}_model/')
-        # dirname = os.path.join(os.environ['MODELSPATH'], f'{method}_model')
-        # if not os.path.exists(dirname):
-        #     raise ValueError(f'Please put model files under $MODELSPATH/{method}_model/')
-        model_name, model_path, download = self.check_model_path(self.method)
-        if download: self.download(model_name, model_path)
+        if method == 'aiqm1_cc':
+            download_links = [
+                'https://zenodo.org/records/15383390/files/aiqm1_cc_model.zip?download=1',
+                'https://aitomistic.xyz/model/uaiqm_odm2star_cc_20211202.zip']
+            model_dir = 'aiqm1_model'
+            model_files = [f'cv{ii}.pt' for ii in range(8)]
+
+        elif method == 'aiqm1_dft':
+            download_links = [
+                'https://zenodo.org/records/15383390/files/aiqm1_dft_model.zip?download=1',
+                'https://aitomistic.xyz/model/uaiqm_odm2star_dft_20211202.zip']
+            model_dir = 'aiqm1_dft_model'
+            model_files = [f'cv{ii}.pt' for ii in range(8)]
+
+        mlatom_model_dir, to_download = self.check_model_path(model_dir, model_files)
+        if to_download: self.download(download_links, mlatom_model_dir)
         
         # checkpoint = torch.load(os.path.join(dirname, f'{method}_cv{self.model_index}.pt'), map_location=self.device)
-        checkpoint = torch.load(os.path.join(model_path, f'cv{self.model_index}.pt'), map_location=self.device, weights_only=False)
+        checkpoint = torch.load(os.path.join(mlatom_model_dir, f'cv{self.model_index}.pt'), map_location=self.device, weights_only=False)
         self.nn.load_state_dict(checkpoint['nn'])
         import torchani
         self.model  = torchani.nn.Sequential(self.aev_computer, self.nn).to(self.device).double()

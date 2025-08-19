@@ -1657,21 +1657,36 @@ class ani_methods(torchani_model, method_model, downloadable_model):
             self.model = model_tree_node(name=modelname, children=self.children, operator='average')
 
     def load_ani_gelu_model(self, method, model_index=None):
+
+        if method.lower() in 'ani_1ccx_gelu':
+            download_links = [
+                'https://zenodo.org/records/15383363/files/ani1ccx_gelu_model.zip?download=1',
+                'https://aitomistic.xyz/model/ani1ccx_gelu_model.zip']
+            model_dir = 'ani_1ccx_gelu_model'
+            model_files = [f'cv{ii}.pt' for ii in range(8)]
+        elif method.lower() in 'ani_1x_gelu':
+            download_links = [
+                'https://zenodo.org/records/15383363/files/ani1x_gelu_model.zip?download=1',
+                'https://aitomistic.xyz/model/ani1x_gelu_model.zip']
+            model_dir = 'ani_1x_gelu_model'
+            model_files = [f'cv{ii}.pt' for ii in range(8)]
+        else:
+            raise ValueError('Please provide correct method name as ani_1ccx_gelu or ani_1x_gelu to use load_ani_gelu_model')
         
-        model_name, model_path, download = self.check_model_path(method)
-        if download: self.download(model_name, model_path)
+        mlatom_model_dir, to_download = self.check_model_path(model_dir, model_files)
+        if to_download: self.download(download_links, mlatom_model_dir)
         
         if not model_index:
             model_ensemble = []
             for ii in range(8):
                 # if not os.path.exists(f'{dirname}/{method}_cv{ii}.pt'):
                 #     raise ValueError(f'Please put {method}_cv{ii}.pt file under $MODELSPATH/{method}_model/')
-                model_ensemble.append(ani(model_file=f'{model_path}/cv{ii}.pt', verbose=0))
+                model_ensemble.append(ani(model_file=f'{mlatom_model_dir}/cv{ii}.pt', verbose=0))
             return model_ensemble
         else:
             # if not os.path.exists(f'{dirname}/{method}_cv{model_index}.pt'):
             #     raise ValueError(f'Please put {method}_cv{model_index}.pt under $MODELSPATH/{method}_model/')
-            return [ani(model_file=f'{model_path}/cv{model_index}.pt', verbose=0)]
+            return [ani(model_file=f'{mlatom_model_dir}/cv{model_index}.pt', verbose=0)]
             
     @doc_inherit
     def predict(

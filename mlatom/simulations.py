@@ -145,19 +145,12 @@ class optimize_geometry():
         if program != None:
             self.program = program
         else:
-            if "GAUSS_EXEDIR" in os.environ: self.program = 'Gaussian'
-            else:
-                try:
-                    import geometric
-                    self.program = 'geometric'
-                # try:
-                #     import ase
-                #     self.program = 'ASE'
-                except:
-                    try:
-                        import scipy.optimize
-                        self.program = 'scipy'
-                    except: raise ValueError('please set $GAUSS_EXEDIR or install geometric or install scipy')
+            import importlib
+            if importlib.util.find_spec('geometric') is not None: self.program = 'geometric'
+            elif "GAUSS_EXEDIR" in os.environ: self.program = 'Gaussian'
+            elif importlib.util.find_spec('ase'): self.program = 'ase'
+            elif importlib.util.find_spec('scipy'): self.program = 'scipy'
+            else: raise ValueError('please set $GAUSS_EXEDIR or install geometric or install scipy')
         
         if not program_kwargs: self.program_kwargs = {}
         else: self.program_kwargs = program_kwargs
@@ -537,14 +530,10 @@ class freq():
         if program != None:
             self.program = program
         else:
-            if "GAUSS_EXEDIR" in os.environ: 
-                self.program = 'Gaussian'
-            else:
-                try: 
-                    import pyscf
-                    self.program = 'PySCF'
-                except:
-                    self.program = ''
+            import importlib
+            if importlib.util.find_spec('pyscf') is not None: self.program = 'PySCF'
+            elif "GAUSS_EXEDIR" in os.environ: self.program = 'Gaussian'
+            else: self.program = ''
         self.normal_mode_normalization = normal_mode_normalization
         self.anharmonic_kwargs = anharmonic_kwargs
         if working_directory != None:
@@ -837,16 +826,14 @@ class thermochemistry():
             self.model = model
         self.molecule = molecule
         if program != None:
-            self.program = program
+            self.program = program # todo : problem with ase
         else:
-            if "GAUSS_EXEDIR" in os.environ: self.program = 'Gaussian'
-            else:
-                try:
-                    import ase
-                    self.program = 'ASE'
-                except:
-                    raise ValueError('please set $GAUSS_EXEDIR or install ase')
-        freq(model=model, molecule=self.molecule, program=program, ir=ir, raman=raman, normal_mode_normalization=normal_mode_normalization)
+            import importlib
+            if importlib.util.find_spec('pyscf') is not None: self.program = 'PySCF'
+            elif "GAUSS_EXEDIR" in os.environ: self.program = 'Gaussian'
+            else: raise ValueError('please set $GAUSS_EXEDIR or install pyscf')
+        
+        freq(model=model, molecule=self.molecule, program=self.program, ir=ir, raman=raman, normal_mode_normalization=normal_mode_normalization)
         if self.program.casefold() == 'ASE'.casefold(): self.thermochem_ase()
         # Calculate heats of formation
         self.calculate_heats_of_formation()

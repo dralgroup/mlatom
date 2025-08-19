@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-
 '''
   !---------------------------------------------------------------------------! 
   ! mltpa: Machine learning prediction of the Two-photon absorption           ! 
-  ! Implementations by: Yuming Su, Yiheng Dai, Yangtao Chen, Fuchun Ge        ! 
+  ! Implementations by: Yuming Su, Yiheng Dai, Yangtao Chen, Fuchun Ge        !
+  !                                                                           !
+  ! Modified on 2025.07.30 by Yuming Su, to make it work,                     !
+  ! if one does NOT have conjugation structure                                !
   !---------------------------------------------------------------------------! 
 '''
 
@@ -345,6 +347,52 @@ class MLTPA(object):
         mol = Chem.MolFromSmiles(smiles)
         d_m = Chem.rdmolops.GetDistanceMatrix(mol)
         ring_list, f_a = self.find_conj(smiles)
+        
+        # 处理没有共轭结构的情况
+        if len(ring_list) == 0:
+            # 没有共轭结构时，最大共轭距离为0
+            feature_vector[0] = 0
+            
+            # 计算所有原子的PEOE电荷、logP和MR
+            AllChem.ComputeGasteigerCharges(mol, nIter=25)
+            peoe_charge = [mol.GetAtomWithIdx(i).GetDoubleProp('_GasteigerCharge') for i in range(mol.GetNumAtoms())]
+            contribs = rdMolDescriptors._CalcCrippenContribs(mol)
+            logp = [contribs[i][0] for i in range(len(contribs))]
+            mr = [contribs[i][1] for i in range(len(contribs))]
+            
+            # 使用整个分子的原子进行片段匹配
+            all_atoms = list(range(mol.GetNumAtoms()))
+            atom_props = [peoe_charge, logp, mr]
+            
+            for prop_idx in range(len(atom_props)):
+                atom_props_list = atom_props[prop_idx]
+                frag_x = []
+                
+                # 在整个分子中寻找匹配的片段
+                for i in range(len(mff_title)):
+                    patt = mff_title[i]
+                    f = Chem.MolFromSmarts(patt)
+                    atomids = mol.GetSubstructMatches(f)
+                    if len(atomids) > 0:
+                        for atomid_group in atomids:
+                            x_temp = 0
+                            for k in atomid_group:
+                                x_temp += atom_props_list[k]
+                            frag_x.append(x_temp)
+                
+                if len(frag_x) == 0:
+                    frag_x = [0]
+                
+                if prop_idx == 0 or prop_idx == 2:  # PEOE电荷和MR取最大值
+                    feature_vector[prop_idx + 1] = max(frag_x)
+                else:  # logP取最小值
+                    feature_vector[prop_idx + 1] = min(frag_x)
+            
+            feature_vector[4] = et30
+            feature_vector[5] = wavelength
+            return feature_vector
+        
+        # 原有的有共轭结构的处理逻辑
         lstmax = sorted(ring_list, key=len)[-1]
 
         # calculate max conju-distance

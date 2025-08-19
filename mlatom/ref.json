@@ -49,6 +49,7 @@
     "geometric":             "L.-P. Wang, C. C. Song,\nJ. Chem. Phys. 2016, 144, 214108",
     "DM21": "J. Kirkpatrick, ; B. McMorrow, D. H. P. Turban, A. L. Gaunt, J. S. Spencer, \nA. G. D. G. Matthews, A. Obika, L. Thiry, M. Fortunato, D. Pfau, et al.,\nScience 2021, 374, 1385",
     "AIMNet2": "D. Anstine, R. Zubatyuk , O. Isayev \nAIMNet2: A Neural Network Potential to Meet your Neutral, \nCharged, Organic, and Elemental-Organic Needs. \nChemRxiv. 2024; DOI:10.26434/chemrxiv-2023-296ch-v2",
-    "ANI-1xnr": "S. Zhang, M.Z. Makoś, R.B. Jadrich, E. Kraka, K. Barros, \nB. T. Nebgen,S. Tretiak, O. Isayev, N. Lubbers, R. A. Messerly,\nJ. S. Smith, Nat. Chem. 2024, 16, 727"
+    "ANI-1xnr": "S. Zhang, M.Z. Makoś, R.B. Jadrich, E. Kraka, K. Barros, \nB. T. Nebgen,S. Tretiak, O. Isayev, N. Lubbers, R. A. Messerly,\nJ. S. Smith, Nat. Chem. 2024, 16, 727",
+    "MACE-OFF": "Kovacs, D. P.; Moore, J. H.; Browning, N. J.; Batatia, I.; Horton, J. T.;\n Pu, Y.; Kapil, V.; Witt, W. C.; Magdau, I. B.; Cole, D. J.; et al. \nMACE-OFF: Short-Range Transferable Machine Learning Force Fields for Organic Molecules. \nJ. Am. Chem. Soc. 2025, 147 (21), 17598–17611."
 }
 

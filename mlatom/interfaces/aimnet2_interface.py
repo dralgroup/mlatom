@@ -8,11 +8,13 @@
 '''
 from ..model_cls import torchani_model, method_model, model_tree_node, downloadable_model
 from ..decorators import doc_inherit
+from .. import constants
+import os, sys 
 
 class aimnet2_methods(torchani_model, method_model):
 
     '''
-    Universal ML methods with AIMNet2: https://doi.org/10.26434/chemrxiv-2023-296ch. Model files can be downloaded from https://github.com/zubatyuk/aimnet-model-zoo. For installation of AIMNet2 calculator, please refer to https://github.com/isayevlab/AIMNet2.
+    Universal ML methods with AIMNet2: https://doi.org/10.26434/chemrxiv-2023-296ch. Model files can be downloaded according to https://github.com/isayevlab/aimnetcentral/blob/main/aimnet/calculators/model_registry.yaml. For installation of AIMNet2, please refer to https://github.com/isayevlab/aimnetcentral.
 
     Arguments:
         method (str): A string that specifies the method. Available choices: ``'AIMNet2@b973c'`` and ``'AIMNet2@wb97m'``.
@@ -21,7 +23,7 @@ class aimnet2_methods(torchani_model, method_model):
 
     '''
     
-    supported_methods = ['AIMNet2@b973c', 'AIMNet2@wb97m']
+    supported_methods = ['AIMNet2@b973c', 'AIMNet2@b973c-d3', 'AIMNet2@wb97m', 'AIMNet2@wb97m-d3']
     element_symbols_available = ['H', 'B', 'C', 'N', 'O', 'F', 'Si', 'P', 'S', 'Cl', 'As', 'Se', 'Br', 'I']
 
     def __init__(self, method: str = 'AIMNet2@b973c', model_index=None, device=None):
@@ -80,43 +82,38 @@ class aimnet2_methods_single(torchani_model, method_model,downloadable_model):
         import torch
         import numpy as np 
 
-        coord = torch.as_tensor(molecule.xyz_coordinates).to(torch.float).to(self.device).unsqueeze(0)
-        numbers = torch.as_tensor(molecule.atomic_numbers).to(torch.long).to(self.device).unsqueeze(0)
-        charge = torch.tensor([molecule.charge], dtype=torch.float, device=self.device)
-        nninput = dict(coord=coord, numbers=numbers, charge=charge)
-        nnoutput = self.model.eval(nninput, forces=calculate_energy_gradients, hessian=calculate_hessian)
+        coord = torch.as_tensor(molecule.xyz_coordinates).to(torch.float).to(self.device)
+        numbers = torch.as_tensor(molecule.atomic_numbers).to(torch.long).to(self.device)
+        charge = torch.tensor(molecule.charge, dtype=torch.float, device=self.device)
+        mult = torch.tensor(molecule.multiplicity,dtype=torch.float, device=self.device)
+        nninput = dict(coord=coord, numbers=numbers, charge=charge, mult=mult)
+        nnoutput = self.model(nninput, forces=calculate_energy_gradients, hessian=calculate_hessian)
         if calculate_energy:
-            molecule.energy = nnoutput['energy'].item()
+            molecule.energy = nnoutput['energy'].item() * constants.eV2Hartree
         if calculate_energy_gradients:
-            gradients = -nnoutput['forces'].detach().cpu().numpy()[0]
+            gradients = -nnoutput['forces'].detach().cpu().numpy() * constants.eV2Hartree
             molecule.add_xyz_vectorial_property(gradients, 'energy_gradients')
         if calculate_hessian:
-            hessian = nnoutput['hessian'].detach().cpu().numpy()
+            hessian = nnoutput['hessian'].detach().cpu().numpy() * constants.eV2Hartree
             hessian = hessian.reshape(hessian.shape[0]*3, hessian.shape[0]*3)
             molecule.hessian = hessian 
 
-    def download(self, model_path, model_index):
-
-        method = self.method.lower().replace('@','_')
-        link = f"https://github.com/zubatyuk/aimnet-model-zoo/raw/refs/heads/main/aimnet2/{method}_{model_index}.jpt"
-
-        downloaded_file = self._download(link, None, model_path=model_path, target_name=f'{method}_{model_index}.jpt')
-
-        if not downloaded_file:
-            raise ValueError(f'Failed to download required model files. Possible solutions:\n 1. Check your internet connection.\n 2. Download from links below:\n{link}\nThe model .pt files should be placed under {model_path}'); sys.stdout.flush()
-
     def load(self, method, model_index=None):
 
-        method = method.lower().replace('@','_')
-        self.model_downloadable_files[f'{method}_model'] = [f'{method}_{model_index}.jpt']
-        model_name, model_path, download = self.check_model_path(self.method)
-        if download: self.download(model_path, model_index)
-        
         import os, torch
-        model_path = os.path.join(model_path, f'{method}_{model_index}.jpt')
-        model = torch.jit.load(model_path, map_location=self.device)
 
-        from aimnet2calc.calculator import AIMNet2Calculator
+        method = method.lower().replace('@','_').replace('-d3','')
+        download_links = [f"https://storage.googleapis.com/aimnetcentral/AIMNet2/{method}_d3_{model_index}.jpt"]
+        model_dir = f"{method}_model"
+        model_files = f"{method}_d3_{model_index}.jpt"
+
+        mlatom_model_dir, to_download = self.check_model_path(model_dir, model_files)
+        mlatom_model_path = os.path.join(mlatom_model_dir, f'{method}_d3_{model_index}.jpt')
+        if to_download: self.download(download_links, mlatom_model_path, extract=False, flatten=False)
+        
+        model = torch.jit.load(mlatom_model_path, map_location=self.device)
+
+        from aimnet.calculators import AIMNet2Calculator
         return AIMNet2Calculator(model)
     
 def aimnet2_methods_ensemble(method):

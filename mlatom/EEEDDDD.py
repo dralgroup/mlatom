@@ -18,6 +18,8 @@ from .EEEDDDD_nn import batch_jacobian, MLP, ModelEnsemble, StackModelEnsemble, 
 from .EEEDDDD_descriptor import self_edge_vector_matrix, self_distance_matrix
 from typing import Any, List, Dict, Union, Iterable, Optional
 
+torch.set_default_dtype(torch.float32)
+
 # torch.autograd.set_detect_anomaly(True)
 
 @compile_mode("script")
@@ -278,6 +280,7 @@ class EEEDDDD(model_cls.ml_model, model_cls.torch_model,model_cls.downloadable_m
         self.species = model_dict['args'].pop('species')
         model = self._new_model(model_dict['args'])
         model.load_state_dict(model_dict['state'])
+        model = model.to(torch.float32)
         model.eval()
         if self.verbose:
             print(f"model loaded from {model_file}")
@@ -294,10 +297,18 @@ class EEEDDDD(model_cls.ml_model, model_cls.torch_model,model_cls.downloadable_m
                 kwargs['reset_base'] = reset_base
             self.model = ensemble(models=models, **kwargs)
     
-    def load_special(self,model_file):
-        model_name, model_path, download = self.check_model_path(model_file)
-        if download: self.download(model_name,model_path)
-        model_paths = [os.path.join(model_path,f'MDtrajNet-1.{ii}.pt') for ii in range(4)]
+    def load_special(self, model_file):
+
+        download_links = [
+            'https://zenodo.org/records/15877717/files/mdtrajnet1_model.zip?download=1',
+            'https://aitomistic.xyz/model/mdtrajnet1_model.zip']
+        model_dir = 'mdtrajnet1_model'
+        model_files = [f'MDtrajNet-1.{ii}.pt' for ii in range(4)]
+
+        mlatom_model_dir, to_download = self.check_model_path(model_dir, model_files)
+        if to_download: self.download(download_links, mlatom_model_dir)
+
+        model_paths = [os.path.join(mlatom_model_dir,f'MDtrajNet-1.{ii}.pt') for ii in range(4)]
         self.load(model_paths)
 
     def specie_to_index(self, species: np.ndarray) -> torch.Tensor:
