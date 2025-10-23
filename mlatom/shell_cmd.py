@@ -13,10 +13,10 @@ def mlatom_cmd_run(sleep=True):
     path2init = os.path.join(dir_path, '__init__.py')
     dirname = os.path.basename(dir_path)
     spec = importlib.util.spec_from_file_location(dirname, path2init)
-    mlatom4gaussian = importlib.util.module_from_spec(spec)
-    sys.modules[dirname] = mlatom4gaussian
-    spec.loader.exec_module(mlatom4gaussian)
-    mlatom4gaussian.run()
+    this_mlatom = importlib.util.module_from_spec(spec)
+    sys.modules[dirname] = this_mlatom
+    spec.loader.exec_module(this_mlatom)
+    this_mlatom.run()
     if sleep:
         time.sleep(1)
 

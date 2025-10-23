@@ -22,7 +22,16 @@ class xtb_methods(OMP_model, method_model):
 
     Arguments:
         method (str): xTB methods
-        read_keywords_from_file (str): keywords used in xTB
+        read_keywords_from_file (str): the file that contain keywords used in xTB
+        nthreads (int): number of threads used in xTB. It will be passed to OMP_NUM_THREADS.
+        solvent (str): the implicit solvent model.
+        stack_size (str): the stack size to be use for each threads, e.g., '100m', '1G'. It will be passed to OMP_STACKSIZE
+        etemp (float): the electronic temperature. By default is 300K
+        acc (float): the threshold for SCF convergence. By default is 1 (1e-5)
+        unlimited_stack_size (bool): equal to `ulimit -c unlimited` in bash
+        restart (bool): whether to reuse previous calculation files. By default turned off
+        save_files_in_current_directory (bool): whether to save files in current directory. By default False
+        working_directory (str): the path to save calculation files. By default is None.
 
     .. note::
 
@@ -51,29 +60,17 @@ class xtb_methods(OMP_model, method_model):
     supported_methods = ['GFN2-xTB', 'GFN2-xTB*']
     
     def __init__(self, 
-                 # <<< define methods <<<
                  method: str = 'GFN2-xTB', 
                  read_keywords_from_file: str = '', 
-                 # <<< set number of threads (default 1) <<<
                  nthreads: int = 1, 
-                 # <<< implicit solvent model <<<
                  solvent: str = None,
-                 # <<< stack size for each thread <<<
-                 # e.g., '100m', '1G'
                  stack_size: str = None, 
+                 etemp = None,
+                 acc = None,
                  unlimited_stack_size: bool = False,
-                 # <<< whether to use xtbrestart file <<<
                  restart: bool = False,
-                 # <<< file saving <<<
-                 # 3 strategies to save calculation files:
-                 # - user defined path
-                 # - current directory
-                 # - temporary folder
-                 # working_directory will override save_files_in_current_directory
-                 save_files_in_current_directory: bool = True,
+                 save_files_in_current_directory: bool = False,
                  working_directory: str = None,
-                 # <<< log verbose <<< !!! to be implemented
-                 # verbose: int 
                  ):
         
         self.method = method
@@ -83,11 +80,13 @@ class xtb_methods(OMP_model, method_model):
             self.without_d4 = False
         self.read_keywords_from_file = read_keywords_from_file
         self.solvent = solvent
+        self.etemp = etemp
+        self.acc = acc
         self.stack_size = stack_size
         self.unlimited_stack_size = unlimited_stack_size
         self.restart = restart
         self.save_files_in_current_directory = save_files_in_current_directory
-        self._working_directory = working_directory
+        self.working_directory = working_directory
         self.nthreads = nthreads
 
         #try:
@@ -102,28 +101,10 @@ class xtb_methods(OMP_model, method_model):
     def is_program_found(cls):
         return True        
 
-    @property
-    def working_directory(self):
-        return self._working_directory
-
-    @working_directory.setter
-    def working_directory(self, value):
-        # self._working_directory = value
-        if value:
-            self._working_directory = os.path.abspath(value)
-            if not os.path.exists(value):
-                os.makedirs(value)
-        elif self.save_files_in_current_directory:
-            self._working_directory = os.path.abspath(os.getcwd())
-        else:
-            self._working_directory = None
-
     @doc_inherit
     def predict(self, molecular_database=None, molecule=None,
                 calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, calculate_dipole_derivatives=False,calculate_polarizability_derivatives=False):
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
-
-        self.working_directory = self._working_directory
 
         if calculate_dipole_derivatives or calculate_polarizability_derivatives or self.without_d4:
             self.xtbbin = "%s/xtb" % os.path.dirname(__file__)
@@ -152,11 +133,14 @@ class xtb_methods(OMP_model, method_model):
 
         import tempfile
         with tempfile.TemporaryDirectory() as tmpdirname:
-            if self.working_directory:
+            if self.save_files_in_current_directory: tmpdirname = '.'
+            if self.working_directory is not None:
                 tmpdirname = self.working_directory
+                if not os.path.exists(tmpdirname):
+                    os.makedirs(tmpdirname)
             self.tmpdirname = os.path.abspath(tmpdirname)
             for ii, mol in enumerate(molDB.molecules):
-                xyzfilename = f'{self.tmpdirname}/predict{ii}.xyz'
+                xyzfilename = f'{self.tmpdirname}/predict{ii+1}.xyz'
                 mol.write_file_with_xyz_coordinates(filename = xyzfilename)
                 
                 self.xtbargs = [self.xtbbin, xyzfilename]
@@ -171,6 +155,12 @@ class xtb_methods(OMP_model, method_model):
 
                 if self.solvent:
                     self.xtbargs += ['--alpb', self.solvent]
+                
+                if self.etemp is not None:
+                    self.xtbargs += ['--etemp', str(self.etemp)]
+                
+                if self.acc is not None:
+                    self.xtbargs += ['--acc', str(self.acc)]
 
                 if not self.restart:
                     self.xtbargs += ['--norestart']

@@ -12,6 +12,7 @@ import os, sys, subprocess
 import numpy as np
 
 from .. import constants, data
+from ..utils import wait_for_file_stable
 from ..model_cls import method_model
 from ..decorators import doc_inherit
 
@@ -95,6 +96,8 @@ class gaussian_methods(method_model):
                 method = re.sub('td-', '', method, flags=re.IGNORECASE)
                 if current_state == 0: current_state = 1 # default in Gaussian
                 method += f' TD(NStates={nstates-1},Root={current_state})'
+                # we usually want to use density=current to request the population analysis for the state of interest
+                method += f'\ndensity=current'
         if calculate_energy_gradients:
             if not calculate_hessian:
                 if 'force'.casefold() in method.casefold():
@@ -138,6 +141,9 @@ class gaussian_methods(method_model):
                                  )
 
                 # Read Gaussian output file
+                stable = wait_for_file_stable(os.path.join(tmpdirname,f'{filename_wo_extension}.log'))
+                if not stable:
+                    print(f'! Warning, the file {filename_wo_extension}.log is still changing its size, its parsing might be incomplete')
                 parse_gaussian_output(filename=os.path.join(tmpdirname,f'{filename_wo_extension}.log'),molecule=imolecule)
             
 def run_gaussian_job(filename=None,
@@ -319,37 +325,25 @@ def read_Hessian_matrix_from_Gaussian_chkfile(filename,molecule):
         hessian /= constants.Bohr2Angstrom**2
         molecule.hessian = hessian
 
-def parse_gaussian_output(filename=None, molecule=None):
-    """
-    Parsing Gaussian output file and return a molecule obj
-    :param filename: Name of Gaussian output file (e.g. benzene.log or benzene.out)
-    :return: molecule if molecule is not provided
-    """
-    
-    if molecule is not None:
-        mol = molecule
-    else:
-        mol = data.molecule()
-    
-    #successful = False
-    readArchive = False
-    chkfilename = None
-    archive = []
+def parse_chunk(mol, chunk):
     forces_iatom = -4
     i_read_hessian = -1
     mulliken_charge_iatom = -3
+    mulliken_charge_spin_dens_iatom = -3
     read_dipole_moment = False
     readNMs = False
     ireadS = -1
     es_mults = []
     es_contribs = []
     readES = False
+    current_state = None
+    current_state_energy = None
     i_read_input_orientation = -1
     i_read_standard_orientation = -1
     xyz_input_orientation = []
     xyz_standard_orientation = []
-    scf_energies = []
     energy_gradients = []
+    recovered_energy = None
     Ucase = False
     readAlpha = False
     readOcc = False
@@ -378,529 +372,490 @@ def parse_gaussian_output(filename=None, molecule=None):
     OvertonesIRError = False 
     CombinationBandsIRError = False
     # end anharmonic properties
+    input_orientation_read = False
 
-    with open(filename, 'r') as ff:
-        for line in ff:
-            #print(line)
-            if ' 1\\1\\' in line or ' 1|1|' in line:
-                readArchive = True
-                archive = [line.rstrip()]
-                continue
-            if readArchive:
-                if '\\\\@' in line or '||@' in line:
-                    readArchive = False
-                archive.append(line.rstrip())
-                continue
-            if '%chk=' in line:
-                chkfilename = line.split('=')[-1].strip()
-                if not '.chk' in chkfilename:
-                    chkfilename += '.chk'
-            if 'Input orientation:' in line:
-                i_read_input_orientation = 0
-                xyz_input_orientation.append([])
-                continue
-            if i_read_input_orientation > -1:
-                i_read_input_orientation += 1
-                if i_read_input_orientation >= 5:
-                    if '-------------------------' in line:
-                        i_read_input_orientation = -1
-                        continue
-                    xyz_input_orientation[-1].append([float(xx) for xx in line.split()[-3:]])
+    for line in chunk:
+        if 'Input orientation:' in line:
+            i_read_input_orientation = 0
+            xyz_input_orientation.append([])
+            continue
+        if i_read_input_orientation > -1:
+            i_read_input_orientation += 1
+            if i_read_input_orientation >= 5:
+                if '-------------------------' in line:
+                    i_read_input_orientation = -1
+                    input_orientation_read = True
                     continue
-            if 'Standard orientation:' in line:
-                i_read_standard_orientation = 0
-                xyz_standard_orientation.append([])
+                xyz_coords = [float(xx) for xx in line.split()[-3:]]
+                if len(mol.atoms) < i_read_input_orientation-5 + 1:
+                    mol.atoms.append(data.atom(atomic_number=int(line.split()[1]), xyz_coordinates=xyz_coords))
+                else:
+                    mol.atoms[i_read_input_orientation-5].xyz_coordinates = xyz_coords
                 continue
-            if i_read_standard_orientation > -1:
-                i_read_standard_orientation += 1
-                if i_read_standard_orientation >= 5:
-                    if '-------------------------' in line:
-                        i_read_standard_orientation = -1
-                        continue
-                    xyz_standard_orientation[-1].append([float(xx) for xx in line.split()[-3:]])
+        if 'Standard orientation:' in line and not input_orientation_read:
+            i_read_standard_orientation = 0
+            xyz_standard_orientation.append([])
+            continue
+        if i_read_standard_orientation > -1:
+            i_read_standard_orientation += 1
+            if i_read_standard_orientation >= 5:
+                if '-------------------------' in line:
+                    i_read_standard_orientation = -1
                     continue
-            if 'SCF Done:' in line:
-                scf_energies.append(float(line.split()[4]))
-            if 'Forces (Hartrees/Bohr)' in line:
-                forces_iatom = -3
-                energy_gradients.append([])
+                xyz_coords = [float(xx) for xx in line.split()[-3:]]
+                if len(mol.atoms) < i_read_standard_orientation + 1:
+                    mol.atoms.append(data.atom(atomic_number=int(line.split()[1]), xyz_coordinates=xyz_coords))
+                else:
+                    mol.atoms[i_read_standard_orientation-5].xyz_coordinates = xyz_coords
                 continue
-            if forces_iatom > -4:
-                forces_iatom += 1
-                if forces_iatom < 0: continue
-                if '------------------' in line:
-                    forces_iatom = -4
-                    continue
-                energy_gradients[-1].append(-data.array([float(each) for each in line.split()[2:]]) / constants.Bohr2Angstrom)
+        if 'SCF Done:' in line:
+            mol.scf_energy = float(line.split()[4])
+        if 'Recovered energy= ' in line: # get the energy under recovered energy
+            recovered_energy = float(line.split()[2])
+        if 'Forces (Hartrees/Bohr)' in line:
+            forces_iatom = -3
+            continue
+        if forces_iatom > -4:
+            forces_iatom += 1
+            if forces_iatom < 0: continue
+            if '------------------' in line:
+                forces_iatom = -4
+                mol.energy_gradients = data.array(energy_gradients)
                 continue
-            if 'The second derivative matrix:' in line:
-                i_read_hessian = 0
-                natoms = len(mol.atoms)
-                mol.hessian = np.zeros((3*natoms,3*natoms))
-                continue
-            if i_read_hessian > -1:
-                i_read_hessian += 1
-                nblocks = int((3*natoms-0.5)//5 + 1)
-                icount = 0
-                for iblock in range(nblocks):
-                    for ii in range(3*natoms-5*iblock):
-                        if i_read_hessian == 1+icount+ii+1:
-                            temp = [float(each) for each in line.strip().split()[1:]]
-                            for jj in range(min(5,3*natoms-5*iblock)):
-                                if ii >= jj:
-                                    mol.hessian[ii+5*iblock,jj+5*iblock] = temp[jj]
-                    icount += 3*natoms-5*iblock+1
-                if i_read_hessian >= icount:
+            energy_gradients.append(-data.array([float(each) for each in line.split()[2:]]) / constants.Bohr2Angstrom)
+            continue
+        if 'The second derivative matrix:' in line:
+            i_read_hessian = 0
+            natoms = len(mol.atoms)
+            mol.hessian = np.zeros((3*natoms,3*natoms))
+            continue
+        if i_read_hessian > -1:
+            i_read_hessian += 1
+            if i_read_hessian == 1:
+                if not line.split()[0][0] in 'XYZ':
                     i_read_hessian = -1
-                    for ii in range(3*natoms):
-                        for jj in range(ii+1,3*natoms):
-                            mol.hessian[ii,jj] = mol.hessian[jj,ii]
-                    mol.hessian = mol.hessian / constants.Bohr2Angstrom**2
-                continue
-            if 'Mulliken charges:' in line:
-                mulliken_charge_iatom = -2
-                continue
-            if mulliken_charge_iatom > -3:
-                if len(line.split()) > 3:
-                    mulliken_charge_iatom = -3
+                    del mol.__dict__['hessian']
                     continue
-                mulliken_charge_iatom += 1
-                if mulliken_charge_iatom < 0:
-                    continue
-                if len(mol.atoms) < mulliken_charge_iatom+1:
-                    mol.atoms.append(data.atom(element_symbol=line.split()[1]))
-                mol.atoms[mulliken_charge_iatom].mulliken_charge = float(line.split()[-1])
+            nblocks = int((3*natoms-0.5)//5 + 1)
+            icount = 0
+            for iblock in range(nblocks):
+                for ii in range(3*natoms-5*iblock):
+                    if i_read_hessian == 1+icount+ii+1:
+                        temp = [float(each) for each in line.strip().split()[1:]]
+                        for jj in range(min(5,3*natoms-5*iblock)):
+                            if ii >= jj:
+                                mol.hessian[ii+5*iblock,jj+5*iblock] = temp[jj]
+                icount += 3*natoms-5*iblock+1
+            if i_read_hessian >= icount:
+                i_read_hessian = -1
+                for ii in range(3*natoms):
+                    for jj in range(ii+1,3*natoms):
+                        mol.hessian[ii,jj] = mol.hessian[jj,ii]
+                mol.hessian = mol.hessian / constants.Bohr2Angstrom**2
+            continue
+        if 'Mulliken charges:' in line:
+            mulliken_charge_iatom = -2
+            continue
+        if mulliken_charge_iatom > -3:
+            if len(line.split()) > 3:
+                mulliken_charge_iatom = -3
                 continue
-            if 'Dipole moment' in line:
-                read_dipole_moment = True
+            mulliken_charge_iatom += 1
+            if mulliken_charge_iatom < 0:
                 continue
-            if read_dipole_moment:
-                xx = line.split()
-                try:
-                    mol.dipole_moment = data.array([float(yy) for yy in [xx[1], xx[3], xx[5], xx[7]]])
-                except:
-                    pass
-                read_dipole_moment = False
+            if len(mol.atoms) < mulliken_charge_iatom+1:
+                mol.atoms.append(data.atom(element_symbol=line.split()[1]))
+            mol.atoms[mulliken_charge_iatom].mulliken_charge = float(line.split()[-1])
+            continue
+        if 'Mulliken charges and spin densities:' in line:
+            mulliken_charge_spin_dens_iatom = -2
+            continue
+        if mulliken_charge_spin_dens_iatom > -3:
+            if len(line.split()) > 4:
+                mulliken_charge_spin_dens_iatom = -3
                 continue
-            if 'Frequencies --' in line:
-                if not read_already_freq:
-                    read_already_freq = True
-                    mol.frequencies = []
-                mol.frequencies += [float(xx) for xx in line.split()[2:]]
+            mulliken_charge_spin_dens_iatom += 1
+            if mulliken_charge_spin_dens_iatom < 0:
                 continue
-            if 'Red. masses --' in line:
-                if not read_already_redmass:
-                    read_already_redmass = True
-                    mol.reduced_masses = []
-                mol.reduced_masses += [float(xx) for xx in line.split()[3:]]
+            if len(mol.atoms) < mulliken_charge_spin_dens_iatom+1:
+                mol.atoms.append(data.atom(element_symbol=line.split()[1]))
+            mol.atoms[mulliken_charge_spin_dens_iatom].mulliken_charge = float(line.split()[-2])
+            mol.atoms[mulliken_charge_spin_dens_iatom].spin_density = float(line.split()[-1])
+            continue
+        if 'Dipole moment' in line:
+            read_dipole_moment = True
+            continue
+        if read_dipole_moment:
+            xx = line.split()
+            try:
+                mol.dipole_moment = data.array([float(yy) for yy in [xx[1], xx[3], xx[5], xx[7]]])
+            except:
+                pass
+            read_dipole_moment = False
+            continue
+        if 'Frequencies --' in line:
+            if not read_already_freq:
+                read_already_freq = True
+                mol.frequencies = []
+            mol.frequencies += [float(xx) for xx in line.split()[2:]]
+            continue
+        if 'Red. masses --' in line:
+            if not read_already_redmass:
+                read_already_redmass = True
+                mol.reduced_masses = []
+            mol.reduced_masses += [float(xx) for xx in line.split()[3:]]
+            continue
+        if 'Frc consts  --' in line:
+            if not read_already_force_const:
+                read_already_force_const = True
+                mol.force_constants = []
+            mol.force_constants += [float(xx) for xx in line.split()[3:]]
+            continue
+        if 'IR Inten    --' in line:
+            if not read_already_ir_intens:
+                read_already_ir_intens = True
+                mol.infrared_intensities = []
+            mol.infrared_intensities += [float(xx) for xx in line.split()[3:]]
+            continue
+        if 'Atom  AN      X      Y      Z' in line:
+            readNMs = True
+            nm_iatom = -1
+            continue
+        elif readNMs:
+            if len(line.split()) <= 3:
+                readNMs = False
                 continue
-            if 'Frc consts  --' in line:
-                if not read_already_force_const:
-                    read_already_force_const = True
-                    mol.force_constants = []
-                mol.force_constants += [float(xx) for xx in line.split()[3:]]
+            nm_iatom += 1
+            if len(mol.atoms) < nm_iatom+1:
+                mol.atoms.append(data.atom(atomic_number=int(line.split()[1])))
+            if not 'normal_modes' in mol.atoms[nm_iatom].__dict__:
+                mol.atoms[nm_iatom].normal_modes = []
+            xyzs = np.array([float(xx) for xx in line.split()[2:]])
+            nxyzs = len(xyzs) / 3
+            for xyz in np.array_split(xyzs, nxyzs):
+                mol.atoms[nm_iatom].normal_modes.append(list(xyz))
+        if 'Zero-point correction=' in line:
+            mol.ZPE = float(line.split()[2])
+            continue
+        if 'Thermal correction to Energy=' in line:
+            mol.DeltaE2U = float(line.split()[-1])
+            continue
+        if 'Thermal correction to Enthalpy=' in line:
+            mol.DeltaE2H = float(line.split()[-1])
+            continue
+        if 'Thermal correction to Gibbs Free Energy=' in line:
+            mol.DeltaE2G = float(line.split()[-1])
+            continue
+        if 'Sum of electronic and zero-point Energies=' in line:
+            mol.U0 = float(line.split()[-1])
+            mol.H0 = mol.U0
+            continue
+        if 'Sum of electronic and thermal Energies=' in line:
+            mol.U = float(line.split()[-1])
+            continue
+        if 'Sum of electronic and thermal Enthalpies=' in line:
+            mol.H = float(line.split()[-1])
+            continue
+        if 'Sum of electronic and thermal Free Energies=' in line:
+            mol.G = float(line.split()[-1])
+            continue
+        if 'E (Thermal)             CV                S' in line:
+            ireadS = 0
+            continue
+        if ireadS > -1:
+            ireadS +=1
+            if ireadS == 2:
+                mol.S = float(line.split()[-1]) * constants.kcalpermol2Hartree / 1000.0
+                ireadS = -1
                 continue
-            if 'IR Inten    --' in line:
-                if not read_already_ir_intens:
-                    read_already_ir_intens = True
-                    mol.infrared_intensities = []
-                mol.infrared_intensities += [float(xx) for xx in line.split()[3:]]
-                continue
-            if 'Atom  AN      X      Y      Z' in line:
-                readNMs = True
-                nm_iatom = -1
-                continue
-            elif readNMs:
-                if len(line.split()) <= 3:
-                    readNMs = False
-                    continue
-                nm_iatom += 1
-                if len(mol.atoms) < nm_iatom+1:
-                    mol.atoms.append(data.atom(atomic_number=int(line.split()[1])))
-                if not 'normal_modes' in mol.atoms[nm_iatom].__dict__:
-                    mol.atoms[nm_iatom].normal_modes = []
-                xyzs = np.array([float(xx) for xx in line.split()[2:]])
-                nxyzs = len(xyzs) / 3
-                for xyz in np.array_split(xyzs, nxyzs):
-                    mol.atoms[nm_iatom].normal_modes.append(list(xyz))
-            if 'Zero-point correction=' in line:
-                mol.ZPE = float(line.split()[2])
-                continue
-            if 'Thermal correction to Energy=' in line:
-                mol.DeltaE2U = float(line.split()[-1])
-                continue
-            if 'Thermal correction to Enthalpy=' in line:
-                mol.DeltaE2H = float(line.split()[-1])
-                continue
-            if 'Thermal correction to Gibbs Free Energy=' in line:
-                mol.DeltaE2G = float(line.split()[-1])
-                continue
-            if 'Sum of electronic and zero-point Energies=' in line:
-                mol.U0 = float(line.split()[-1])
-                mol.H0 = mol.U0
-                continue
-            if 'Sum of electronic and thermal Energies=' in line:
-                mol.U = float(line.split()[-1])
-                continue
-            if 'Sum of electronic and thermal Enthalpies=' in line:
-                mol.H = float(line.split()[-1])
-                continue
-            if 'Sum of electronic and thermal Free Energies=' in line:
-                mol.G = float(line.split()[-1])
-                continue
-            if 'E (Thermal)             CV                S' in line:
-                ireadS = 0
-                continue
-            if ireadS > -1:
-                ireadS +=1
-                if ireadS == 2:
-                    mol.S = float(line.split()[-1]) * constants.kcalpermol2Hartree / 1000.0
-                    ireadS = -1
-                    continue
-            
-            if 'Alpha Orbitals:' in line:
-                Ucase = True
-            if ' Occupied ' in line:
-                readOcc = True
-                nOMOs = {'all': 0, 'A': 0, 'B': 0}
-            if readOcc:
-                if ' Virtual ' in line:
-                    readOcc = False
-                    if Ucase and not readAlpha:
-                        readAlpha = True
-                        #continue
-                    # to-do
-                    #else:
-                    #    break
-                    continue
+        
+        if 'Alpha Orbitals:' in line:
+            Ucase = True
+        if ' Occupied ' in line:
+            readOcc = True
+            nOMOs = {'all': 0, 'A': 0, 'B': 0}
+        if readOcc:
+            if ' Virtual ' in line:
+                readOcc = False
                 if Ucase and not readAlpha:
-                    nOMOs['A'] += len(line[17:].split())
-                elif Ucase and readAlpha:
-                    nOMOs['B'] += len(line[17:].split())
-                else:
-                    nOMOs['all'] += len(line[17:].split())
+                    readAlpha = True
+                    #continue
+                # to-do
+                #else:
+                #    break
                 continue
-            
-            if 'Excited State' in line:                
-                xx = line.split()
-                excitation_energy = float(xx[4]) * constants.eV2hartree
-                ff = float(xx[8].split('=')[1])
-                mult = xx[3]
-                if not read_already_ES:
-                    read_already_ES = True
-                    mol.electronic_states = []
-                    mol.excitation_energies = [excitation_energy]
-                    mol.oscillator_strengths = [ff]
-                else:
-                    mol.excitation_energies += [excitation_energy]
-                    mol.oscillator_strengths.append(float(xx[8].split('=')[1]))
-                readES = True
-                es_mults.append(xx[3])
-                es_contribs.append([])
+            if Ucase and not readAlpha:
+                nOMOs['A'] += len(line[17:].split())
+            elif Ucase and readAlpha:
+                nOMOs['B'] += len(line[17:].split())
+            else:
+                nOMOs['all'] += len(line[17:].split())
+            continue
+        
+        if 'Excited State' in line:                
+            xx = line.split()
+            excitation_energy = float(xx[4]) * constants.eV2hartree
+            ff = float(xx[8].split('=')[1])
+            mult = xx[3]
+            if not read_already_ES:
+                read_already_ES = True
+                mol.electronic_states = []
+                mol.excitation_energies = [excitation_energy]
+                mol.oscillator_strengths = [ff]
+            else:
+                mol.excitation_energies += [excitation_energy]
+                mol.oscillator_strengths.append(float(xx[8].split('=')[1]))
+            readES = True
+            es_mults.append(xx[3])
+            es_contribs.append([])
+            continue
+        if readES:
+            if '->' in line:
+                es_contribs[-1].append({'from': int(line.split('->')[0]),
+                                        'to':   int(line.split('->')[1].split()[0]),
+                                        'coeff': float(line.split()[-1])})
+            elif '<-' in line:
+                es_contribs[-1].append({'from': int(line.split('<-')[1].split()[0]),
+                                        'to':   int(line.split('<-')[0]),
+                                        'coeff': float(line.split()[-1])})
+            elif 'This state for optimization and/or second-order correction.' in line:
+                current_state = len(mol.excitation_energies)
+            elif 'Total Energy,' in line:
+                current_state_energy = float(line.split()[-1])
+            else:
+                readES = False
+            continue
+        if 'Fundamental Bands' in line and not 'anharmonic_frequencies' in mol.__dict__:
+            read_already_FB = True
+            ireadFB += 1
+            mol.anharmonic_frequencies = []
+            mol.harmonic_frequencies = []
+            continue
+        elif 'Fundamental Bands' in line and not read_already_FB:
+            read_already_FB = True
+            ireadFB += 1
+            mol.anharmonic_frequencies = []
+            mol.harmonic_frequencies = []
+            continue
+        if ireadFB > -1:
+            if len(line.strip()) == 0:
+                ireadFB = -1
                 continue
-            if readES:
-                if '->' in line:
-                    es_contribs[-1].append({'from': int(line.split('->')[0]),
-                                            'to':   int(line.split('->')[1].split()[0]),
-                                            'coeff': float(line.split()[-1])})
-                elif '<-' in line:
-                    es_contribs[-1].append({'from': int(line.split('<-')[1].split()[0]),
-                                            'to':   int(line.split('<-')[0]),
-                                            'coeff': float(line.split()[-1])})
-                else:
-                    readES = False
+            ireadFB += 1
+            if ireadFB >= 3:
+                mol.harmonic_frequencies.append(float(line[24:38]))
+                mol.anharmonic_frequencies.append(float(line[38:48]))
                 continue
-            if 'Fundamental Bands' in line and not 'anharmonic_frequencies' in mol.__dict__:
-                read_already_FB = True
-                ireadFB += 1
-                mol.anharmonic_frequencies = []
-                mol.harmonic_frequencies = []
+        if 'Overtones' in line and not 'anharmonic_overtones' in mol.__dict__:
+            read_already_overtones = True
+            ireadOvertones += 1
+            mol.anharmonic_overtones = []
+            mol.harmonic_overtones = []
+            continue
+        elif 'Overtones' in line and not read_already_overtones:
+            read_already_overtones = True
+            ireadOvertones += 1
+            mol.anharmonic_overtones = []
+            mol.harmonic_overtones = []
+            continue
+        if ireadOvertones > -1:
+            if len(line.strip()) == 0:
+                ireadOvertones = -1
                 continue
-            elif 'Fundamental Bands' in line and not read_already_FB:
-                read_already_FB = True
-                ireadFB += 1
-                mol.anharmonic_frequencies = []
-                mol.harmonic_frequencies = []
+            ireadOvertones += 1
+            if ireadOvertones >= 3:
+                mol.anharmonic_overtones.append(float(line[38:48]))
+                mol.harmonic_overtones.append(float(line[24:38].strip().split()[-1]))
                 continue
-            if ireadFB > -1:
-                if len(line.strip()) == 0:
-                    ireadFB = -1
-                    continue
-                ireadFB += 1
-                if ireadFB >= 3:
-                    mol.harmonic_frequencies.append(float(line[24:38]))
-                    mol.anharmonic_frequencies.append(float(line[38:48]))
-                    continue
-            if 'Overtones' in line and not 'anharmonic_overtones' in mol.__dict__:
-                read_already_overtones = True
-                ireadOvertones += 1
-                mol.anharmonic_overtones = []
-                mol.harmonic_overtones = []
+        if 'Combination Bands' in line and not 'anharmonic_combination_bands' in mol.__dict__:
+            read_already_comb_bands = True
+            ireadCombinationBands += 1
+            mol.anharmonic_combination_bands = []
+            mol.harmonic_combination_bands = []
+            continue
+        elif 'Combination Bands' in line and not read_already_comb_bands:
+            read_already_comb_bands = True
+            ireadCombinationBands += 1
+            mol.anharmonic_combination_bands = []
+            mol.harmonic_combination_bands = []
+            continue
+        if ireadCombinationBands > -1:
+            if len(line.strip()) == 0:
+                ireadCombinationBands = -1
                 continue
-            elif 'Overtones' in line and not read_already_overtones:
-                read_already_overtones = True
-                ireadOvertones += 1
-                mol.anharmonic_overtones = []
-                mol.harmonic_overtones = []
+            ireadCombinationBands += 1
+            if ireadCombinationBands >= 3:
+                mol.anharmonic_combination_bands.append(float(line[38:48]))
+                mol.harmonic_combination_bands.append(float(line[24:38].strip().split()[-1]))
                 continue
-            if ireadOvertones > -1:
-                if len(line.strip()) == 0:
-                    ireadOvertones = -1
-                    continue
-                ireadOvertones += 1
-                if ireadOvertones >= 3:
-                    mol.anharmonic_overtones.append(float(line[38:48]))
-                    mol.harmonic_overtones.append(float(line[24:38].strip().split()[-1]))
-                    continue
-            if 'Combination Bands' in line and not 'anharmonic_combination_bands' in mol.__dict__:
-                read_already_comb_bands = True
-                ireadCombinationBands += 1
-                mol.anharmonic_combination_bands = []
-                mol.harmonic_combination_bands = []
+        if 'ZPE(anh)' in line:
+            mol.anharmonic_ZPE = float(line[48:61].replace('D','E')) * constants.kJpermol2Hartree
+        if 'Input values of T(K) and P(atm):' in line:
+            i_anh_thermo = 0
+            mol.temperature = float(line.strip().split()[-2])
+            E = mol.U - mol.DeltaE2U
+            mol.anharmonic_U0 = E + mol.anharmonic_ZPE
+            mol.anharmonic_H0 = E + mol.anharmonic_ZPE
+            continue
+        if i_anh_thermo > -1:
+            i_anh_thermo += 1
+            if i_anh_thermo == 4:
+                mol.anharmonic_DeltaE2U = float(line.strip().split()[-2].replace('D','E')) * constants.kJpermol2Hartree
+                mol.anharmonic_U = E + mol.anharmonic_DeltaE2U
                 continue
-            elif 'Combination Bands' in line and not read_already_comb_bands:
-                read_already_comb_bands = True
-                ireadCombinationBands += 1
-                mol.anharmonic_combination_bands = []
-                mol.harmonic_combination_bands = []
+            if i_anh_thermo == 5:
+                mol.anharmonic_DeltaE2H = float(line.strip().split()[-2].replace('D','E')) * constants.kJpermol2Hartree
+                mol.anharmonic_H = E + mol.anharmonic_DeltaE2H
                 continue
-            if ireadCombinationBands > -1:
-                if len(line.strip()) == 0:
-                    ireadCombinationBands = -1
-                    continue
-                ireadCombinationBands += 1
-                if ireadCombinationBands >= 3:
-                    mol.anharmonic_combination_bands.append(float(line[38:48]))
-                    mol.harmonic_combination_bands.append(float(line[24:38].strip().split()[-1]))
-                    continue
-            if 'ZPE(anh)' in line:
-                mol.anharmonic_ZPE = float(line[48:61].replace('D','E')) * constants.kJpermol2Hartree
-            if 'Input values of T(K) and P(atm):' in line:
-                i_anh_thermo = 0
-                mol.temperature = float(line.strip().split()[-2])
-                E = mol.U - mol.DeltaE2U
-                mol.anharmonic_U0 = E + mol.anharmonic_ZPE
-                mol.anharmonic_H0 = E + mol.anharmonic_ZPE
+            if i_anh_thermo == 6:
+                mol.anharmonic_S = float(line.strip().split()[-3].replace('D','E')) * constants.kJpermol2Hartree / 1000.0
+                mol.anharmonic_G = mol.anharmonic_H - mol.temperature * mol.anharmonic_S
+                mol.anharmonic_DeltaE2G = mol.anharmonic_G - E
+                i_anh_thermo = -1
                 continue
-            if i_anh_thermo > -1:
-                i_anh_thermo += 1
-                if i_anh_thermo == 4:
-                    mol.anharmonic_DeltaE2U = float(line.strip().split()[-2].replace('D','E')) * constants.kJpermol2Hartree
-                    mol.anharmonic_U = E + mol.anharmonic_DeltaE2U
-                    continue
-                if i_anh_thermo == 5:
-                    mol.anharmonic_DeltaE2H = float(line.strip().split()[-2].replace('D','E')) * constants.kJpermol2Hartree
-                    mol.anharmonic_H = E + mol.anharmonic_DeltaE2H
-                    continue
-                if i_anh_thermo == 6:
-                    mol.anharmonic_S = float(line.strip().split()[-3].replace('D','E')) * constants.kJpermol2Hartree / 1000.0
-                    mol.anharmonic_G = mol.anharmonic_H - mol.temperature * mol.anharmonic_S
-                    mol.anharmonic_DeltaE2G = mol.anharmonic_G - E
-                    i_anh_thermo = -1
-                    continue
-            
-            # Read anharmonic infrared intensities
-            if 'Fundamental Bands' in line and not 'anharmonic_infrared_intensities' in mol.__dict__:
-                read_already_FBIR = True
-                ireadFBIR += 1
-                mol.anharmonic_infrared_intensities = []
-                mol.harmonic_infrared_intensities = []
-                continue
-            elif 'Fundamental Bands' in line and not read_already_FBIR:
-                read_already_FBIR = True
-                ireadFBIR += 1
-                mol.anharmonic_infrared_intensities = []
-                mol.harmonic_infrared_intensities = []
+        
+        # Read anharmonic infrared intensities
+        if 'Fundamental Bands' in line and not 'anharmonic_infrared_intensities' in mol.__dict__:
+            read_already_FBIR = True
+            ireadFBIR += 1
+            mol.anharmonic_infrared_intensities = []
+            mol.harmonic_infrared_intensities = []
+            continue
+        elif 'Fundamental Bands' in line and not read_already_FBIR:
+            read_already_FBIR = True
+            ireadFBIR += 1
+            mol.anharmonic_infrared_intensities = []
+            mol.harmonic_infrared_intensities = []
+            continue 
+        if ireadFBIR > -1:
+            if len(line.strip()) == 0:
+                ireadFBIR = -1
                 continue 
-            if ireadFBIR > -1:
-                if len(line.strip()) == 0:
+            ireadFBIR += 1
+            if ireadFBIR == 2:
+                if not "I(anharm)" in line:
+                    del mol.__dict__['anharmonic_infrared_intensities']
+                    del mol.__dict__['harmonic_infrared_intensities']
                     ireadFBIR = -1
-                    continue 
-                ireadFBIR += 1
-                if ireadFBIR == 2:
-                    if not "I(anharm)" in line:
-                        del mol.__dict__['anharmonic_infrared_intensities']
-                        del mol.__dict__['harmonic_infrared_intensities']
-                        ireadFBIR = -1
-                    continue 
-                if ireadFBIR >= 3:
-                    templine = line.strip()
-                    # Sometimes anharmonic IR intensities are very large due to bad PES. Gaussian will output ********** in such cases.
-                    if "*" in templine:
-                        templine = [each for each in templine if each != '*']
-                        templine = templine.split()
-                        try:
-                            mol.harmonic_infrared_intensities.append(float(templine[-1]))
-                            mol.anharmonic_infrared_intensities.append(np.nan)
-                        except:
-                            FBIRError = True 
-                    else:
-                        templine = templine.split()
-                        try:
-                            mol.harmonic_infrared_intensities.append(float(templine[-2]))
-                            mol.anharmonic_infrared_intensities.append(float(templine[-1]))
-                        except:
-                            FBIRError = True
-            if 'Overtones' in line and not 'anharmonic_overtones_infrared_intensities' in mol.__dict__:
-                read_already_OvertonesIR = True
-                ireadOvertonesIR += 1
-                mol.anharmonic_overtones_infrared_intensities = []
-                mol.harmonic_overtones_infrared_intensities = []
-                continue
-            elif 'Overtones' in line and not read_already_OvertonesIR:
-                read_already_OvertonesIR = True
-                ireadOvertonesIR += 1
-                mol.anharmonic_overtones_infrared_intensities = []
-                mol.harmonic_overtones_infrared_intensities = []
                 continue 
-            if ireadOvertonesIR > -1:
-                if len(line.strip()) == 0:
+            if ireadFBIR >= 3:
+                templine = line.strip()
+                # Sometimes anharmonic IR intensities are very large due to bad PES. Gaussian will output ********** in such cases.
+                if "*" in templine:
+                    templine = [each for each in templine if each != '*']
+                    templine = templine.split()
+                    try:
+                        mol.harmonic_infrared_intensities.append(float(templine[-1]))
+                        mol.anharmonic_infrared_intensities.append(np.nan)
+                    except:
+                        FBIRError = True 
+                else:
+                    templine = templine.split()
+                    try:
+                        mol.harmonic_infrared_intensities.append(float(templine[-2]))
+                        mol.anharmonic_infrared_intensities.append(float(templine[-1]))
+                    except:
+                        FBIRError = True
+        if 'Overtones' in line and not 'anharmonic_overtones_infrared_intensities' in mol.__dict__:
+            read_already_OvertonesIR = True
+            ireadOvertonesIR += 1
+            mol.anharmonic_overtones_infrared_intensities = []
+            mol.harmonic_overtones_infrared_intensities = []
+            continue
+        elif 'Overtones' in line and not read_already_OvertonesIR:
+            read_already_OvertonesIR = True
+            ireadOvertonesIR += 1
+            mol.anharmonic_overtones_infrared_intensities = []
+            mol.harmonic_overtones_infrared_intensities = []
+            continue 
+        if ireadOvertonesIR > -1:
+            if len(line.strip()) == 0:
+                ireadOvertonesIR = -1
+                continue 
+            ireadOvertonesIR += 1
+            if ireadOvertonesIR == 2:
+                if not "I(anharm)" in line:
+                    del mol.__dict__['anharmonic_overtones_infrared_intensities']
+                    del mol.__dict__['harmonic_overtones_infrared_intensities']
                     ireadOvertonesIR = -1
-                    continue 
-                ireadOvertonesIR += 1
-                if ireadOvertonesIR == 2:
-                    if not "I(anharm)" in line:
-                        del mol.__dict__['anharmonic_overtones_infrared_intensities']
-                        del mol.__dict__['harmonic_overtones_infrared_intensities']
-                        ireadOvertonesIR = -1
-                    continue 
-                if ireadOvertonesIR >= 3:
-                    templine = line.strip()
-                    # Sometimes anharmonic IR intensities are very large due to bad PES. Gaussian will output ********** in such cases.
-                    if "*" in templine:
-                        templine = [each for each in templine if each != '*']
-                        templine = templine.split()
-                        try:
-                            mol.harmonic_overtones_infrared_intensities.append(float(templine[-1]))
-                            mol.anharmonic_overtones_infrared_intensities.append(np.nan)
-                        except:
-                            OvertonesIRError = True 
-                    else:
-                        templine = templine.split()
-                        try:
-                            mol.harmonic_overtones_infrared_intensities.append(float(templine[-2]))
-                            mol.anharmonic_overtones_infrared_intensities.append(float(templine[-1]))
-                        except:
-                            OvertonesIRError = True
-            if 'Combination Bands' in line and not 'anharmonic_combination_bands_infrared_intensities' in mol.__dict__:
-                read_already_CombinationBandsIR = True
-                ireadCombinationBandsIR += 1
-                mol.anharmonic_combination_bands_infrared_intensities = []
-                mol.harmonic_combination_bands_infrared_intensities = []
                 continue 
-            elif 'Combination Bands' in line and not read_already_CombinationBandsIR:
-                read_already_CombinationBandsIR = True
-                ireadCombinationBandsIR += 1
-                mol.anharmonic_combination_bands_infrared_intensities = []
-                mol.harmonic_combination_bands_infrared_intensities = []
+            if ireadOvertonesIR >= 3:
+                templine = line.strip()
+                # Sometimes anharmonic IR intensities are very large due to bad PES. Gaussian will output ********** in such cases.
+                if "*" in templine:
+                    templine = [each for each in templine if each != '*']
+                    templine = templine.split()
+                    try:
+                        mol.harmonic_overtones_infrared_intensities.append(float(templine[-1]))
+                        mol.anharmonic_overtones_infrared_intensities.append(np.nan)
+                    except:
+                        OvertonesIRError = True 
+                else:
+                    templine = templine.split()
+                    try:
+                        mol.harmonic_overtones_infrared_intensities.append(float(templine[-2]))
+                        mol.anharmonic_overtones_infrared_intensities.append(float(templine[-1]))
+                    except:
+                        OvertonesIRError = True
+        if 'Combination Bands' in line and not 'anharmonic_combination_bands_infrared_intensities' in mol.__dict__:
+            read_already_CombinationBandsIR = True
+            ireadCombinationBandsIR += 1
+            mol.anharmonic_combination_bands_infrared_intensities = []
+            mol.harmonic_combination_bands_infrared_intensities = []
+            continue 
+        elif 'Combination Bands' in line and not read_already_CombinationBandsIR:
+            read_already_CombinationBandsIR = True
+            ireadCombinationBandsIR += 1
+            mol.anharmonic_combination_bands_infrared_intensities = []
+            mol.harmonic_combination_bands_infrared_intensities = []
+            continue 
+        if ireadCombinationBandsIR > -1:
+            if len(line.strip()) == 0:
+                ireadCombinationBandsIR = -1
                 continue 
-            if ireadCombinationBandsIR > -1:
-                if len(line.strip()) == 0:
+            ireadCombinationBandsIR += 1
+            if ireadCombinationBandsIR == 2:
+                if not "I(anharm)" in line:
+                    del mol.__dict__['anharmonic_combination_bands_infrared_intensities']
+                    del mol.__dict__['harmonic_combination_bands_infrared_intensities']
                     ireadCombinationBandsIR = -1
-                    continue 
-                ireadCombinationBandsIR += 1
-                if ireadCombinationBandsIR == 2:
-                    if not "I(anharm)" in line:
-                        del mol.__dict__['anharmonic_combination_bands_infrared_intensities']
-                        del mol.__dict__['harmonic_combination_bands_infrared_intensities']
-                        ireadCombinationBandsIR = -1
-                    continue 
-                if ireadCombinationBandsIR >= 3:
-                    templine = line.strip()
-                    # Sometimes anharmonic IR intensities are very large due to bad PES. Gaussian will output ********** in such cases.
-                    if "*" in templine:
-                        templine = [each for each in templine if each != '*']
-                        templine = templine.split()
-                        try:
-                            mol.harmonic_combination_bands_infrared_intensities.append(float(templine[-1]))
-                            mol.anharmonic_combination_bands_infrared_intensities.append(np.nan)
-                        except:
-                            CombinationBandsIRError = True 
-                    else:
-                        templine = templine.split()
-                        try:
-                            mol.harmonic_combination_bands_infrared_intensities.append(float(templine[-2]))
-                            mol.anharmonic_combination_bands_infrared_intensities.append(float(templine[-1]))
-                        except:
-                            CombinationBandsIRError = True        
+                continue 
+            if ireadCombinationBandsIR >= 3:
+                templine = line.strip()
+                # Sometimes anharmonic IR intensities are very large due to bad PES. Gaussian will output ********** in such cases.
+                if "*" in templine:
+                    templine = [each for each in templine if each != '*']
+                    templine = templine.split()
+                    try:
+                        mol.harmonic_combination_bands_infrared_intensities.append(float(templine[-1]))
+                        mol.anharmonic_combination_bands_infrared_intensities.append(np.nan)
+                    except:
+                        CombinationBandsIRError = True 
+                else:
+                    templine = templine.split()
+                    try:
+                        mol.harmonic_combination_bands_infrared_intensities.append(float(templine[-2]))
+                        mol.anharmonic_combination_bands_infrared_intensities.append(float(templine[-1]))
+                    except:
+                        CombinationBandsIRError = True      
+        # IRC #
+        if 'NET REACTION COORDINATE UP TO THIS POINT ' in line:
+            mol.reaction_coordinates = float(line.split()[-1])
+        if 'Point Number:' and 'Path Number:' in line:
+            mol.n_point = int(line.split()[2])
+            mol.n_path = int(line.split()[-1])
 
-            #if 'Normal termination of Gaussian' in line:
-            #    successful = True
-
-    archiveText = r''
-    Nlines = 0
-    for line in archive:
-        Nlines += 1
-        archiveText += line.strip()
-        if 'NImag=' in archiveText:
-            if line[-len('NImag='):] != 'NImag=':
-                break
-        if '\\\\@' in archiveText:
-            break
-    optjob = False
-    if archiveText != r'':
-        method_names = ['HF', 'MP2', 'MP3', 'MP4D', 'MP4DQ', 'MP4SDQ', 'MP4SDTQ', 'MP5', 'CISD', 'QCISD', 'QCISD(T)', 'CCSD', 'CCSD(T)']
-        method_energies = []
-        archiveTextSplit = archiveText.split('\\\\') # here it splits with '\\' as a delimiter
-        if 'opt'.casefold() in archiveTextSplit[0].casefold():
-            optjob = True
-        if 'freq'.casefold() in archiveTextSplit[1].casefold() and chkfilename is not None:
-            dir_path = os.path.dirname(os.path.realpath(filename))
-            if os.path.exists(f'{dir_path}/{chkfilename}'):
-                read_Hessian_matrix_from_Gaussian_chkfile(f'{dir_path}/{chkfilename}', mol)
-        coords = archiveTextSplit[3]
-        coords = coords.split('\\') # here it splits with '\' as a delimiter
-        charge, mult = (int(xx) for xx in coords[0].split(','))
-        mol.charge = charge
-        mol.multiplicity = mult
-        coords = coords[1:]
-        if mol.atoms == []:
-            for coord in coords:
-                xx = coord.split(',')
-                if len(xx[1:]) > 3: del xx[1]
-                mol.atoms.append(data.atom(element_symbol=xx[0], xyz_coordinates=data.array([float(yy) for yy in xx[1:]])))
-        else:
-            for idx, coord in enumerate(coords):
-                xx = coord.split(',')
-                mol.atoms[idx].element_symbol = xx[0]
-                if len(xx[1:]) > 3: del xx[1]
-                mol.atoms[idx].xyz_coordinates = data.array([float(yy) for yy in xx[1:]])
-        for xx in archiveTextSplit[4].split('\\'):
-            method_flag = False
-            for name in method_names:
-                if f'{name}=' in xx:
-                    yy = xx.split('=')
-                    method_energies.append((yy[0], float(yy[-1])))
-                    method_flag = True
-                    break
-            if method_flag: continue
-            if 'DipoleDeriv' in xx:
-                yy = xx.split('=')[-1].strip()
-                # to-do: reshape, make sure the same as in Yifan's implementation before with 'DipoleDeriv ' (note space!)
-                mol.dipole_derivatives = data.array([float(zz) for zz in yy.split(',')]) / constants.Debye # do we need to divide by Debye?
-                continue
-    if len(method_energies) > 1:
-        method_children = []
-        for method in method_energies:
-            method_children.append(data.properties_tree_node(name=method[0]))
-            method_children[-1].energy = method[1]
-            mol.__dict__[method[0]] = method_children[-1]
-        mol.energy_levels = data.properties_tree_node(name='energy_levels',children=method_children)
-        mol.energy = method_energies[-1][1]
-        # in old implementation it was wrong: mol.HF = energy, now it is mol.HF.energy = energy
-    elif len(method_energies) == 1:
-        mol.energy = method_energies[0][1]
-    
     if nOMOs['all'] > 0:
         mol.n_occ_mos = nOMOs['all']
     if len(mol.excitation_energies) > 0:
         mol.excitation_energies = data.array(mol.excitation_energies)
         mol.electronic_states = [mol.copy(atomic_labels=[], molecular_labels=[]) for ii in range(mol.nstates)]
         for istate, mol_state in enumerate(mol.electronic_states):
+            # for TD-DFT, others might be different
             if istate == 0:
-                mol_state.energy = mol.energy
+                mol_state.energy = mol.scf_energy
                 continue
-            mol_state.energy = mol.energy + mol.excitation_energies[istate-1]
+            mol_state.energy = mol.scf_energy + mol.excitation_energies[istate-1]
             if 'Singlet' in es_mults[istate-1]:
                 mol_state.multiplicity = 1
             elif 'Doublet' in es_mults[istate-1]:
@@ -910,6 +865,21 @@ def parse_gaussian_output(filename=None, molecule=None):
             elif 'Quartet' in es_mults[istate-1]:
                 mol_state.multiplicity = 4
             mol_state.mo_contributions = es_contribs[istate-1]
+        if current_state is not None:
+            mol.current_state = current_state
+            if current_state_energy is not None:
+                mol.energy = current_state_energy
+                # sanity check
+                if abs(current_state_energy - mol.electronic_states[current_state].energy) > 1e-5:
+                    print(f''' * Warning* Parsed current state energy is different from the calculated one,
+ please check the outputs carefully, MLatom might not support parsing of this kind of output.
+ current_state_energy = {current_state_energy}
+ calculatd state energy = {mol.electronic_states[current_state].energy}
+''')
+            else:
+                mol.energy = mol.electronic_states[current_state].energy
+            if 'energy_gradients' in mol.atoms[0].__dict__:
+                mol.electronic_states[current_state].energy_gradients = mol.energy_gradients
     
     if 'oscillator_strengths' in mol.__dict__:
         if len(mol.oscillator_strengths) > 0:
@@ -958,78 +928,236 @@ def parse_gaussian_output(filename=None, molecule=None):
     if 'infrared_intensities' in mol.__dict__.keys():
         if np.all(mol.infrared_intensities == 0):
             del mol.__dict__['infrared_intensities']
-    
-    # delete the last geom if there were fewer SCF energies than geometries
-    # (can be due to failed SCF calculations or duplicated printing after successful geom opt)
-    if len(scf_energies) < len(xyz_input_orientation) and len(xyz_input_orientation) > 1:
-        if np.max(np.abs(data.array(xyz_input_orientation[-1]) - data.array(xyz_input_orientation[-2]))) < 1e-6:
-            del xyz_input_orientation[-1]
-    if len(scf_energies) < len(xyz_standard_orientation) and len(xyz_standard_orientation) > 1:
-        if np.max(np.abs(data.array(xyz_standard_orientation[-1]) - data.array(xyz_standard_orientation[-2]))) < 1e-6:
-            del xyz_standard_orientation[-1]
-    # if it was opt freq job, then geometries and scf energies are duplicated at the end too
-    if len(scf_energies) > 1:
-        if len(scf_energies) == len(xyz_input_orientation) and len(scf_energies) == len(xyz_standard_orientation):
-            if abs(scf_energies[-2] - scf_energies[-1]) < 1e-6 and np.max(np.abs(data.array(xyz_input_orientation[-1]) - data.array(xyz_input_orientation[-2]))) < 1e-6:
-                del scf_energies[-1]
-                del xyz_input_orientation[-1]
-                del xyz_standard_orientation[-1]
-            if len(energy_gradients) > len(scf_energies):
-                if np.max(np.abs(data.array(energy_gradients[-1]) - data.array(energy_gradients[-2]))) < 1e-6:
-                    del energy_gradients[-1]
-        elif len(scf_energies) == len(xyz_input_orientation):
-            if abs(scf_energies[-2] - scf_energies[-1]) < 1e-6 and np.max(np.abs(data.array(xyz_input_orientation[-1]) - data.array(xyz_input_orientation[-2]))) < 1e-6:
-                del scf_energies[-1]
-                del xyz_input_orientation[-1]
-            if len(energy_gradients) > len(scf_energies):
-                if np.max(np.abs(data.array(energy_gradients[-1]) - data.array(energy_gradients[-2]))) < 1e-6:
-                    del energy_gradients[-1]
-        elif len(scf_energies) == len(xyz_standard_orientation):
-            if abs(scf_energies[-2] - scf_energies[-1]) < 1e-6 and np.max(np.abs(data.array(xyz_standard_orientation[-1]) - data.array(xyz_standard_orientation[-2]))) < 1e-6:
-                del scf_energies[-1]
-                del xyz_standard_orientation[-1]
-            if len(energy_gradients) > len(scf_energies):
-                if np.max(np.abs(data.array(energy_gradients[-1]) - data.array(energy_gradients[-2]))) < 1e-6:
-                    del energy_gradients[-1]
+            
+    if not 'energy' in mol.__dict__.keys():
+        if 'scf_energy' in mol.__dict__.keys():
+            mol.energy = mol.scf_energy
+        elif recovered_energy is not None:
+            mol.energy = recovered_energy
 
-    # get molecular database for multiple single-point calculations in the output file
-    if len(scf_energies) > 1:
-        db = data.molecular_database()
-        db.molecules = [mol.copy(atomic_labels=[], molecular_labels=[]) for ii in range(len(scf_energies))]
-        for iscf in range(len(scf_energies)):
-            db.molecules[iscf].energy = scf_energies[iscf]
-        if len(scf_energies) == len(xyz_input_orientation):
-            for iscf in range(len(scf_energies)):
-                db.molecules[iscf].xyz_coordinates = data.array(xyz_input_orientation[iscf])
-        # to-do: reorient to input orientation using mol.xyz_coordinates which are already in input orientation for the last geometry
-        #elif len(scf_energies) == len(xyz_standard_orientation)
-        #    for iscf in range(len(scf_energies)):
-        #            db.molecules[iscf].xyz_coordinates = data.array(xyz_standard_orientation[iscf])
-        if len(scf_energies) == len(energy_gradients):
-            for iscf in range(len(scf_energies)):
-                db.molecules[iscf].energy_gradients = data.array(energy_gradients[iscf])
-        mol.molecular_database = db
-        if optjob:
-            moltraj = data.molecular_trajectory()
-            for istep, mol_step in enumerate(db):
-                moltraj.steps.append(data.molecular_trajectory_step(step=istep, molecule=mol_step))
-            mol.optimization_trajectory = moltraj
+def parse_archive(mol, archive, chkfile_path=None):
+    archiveText = r''
+    for line in archive:
+        archiveText += line.strip()
+        if 'NImag=' in archiveText:
+            if line[-len('NImag='):] != 'NImag=':
+                break
+    method_energies = []
+    if archiveText != r'':
+        method_names = ['HF', 'MP2', 'MP3', 'MP4D', 'MP4DQ', 'MP4SDQ', 'MP4SDTQ', 'MP5', 'CISD', 'QCISD', 'QCISD(T)', 'CCSD', 'CCSD(T)']
+        archiveTextSplit = archiveText.split('\\\\') # here it splits with '\\' as a delimiter
+        if 'opt'.casefold() in archiveTextSplit[0].casefold():
+            mol.job_type = 'opt'
+        if 'freq'.casefold() in archiveTextSplit[1].casefold():
+            mol.job_type = 'freq'
+            if chkfile_path is not None:
+                read_Hessian_matrix_from_Gaussian_chkfile(chkfile_path, mol)
+        coords = archiveTextSplit[3]
+        coords = coords.split('\\') # here it splits with '\' as a delimiter
+        charge, mult = (int(xx) for xx in coords[0].split(','))
+        mol.charge = charge
+        mol.multiplicity = mult
+        coords = coords[1:]
+        if len(mol.atoms) == 0:
+            for coord in coords:
+                xx = coord.split(',')
+                if len(xx[1:]) > 3: del xx[1]
+                mol.atoms.append(data.atom(element_symbol=xx[0], xyz_coordinates=data.array([float(yy) for yy in xx[1:]])))
+        else:
+            for idx, coord in enumerate(coords):
+                xx = coord.split(',')
+                mol.atoms[idx].element_symbol = xx[0]
+                if len(xx[1:]) > 3: del xx[1]
+                mol.atoms[idx].xyz_coordinates = data.array([float(yy) for yy in xx[1:]])
+        for xx in archiveTextSplit[4].split('\\'):
+            method_flag = False
+            for name in method_names:
+                if f'{name}=' in xx:
+                    yy = xx.split('=')
+                    method_energies.append((yy[0], float(yy[-1])))
+                    method_flag = True
+                    break
+            if method_flag: continue
+            if 'DipoleDeriv' in xx:
+                yy = xx.split('=')[-1].strip()
+                # to-do: reshape, make sure the same as in Yifan's implementation before with 'DipoleDeriv ' (note space!)
+                mol.dipole_derivatives = data.array([float(zz) for zz in yy.split(',')]) / constants.Debye # do we need to divide by Debye?
+                continue
+            
+    if len(mol.electronic_states) == 0:
+        if len(method_energies) > 1:
+            method_children = []
+            for method in method_energies:
+                method_children.append(data.properties_tree_node(name=method[0]))
+                method_children[-1].energy = method[1]
+                mol.__dict__[method[0]] = method_children[-1]
+            mol.energy_levels = data.properties_tree_node(name='energy_levels',children=method_children)
+            mol.energy = method_energies[-1][1]
+            # in old implementation it was wrong: mol.HF = energy, now it is mol.HF.energy = energy
+        elif len(method_energies) == 1:
+            mol.energy = method_energies[0][1]
 
-    # get energy gradients from the last place they are calculated
-    if len(energy_gradients) > 0:
-        mol.energy_gradients = data.array(energy_gradients[-1])
+def parse_gaussian_output(filename=None, molecule=None):
+    """
+    Parse Gaussian output file and return a molecule obj
+    :param filename: Name of Gaussian output file (e.g. benzene.log or benzene.out)
+    :return: molecule if molecule is not provided
+    """
     
-    if 'molecular_database' in mol.__dict__.keys():
-        if np.max(np.abs(db[-1].xyz_coordinates - mol.xyz_coordinates)) < 1e-6:
-            tmpmol = mol.copy()
-            del tmpmol.__dict__['molecular_database']
-            mol.molecular_database.molecules[-1] = tmpmol
-            if 'optimization_trajectory' in tmpmol.__dict__.keys():
-                del tmpmol.__dict__['optimization_trajectory']
-                mol.optimization_trajectory.steps[-1].molecule = tmpmol
-                
+    if molecule is not None:
+        mol = molecule
+    else:
+        mol = data.molecule()
+    
+    lines = []
+    with open(filename, 'r') as ff:
+        for line in ff:
+            lines.append(line.rstrip())
+           
+    chkfilename = None
+    jobs = []
+    i_archive = [] # list [index_start, index_end]
+    i_input_orient = [] # start indices
+    i_stand_orient = [] # start indices
+    i_normal_termination = [] # indices
+    error_message = None
+    
+    i_optjob = []
+    i_ircjob = []
+    readInp = False
+    readArchive = False
+    
+    for iline, line in enumerate(lines):
+        if ' #' in line[:2] and not readArchive:
+            readInp = True
+        if readInp:
+            if 'opt' in line.casefold():  
+                i_optjob.append(iline)
+                readInp = False
+            if 'irc' in line.casefold():
+                i_ircjob.append(iline)
+                readInp = False
+            if '--------' in line:
+                readInp = False
+            if len(line) == 0:
+                readInp = False
+        if '%chk=' in line:
+            chkfilename = line.split('=')[-1].strip()
+            if not '.chk' in chkfilename:
+                chkfilename += '.chk'
+            continue
+        if ' 1\\1\\' in line or ' 1|1|' in line:
+            i_archive.append([iline, None])
+            readArchive = True
+            continue
+        if readArchive:
+            if '\\\\@' in line or '||@' in line or len(line.strip()) == 0:
+                readArchive = False
+                i_archive[-1][1] = iline
+            continue
+        if 'Input orientation:' in line:
+            i_input_orient.append(iline)
+            continue
+        if 'Standard orientation:' in line:
+            i_stand_orient.append(iline)
+            continue
+        if 'Normal termination of Gaussian' in line:
+            i_normal_termination.append(iline)
+            continue
+        if 'Error termination via ' in line:
+            error_message = '\n'.join(lines[iline-5:iline+1])
+            continue
+    class job():
+        def __init__(self, start=None, end=None):
+            self.start = start
+            self.end = end
+            self.molecules = []
+            self.job_type = None
+    
+    # make list of line indices corresponding to separate jobs in the Gaussian output
+    if len(i_normal_termination) == 0:
+        n_jobs = 1
+        jobs= [job(start=0, end=len(lines)-1)]
+    else:
+        n_jobs = len(i_normal_termination)
+        jobs= [job(start=0, end=i_normal_termination[0])]
+        for ii in range(1,len(i_normal_termination)):
+            jobs.append(job(start=i_normal_termination[ii-1]+1, end=i_normal_termination[ii]))
+        if i_normal_termination[-1] + 10 < len(lines):
+            n_jobs += 1
+            jobs.append(job(start=i_normal_termination[-1]+1, end=len(lines)-1))
+    
+    for i_job in range(n_jobs):
+        for i_opt in i_optjob:
+            if i_opt > jobs[i_job].start and i_opt < jobs[i_job].end:
+                jobs[i_job].job_type = 'opt'
+        for i_irc in i_ircjob:
+            if i_irc > jobs[i_job].start and i_irc < jobs[i_job].end:
+                jobs[i_job].job_type = 'irc'
+    
+    # get indices with chunks based on the 'Input orientation:' or 'Standard orientation:'
+    if len(i_input_orient) >= len(i_stand_orient):
+        ichunks = i_input_orient
+    else:
+        ichunks = i_stand_orient
+    
+    for ii in range(len(ichunks)):
+        mol_temp = mol.copy()
+        istart = ichunks[ii]
+        if ii == len(ichunks)-1:
+            iend = len(lines)
+        else:
+            iend = ichunks[ii+1]
+        chunk = lines[ichunks[ii]:iend]
+        parse_chunk(mol_temp, chunk)
+        for i_job in range(n_jobs):
+            if istart > jobs[i_job].start and istart < jobs[i_job].end:
+                jobs[i_job].molecules.append(mol_temp)
+                break
+
+    for i_job, idx_tuple in enumerate(i_archive):
+        istart, iend = idx_tuple
+        chunk = lines[istart:iend+1]
+        if chkfilename is not None:
+            dir_path = os.path.dirname(os.path.realpath(filename))
+            chkfile_path = f'{dir_path}/{chkfilename}'
+            if not os.path.exists(chkfile_path):
+                chkfile_path = None
+        else:
+            chkfile_path = None
+        mol_temp = jobs[i_job].molecules[-1]
+        parse_archive(mol_temp, chunk, chkfile_path)
+        if 'job_type' in mol_temp.__dict__.keys():
+            jobs[i_job].job_type = mol_temp.job_type
+    
+    for job in jobs:
+        for moltmp in job.molecules:
+            moltmp.job_type = job.job_type
+    
+    if len(i_archive) > 0:
+        mol = jobs[len(i_archive)-1].molecules[-1].copy()
+    elif len(jobs[-1].molecules) > 0:
+        mol = jobs[-1].molecules[-1].copy()
+
+    if n_jobs > 1 or len(jobs[0].molecules) > 1:
+        mol.molecular_database = data.molecular_database()
+        for job in jobs:
+            for tmpmol in job.molecules:
+                mol.molecular_database += tmpmol
+    for job in jobs:
+        if job.job_type == 'opt':
+            mol.optimization_trajectory = data.molecular_trajectory()
+            for istep, mol_step in enumerate(job.molecules):
+                mol.optimization_trajectory.steps.append(data.molecular_trajectory_step(step=istep, molecule=mol_step))
+            break
+
+    if error_message is not None:
+        mol.error_message = error_message
+    
     if molecule is None:
         return mol
+    else:
+        molecule.update_from(mol)
 
 if __name__ == '__main__': 
     pass

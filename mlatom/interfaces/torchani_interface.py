@@ -503,6 +503,9 @@ class ani(ml_model, torchani_model):
                     else:
                         energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
                     # true_forces[true_forces.isnan()]=forces[true_forces.isnan()]
+                    nan_mask = torch.isnan(true_forces)
+                    true_forces[nan_mask] = 0
+                    forces[nan_mask] = 0
                     force_loss = (loss_function(true_forces, forces, weightings_f).sum(dim=(1, 2)) / num_atoms).nanmean()
                     if self.hyperparameters.loss_type == 'weighted':
                         loss = energy_loss + self.hyperparameters.force_coefficient * force_loss
@@ -1161,6 +1164,10 @@ class msani(ml_model, torchani_model):
                         gap_loss = 0
                     # true_forces[true_
                     # true_forces[true_forces.isnan()]=forces[true_forces.isnan()]
+                    nan_mask = torch.isnan(true_forces)
+                    true_forces[nan_mask] = 0
+                    forces[nan_mask] = 0
+                    
                     force_loss = (loss_function(true_forces, forces, weightings_f).sum(dim=(1, 2)) / num_atoms).nanmean()
                     loss = energy_loss + self.hyperparameters.force_coefficient * force_loss + self.hyperparameters.gap_coefficient * gap_loss
                     total_mse += loss.item()
@@ -1261,6 +1268,10 @@ class msani(ml_model, torchani_model):
                         gap_loss = 0
                     # true_forces[true_
                     # true_forces[true_forces.isnan()]=forces[true_forces.isnan()]
+                    nan_mask = torch.isnan(true_forces)
+                    true_forces[nan_mask] = 0
+                    forces[nan_mask] = 0
+                    
                     force_loss = (loss_function(true_forces, forces, weightings_f).sum(dim=(1, 2)) / num_atoms).nanmean()
                     loss = energy_loss + self.hyperparameters.force_coefficient * force_loss + self.hyperparameters.gap_coefficient * gap_loss
                 else:

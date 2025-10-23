@@ -10,7 +10,7 @@
 import numpy as np
 from . import data
 from . import constants
-from .thermostat import Andersen_thermostat, Nose_Hoover_thermostat
+from .thermostat import Andersen_thermostat, Nose_Hoover_thermostat, Langevin_thermostat
 from . import stopper
 
 class md():
@@ -94,6 +94,7 @@ class md():
     '''
     Andersen_thermostat = Andersen_thermostat
     Nose_Hoover_thermostat = Nose_Hoover_thermostat
+    Langevin_thermostat = Langevin_thermostat
     def __init__(self, model=None,
                  model_predict_kwargs={},
                  molecule_with_initial_conditions=None,

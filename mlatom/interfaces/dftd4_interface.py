@@ -38,7 +38,7 @@ class dftd4_methods(OMP_model, method_model):
     def __init__(self, 
                  method: str = 'D4',
                  functional: str = 'wb97x', 
-                 save_files_in_current_directory: bool = True, 
+                 save_files_in_current_directory: bool = False, 
                  working_directory: str = None, 
                  nthreads: int = 1):
         self.method = method.casefold()

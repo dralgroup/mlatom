@@ -457,6 +457,7 @@ class mlatom_args(ArgsBase):
         self.set_keyword_alias('AIQM1@DFT*', ['AIQM1DFTstar'])
         self.set_keyword_alias('AIQM1@DFT', ['AIQM1DFT'])
         self.set_keyword_alias('AIQM2@DFT', ['AIQM2DFT'])
+        self.set_keyword_alias('AIQM3@DFT', ['AIQM3DFT'])
         self.set_keyword_alias('ODM2*', ['ODM2star'])
         self.set_keyword_alias('ODM3*', ['ODM3star'])
         self.set_keyword_alias('CCSD(T)*/CBS', ['CCSDTstarCBS'])
@@ -481,6 +482,7 @@ class mlatom_args(ArgsBase):
         self.set_keyword_alias('SCC-DFTB-heats', ['sccdftbheats'])
         self.set_keyword_alias('MINDO/3', ['mindo3'])
         self.set_keyword_alias('CNDO/2', ['cndo2'])
+        self.set_keyword_alias('omnip1', ['omni-p1'])
         # set to False
         self.add_default_dict_args(self._task_list, bool)
         self.add_default_dict_args(self._method_list, bool)
@@ -490,8 +492,10 @@ class mlatom_args(ArgsBase):
             # program control
             'method',
             'nthreads',
+            'calcdir',
             # data IO
             'XYZfile', 'XfileIn',
+            'jsonfile',
             'Yfile', 'YestFile', 'Yb', 'Yt', 'YestT',
             'YgradFile', 'YgradEstFile', 'YgradB', 'YgradT', 'YgradEstT',
             'YgradXYZfile', 'YgradXYZestFile', 'YgradXYZb', 'YgradXYZt', 'YgradXYZestT',
@@ -562,6 +566,13 @@ class mlatom_args(ArgsBase):
             # 'raman':False,
             # 'ir': False,
         })
+        #irc
+        self.add_dict_args({
+            "ircprog": "pysisyphus",
+        })
+        self.add_default_dict_args([
+            "forward", "backward",
+        ], "")
         # ir
         self.add_dict_args({
             'scaling': 0.0

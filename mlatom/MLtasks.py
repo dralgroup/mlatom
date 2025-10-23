@@ -46,12 +46,12 @@ def useMLmodel(args):
     if args.uaiqm:
         get_uaiqm_args(args)
     model = loading_model(args)
-    molecular_database = loading_data(args.XYZfile, args.Yfile, args.YgradXYZfile, charges=args.charges, multiplicities=args.multiplicities)
+    molecular_database = loading_data(args.XYZfile, args.jsonfile, args.Yfile, args.YgradXYZfile, charges=args.charges, multiplicities=args.multiplicities)
     t_predict = predicting(model=model, molecular_database=molecular_database, value=bool(args.YestFile), gradient=bool(args.YgradXYZestFile), hessian=bool(args.hessianEstFile), ismethod=args.method)
     saving_predictions(molecular_database, YestFile=args.YestFile, YgradXYZestFile=args.YgradXYZestFile, hessianEstFile=args.hessianEstFile, method=args.method)
     if args.method:
         print('')
-        if args.AIQM1 or args.AIQM1DFT or args.AIQM1DFTstar or args.AIQM2 or args.AIQM2DFT or args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4 or args.ani1ccxgelu or args.ani1xgelu or args.ani1ccxgelud4 or args.ani1xgelud4:
+        if args.AIQM1 or args.AIQM1DFT or args.AIQM1DFTstar or args.AIQM2 or args.AIQM2DFT or args.AIQM3 or args.AIQM3DFT or args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4 or args.ani1ccxgelu or args.ani1xgelu or args.ani1ccxgelud4 or args.ani1xgelud4:
             nmol = 0
             for mol in molecular_database:
                 nmol += 1
@@ -60,6 +60,8 @@ def useMLmodel(args):
                     printing_aiqm1_results(aiqm1=args.AIQM1, molecule=mol)
                 if args.AIQM2 or args.AIQM2DFT:
                     printing_aiqm2_results(molecule=mol)
+                if args.AIQM3 or args.AIQM3DFT:
+                    printing_aiqm3_results(molecule=mol)
                 elif args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4 or args.ani1ccxgelu or args.ani1xgelu or args.ani1ccxgelud4 or args.ani1xgelud4:
                     printing_animethod_results(methodname=model.method, molecule=mol)
         elif 'uaiqm' in args.method:
@@ -79,7 +81,7 @@ def useMLmodel(args):
 def createMLmodel(args):
     if args.deltaLearn:
         pre_delta_learning(args)
-    molecular_database = loading_data(args.XYZfile, args.Yfile, args.YgradXYZfile, charges=args.charges, multiplicities=args.multiplicities)
+    molecular_database = loading_data(args.XYZfile, args.jsonfile, args.Yfile, args.YgradXYZfile, charges=args.charges, multiplicities=args.multiplicities)
     i_train, i_subtrain, i_validate, i_test, i_cvtest, i_cvopt = sampling(args=args)
     model = loading_model(args)
     result = training(
@@ -95,7 +97,7 @@ def createMLmodel(args):
 def estAccMLmodel(args):
     if args.deltaLearn:
         pre_delta_learning(args)
-    molecular_database = loading_data(args.XYZfile, args.Yfile, args.YgradXYZfile)
+    molecular_database = loading_data(args.XYZfile,args.jsonfile, args.Yfile, args.YgradXYZfile)
     i_train, i_subtrain, i_validate, i_test, i_cvtest, i_cvopt = sampling(args=args)
     model = loading_model(args)
     if args.CVtest:
@@ -212,7 +214,7 @@ def selfCorrect(args):
                     fylayer.writelines('%25.13f\n' % (ylayerm1[ii] + yestlayer[ii]))
 
 def learningCurve(args):
-    molecular_database = loading_data(args.XYZfile, args.Yfile, args.YgradXYZfile, charges=args.charges, multiplicities=args.multiplicities)
+    molecular_database = loading_data(args.XYZfile, args.jsonfile, args.Yfile, args.YgradXYZfile, charges=args.charges, multiplicities=args.multiplicities)
     if args.XfileIn:
         args.XfileIn = os.path.abspath(args.Xfilein)
     else:
@@ -385,7 +387,7 @@ def geomopt(args, return_moldb=False):
     from . import simulations
     if args.uaiqm:
         get_uaiqm_args(args)
-    molDB = loading_data(XYZfile=args.XYZfile, charges=args.charges, multiplicities=args.multiplicities)
+    molDB = loading_data(XYZfile=args.XYZfile, jsonfile=args.jsonfile, charges=args.charges, multiplicities=args.multiplicities)
     model = loading_model(args)
     fname = args.optXYZ
     # if os.path.exists(fname): stopper.stopMLatom(f'File {fname} already exists; please delete or rename it')
@@ -431,6 +433,10 @@ def geomopt(args, return_moldb=False):
             print('\n\n Final properties of molecule %d\n' % (imol+1))
             printing_aiqm2_results(molecule=geomopt.optimized_molecule)
             print('\n')
+        if args.AIQM3 or args.AIQM3DFT:
+            print('\n\n Final properties of molecule %d\n' % (imol+1))
+            printing_aiqm3_results(molecule=geomopt.optimized_molecule)
+            print('\n')
         elif args.method and 'uaiqm' in args.method:
             print('\n\n Final properties of molecule %d\n' % (imol+1))
             uversion = None if not args.uversion else args.uversion
@@ -456,7 +462,7 @@ def ts(args, return_moldb=False):
 def freq(args, molDB=None):
     from . import simulations
     if molDB is None:
-        molDB = loading_data(args.XYZfile, charges=args.charges, multiplicities=args.multiplicities)
+        molDB = loading_data(args.XYZfile, jsonfile=args.jsonfile, charges=args.charges, multiplicities=args.multiplicities)
     if args.uaiqm:
         get_uaiqm_args(args)
     model = loading_model(args)
@@ -557,6 +563,9 @@ def freq(args, molDB=None):
         if args.AIQM2 or args.AIQM2DFT:
             printing_aiqm2_results(molecule=mol)
             print('')
+        if args.AIQM3 or args.AIQM3DFT:
+            printing_aiqm3_results(molecule=mol)
+            print('')
         elif args.method and 'uaiqm' in args.method:
             uversion = None if not args.uversion else args.uversion
             printing_uaiqm_results(molecule=mol, method=args.method, uversion=args.uversion)
@@ -579,13 +588,13 @@ def freq(args, molDB=None):
             # To-do: make it work for ANI-1ccx
             if args.AIQM1:
                 if mol.aiqm1_nn.energy_standard_deviation > 0.41*constants.kcalpermol2Hartree:
-                    print(' * Warning * Heat of formation have high uncertainty!')
+                    print(' * Warning * Heat of formation has high uncertainty!')
             if args.AIQM2:
                 if mol.aiqm2_nn.energy_standard_deviation > 0.36*constants.kcalpermol2Hartree:
-                    print(' * Warning * Heat of formation have high uncertainty!')
+                    print(' * Warning * Heat of formation has high uncertainty!')
             if args.ani1ccx:
                 if mol.ani1ccx.energy_standard_deviation > 1.68*constants.kcalpermol2Hartree:
-                    print(' * Warning * Heat of formation have high uncertainty!')
+                    print(' * Warning * Heat of formation has high uncertainty!')
         print('')
 
 def ir(args):
@@ -596,13 +605,20 @@ def raman(args):
     freq(args)
 
 def irc(args):
-    from . import simulations
-    molDB = loading_data(args.XYZfile, charges=args.charges, multiplicities=args.multiplicities)
+    from .irc import irc
+    molDB = loading_data(XYZfile=args.XYZfile, jsonfile=args.jsonfile, charges=args.charges, multiplicities=args.multiplicities)
     model = loading_model(args)
     for imol, mol in enumerate(molDB):
         mol.number = imol+1
-        geomopt = simulations.irc(model=model,
-                                    ts_molecule=mol)
+        if len(molDB) == 1: wd = 'irc'
+        else: wd = f'irc{imol}'
+        forward=False; backward=False
+        if args.forward: forward=True
+        if args.backward: backward=True 
+        results = irc(
+            model=model, molecule=mol, program=args.ircprog, working_directory=wd,
+            forward=forward, backward=backward)
+        print(results); sys.stdout.flush()
 
 def MD(args):
     from . import md_cmd
@@ -641,7 +657,7 @@ def MLTPA(args):
 
 def al(args):
     from .al import active_learning
-    molDB = loading_data(args.XYZfile, charges=args.charges, multiplicities=args.multiplicities)
+    molDB = loading_data(args.XYZfile, jsonfile=args.jsonfile, charges=args.charges, multiplicities=args.multiplicities)
     args.nthreads = 1
     model = loading_model(args)
     active_learning(
@@ -650,11 +666,22 @@ def al(args):
     )
 
 # Reusable functions below. Name with -ing form
-def loading_data(XYZfile, Yfile=None, YgradXYZfile=None, charges=None, multiplicities=None):
-    assert XYZfile, 'please provide data file(s) needed.'
-    if not os.path.exists(XYZfile):
+def loading_data(XYZfile=None, jsonfile=None, Yfile=None, YgradXYZfile=None, charges=None, multiplicities=None):
+    
+    assert XYZfile or jsonfile, 'please provide data file(s) needed.'
+    if XYZfile and jsonfile:
+        print("Both xyz file and .json file are specified. Only json file will be loaded!")
+        XYZfile = None 
+
+    if XYZfile and not os.path.exists(XYZfile):
         stopper.stopMLatom(f'xyz file {XYZfile} is not found!')
-    molecular_database = data.molecular_database.from_xyz_file(XYZfile)
+    if jsonfile and not os.path.exists(jsonfile):
+        stopper.stopMLatom(f'json file {jsonfile} is not found!')
+    
+    if XYZfile:
+        molecular_database = data.molecular_database.from_xyz_file(XYZfile)
+    if jsonfile:
+        molecular_database = data.molecular_database.load(jsonfile, format='json')
     if Yfile: 
         molecular_database.add_scalar_properties_from_file(Yfile)
     if YgradXYZfile:
@@ -688,6 +715,8 @@ def loading_method(args):
         kwargs['warning'] = args.uwarning
     method = models.methods(**kwargs)
     method.set_num_threads(args.nthreads)
+    if args.calcdir:
+        method.working_directory = args.calcdir # some methods don't have working_directory arguments
     return method
 
 def loading_model(args):
@@ -1080,7 +1109,7 @@ def post_delta_learning(args):
                     fyestt.writelines('%s\n' % strtmp)
 
 def get_uaiqm_args(args):
-    molecular_database = loading_data(args.XYZfile, args.Yfile, args.YgradXYZfile, charges=args.charges, multiplicities=args.multiplicities)
+    molecular_database = loading_data(args.XYZfile, args.jsonfile, args.Yfile, args.YgradXYZfile, charges=args.charges, multiplicities=args.multiplicities)
     model = models.uaiqm(method='uaiqm_optimal')
     if not args.ncpus:
         args.ncpus = 8
@@ -1121,6 +1150,20 @@ def printing_aiqm2_results(molecule=None):
     print(fmt % ('NN contribution', molecule.__dict__[aiqm2method+'_nn'].energy))
     print(fmt % ('GFN2-xTB* contribution', molecule.gfn2xtbstar.energy), file=sys.stdout)
     print(fmt % ('D4 contribution', molecule.d4wb97x.energy))
+    print(fmt % ('Total energy', molecule.energy))
+
+def printing_aiqm3_results(molecule=None):
+    fmt = ' %-41s: %15.8f Hartree'
+    # find aiqm1 keyword
+    for kk,_ in molecule.__dict__.items():
+        if 'aiqm3' in kk and kk[-2:]=='nn':
+            aiqm3method = kk.replace('_nn','')
+            break
+    print(fmt % ('Standard deviation of NN contribution', molecule.__dict__[aiqm3method+'_nn'].energy_standard_deviation), end='')
+    print(' %15.5f kcal/mol' % (molecule.__dict__[aiqm3method+'_nn'].energy_standard_deviation * constants.Hartree2kcalpermol))
+    print(fmt % ('NN contribution', molecule.__dict__[aiqm3method+'_nn'].energy))
+    print(fmt % ('GFN2-xTB* contribution', molecule.gfn2xtbstar.energy), file=sys.stdout)
+    print(fmt % ('D3 contribution', molecule.d3b973c.energy))
     print(fmt % ('Total energy', molecule.energy))
 
 def printing_uaiqm_results(molecule=None, method=None, uversion=None):

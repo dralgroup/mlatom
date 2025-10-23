@@ -306,6 +306,9 @@ def load_return_molecule(filename=None, format='json'):
     elif format.casefold() == 'gaussian'.casefold():
         from .interfaces import gaussian_interface
         newmol = gaussian_interface.parse_gaussian_output(filename=filename)
+    elif format.casefold() == 'mndo'.casefold():
+        from .interfaces import mndo_interface
+        newmol = mndo_interface.parse_mndo_output(filename=filename)
     else:
         raise ValueError('Not supported format for loading molecule')
     if newmol is None:
@@ -314,7 +317,7 @@ def load_return_molecule(filename=None, format='json'):
 
 def load_molecule(molobj, filename=None, format='json'):
     newmol = load_return_molecule(filename=filename, format=format)
-    molobj.__dict__.update(newmol.__dict__)
+    molobj.update_from(newmol)
 
 class load_molecule_cls():
     def __get__(self, obj, objtype=None):
@@ -856,6 +859,24 @@ class molecule:
             new_molecule = copy.deepcopy(self)
         new_molecule.id = str(uuid.uuid4())
         return new_molecule
+    
+    def update_from(self, another_molecule):
+        # First, update regular instance attributes
+        self.__dict__.update(another_molecule.__dict__)
+        
+        # Then, handle properties by using their setters
+        for attr_name in dir(type(another_molecule)): # Check the class attributes
+            if attr_name in ['cell_coordinates', 'xyz_coordinates', 'velocities']: # 'xyz_coordinates', 'xyz_velocities' are stored in molecules.atoms and reassigning them here will add lots of NaNs for non-existing values
+                continue
+            attr_value = getattr(type(another_molecule), attr_name)
+            if isinstance(attr_value, property):
+                # Check if the source has this property and it's not the target itself
+                if attr_value.fset is not None and hasattr(another_molecule, attr_name):
+                    try:
+                        setattr(self, attr_name, getattr(another_molecule, attr_name))
+                    except (AttributeError, TypeError) as e:
+                        print(f"Warning: Could not set property '{attr_name}': {e}")
+    
     def bond_length(self, a1, a2):
         """Return the distance between atom numbers a1 and a2.
     
@@ -1235,11 +1256,15 @@ class molecule:
         def animate(mode):
             py3Dmolargs = []
             viewer = py3Dmol.view(width=width, height=height)
+            # center the molecule for better viewing, but creata a new object so that we do not modify the coordinates in this one
+            mol2view = self.from_numpy(self.xyz_coordinates - np.mean(self.xyz_coordinates, 0), self.get_atomic_numbers())
+            if 'normal_modes' in self.atoms[0].__dict__:
+                for iatom in range(len(self.atoms)): mol2view.atoms[iatom].normal_modes = self.atoms[iatom].normal_modes
             if not normal_mode is None:
-                xyzstr = self.get_xyzvib_string(normal_mode=mode)
+                xyzstr = mol2view.get_xyzvib_string(normal_mode=mode)
                 py3Dmolargs = [{'vibrate': {'frames':15,'amplitude':0.8}}]
             else:
-                xyzstr = self.get_xyz_string()
+                xyzstr = mol2view.get_xyz_string()
             viewer.addModel(xyzstr, "xyz", *py3Dmolargs)
             viewer.setStyle({"stick": {}, "sphere": {"scale": 0.25}})
             if not normal_mode is None: viewer.animate({'loop': 'backAndForth'})
@@ -2069,9 +2094,14 @@ class molecular_database:
         if format.casefold() == 'json'.casefold():
             jsonfile = open(filename, 'r')
             data = json.load(jsonfile)
-            self.molecules = []
-            for mol in data['molecules']:
-                self.molecules.append(dict_to_molecule_class_instance(mol))
+            # deal with single molecule json file
+            if "molecules" not in data:
+                if "id" in data:
+                    self.molecules = [dict_to_molecule_class_instance(data)]
+            else:
+                self.molecules = []
+                for mol in data['molecules']:
+                    self.molecules.append(dict_to_molecule_class_instance(mol))
         elif format.casefold() == 'npz'.casefold():
             with np.load(filename, allow_pickle=True) as npz:
                 data = dict(npz)
@@ -2142,7 +2172,7 @@ class molecular_database:
             if item.dtype == 'bool':
                 return molecular_database([self.molecules[i] for i in range(len(self)) if item[i]])
             else:
-                return molecular_database([self.molecules[i] for i in item])
+                return molecular_database([self.molecules[i] for i in item.flatten()])
         if isinstance(item, slice):
             return molecular_database(self.molecules[item])
         else:
@@ -2236,6 +2266,15 @@ class molecular_database:
             _ids = np.argwhere(property_values==vv).reshape((-1,))
             groups.append(self[_ids])
         return groups
+    
+    def to_molecular_trajectory(self) -> molecular_trajectory:
+        """Convert from molecular database to molecular trajectory"""
+        '''
+        Return a molecular database comprising the molecules in the trajectory.
+        '''
+        return molecular_trajectory(
+            steps = [molecular_trajectory_step(step=ii, molecule=imol) 
+                     for ii, imol in enumerate(self.molecules)])   
 
 class reaction_step():
     def __init__(self, **kwargs):
@@ -2920,6 +2959,13 @@ class molecular_trajectory():
         '''
         moldb = self.to_database()
         moldb.view(width=width, height=height)
+    
+    def reset_step_index(self):
+        '''
+        Reset the step index to ascending order 
+        '''
+        for istep, step in enumerate(self.steps):
+            step.step = istep
 
 class molecular_trajectory_step(object):
     def __init__(self, step=None, molecule=None):
