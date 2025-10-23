@@ -533,7 +533,7 @@ class kreg(krr, OMP_model, MKL_model):
             if self.ml_program.casefold() == 'KREG_API'.casefold():
                 if 'kreg_api' in dir(self):
                     self.kreg_api.nthreads = self.nthreads
-                    self.kreg_api.predict(molecular_database=molecular_database,molecule=molecule,property_to_predict=property_to_predict,xyz_derivative_property_to_predict=xyz_derivative_property_to_predict)
+                    self.kreg_api.predict(molecular_database=molecular_database,molecule=molecule,property_to_predict=property_to_predict,xyz_derivative_property_to_predict=xyz_derivative_property_to_predict,hessian_to_predict=hessian_to_predict)
                 else:
                     stopper.stopMLatom('KREG_API model not found')
             elif self.ml_program.casefold() == 'MLatomF'.casefold():
@@ -598,11 +598,12 @@ def MDtrajNet(**kwargs):
 from .addons.uaiqm.uaiqm             import uaiqm
 from .addons.omnip2x.omnip2x         import omnip2x
 from .addons.omnip2x.vecmsani        import vecmsani
+from .addons.aiqm3.aiqm3             import aiqm3
 
 from .aiqm1                          import aiqm1
 from .aiqm2                          import aiqm2
-from .aiqm3                          import aiqm3
 from .dens                           import dens
+from .omnip1                         import omnip1
 # from .aimnet2                        import aimnet2_methods
 from .interfaces.aimnet2_interface   import aimnet2_methods
 from .interfaces.mace_methods_interface import mace_methods
@@ -621,7 +622,7 @@ from .interfaces.dftd3_interface     import dftd3_methods
 from .interfaces.dftd4_interface     import dftd4_methods
 
 # The order of classes determines the defaults (i.e., whatever first works, is used)
-known_classes = [aiqm1, aiqm2, aiqm3, dens, ani_methods, aimnet2_methods, mace_methods, ccsdtstarcbs, gaussian_methods, pyscf_methods, orca_methods, turbomole_methods, mndo_methods, sparrow_methods, xtb_methods, dftbplus_methods, columbus_methods, dftd3_methods, dftd4_methods, uaiqm, omnip2x]
+known_classes = [aiqm1, aiqm2, aiqm3, dens, ani_methods, aimnet2_methods, mace_methods, ccsdtstarcbs, gaussian_methods, pyscf_methods, orca_methods, turbomole_methods, mndo_methods, sparrow_methods, xtb_methods, dftbplus_methods, columbus_methods, dftd3_methods, dftd4_methods, uaiqm, omnip2x, omnip1]
     
 def methods(method: str = None, program: str = None, **kwargs):
     '''

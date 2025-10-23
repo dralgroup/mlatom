@@ -164,6 +164,62 @@ function d2KdMiatdMjbu(Natoms,Xsize,a,tt,bb,uu,Xi,Xj,XYZi,XYZj,ac2dArray,sigma)
   d2KdMiatdMjbu = (out_tempnum1+out_tempnum2) * kernel(Xsize,Xi,Xj,sigma) / (sigma**2)
 end function d2KdMiatdMjbu 
 
+! function d2KdMiatdMibu(Natoms,Xsize,a,tt,bb,uu,Xi,Xj,XYZi,XYZj,ac2dArray,sigma)
+!   implicit none 
+!   real(kind=8) :: d2KdMiatdMibu 
+!   integer, intent(in) :: Natoms,Xsize,a,tt,bb,uu 
+!   real(kind=8), intent(in) :: Xi(1:Xsize), Xj(1:Xsize)
+!   real(kind=8), intent(in) :: XYZi(1:3,1:Natoms),XYZj(1:3,1:Natoms)
+!   integer, intent(in) :: ac2dArray(1:Natoms,1:Natoms)
+!   real(kind=8), intent(in):: sigma 
+
+!   d2KdMiatdMibu = -d2KdMiatdMjbu(Natoms,Xsize,a,tt,b,uu,Xi,Xj,XYZi,XYZi,)
+
+! end function
+
+function d2KdMiatdMibu(Natoms,Xsize,a,tt,bb,uu,Xi,Xj,XYZi,XYZj,ac2dArray,sigma)
+  implicit none 
+  real(kind=8) :: d2KdMiatdMibu 
+  integer, intent(in) :: Natoms,Xsize,a,tt,bb,uu 
+  real(kind=8), intent(in) :: Xi(1:Xsize), Xj(1:Xsize)
+  real(kind=8), intent(in) :: XYZi(1:3,1:Natoms),XYZj(1:3,1:Natoms)
+  integer, intent(in) :: ac2dArray(1:Natoms,1:Natoms)
+  real(kind=8), intent(in):: sigma 
+  ! Local variables
+  integer :: dd, ee, cc, gg, kk, ll 
+  real(kind=8) :: tempnum1, tempnum2, dXdM, dXdMiat, dXdMibu 
+  real(kind=8) :: in_tempnum1, in_tempnum2, out_tempnum1, out_tempnum2 
+
+  tempnum1 = 0.0 
+  tempnum2 = 0.0 
+  out_tempnum1 = 0.0 
+  out_tempnum2 = 0.0 
+
+  do cc=1, Natoms 
+    if (a /= cc) then 
+      dd = ac2dArray(a,cc)
+      dXdMiat = Xi(dd) * (XYZi(tt,cc) - XYZi(tt,a)) / Rij(XYZi(:,a),XYZi(:,cc))**2 
+      in_tempnum1 = 0.0 
+      in_tempnum2 = 0.0 
+      do gg=1, Natoms 
+        if (bb /= gg) then 
+          ee = ac2dArray(bb,gg)
+          dXdMibu = Xi(ee) * (XYZi(uu,gg) - XYZi(uu,bb)) / Rij(XYZi(:,bb),XYZi(:,gg))**2 
+          in_tempnum1 = in_tempnum1 + dXdMibu * (Xj(dd)-Xi(dd))*(Xj(ee)-Xi(ee))
+          if (dd == ee) then 
+            in_tempnum2 = in_tempnum2 - dXdMibu 
+          end if 
+        end if 
+      end do 
+      out_tempnum1 = out_tempnum1 + in_tempnum1 * dXdMiat 
+      out_tempnum2 = out_tempnum2 + in_tempnum2 * dXdMiat 
+    end if 
+  end do 
+  out_tempnum1 = out_tempnum1 / (sigma**2)
+  d2KdMiatdMibu = (out_tempnum1+out_tempnum2) * kernel(Xsize,Xi,Xj,sigma) / (sigma**2)
+
+end function d2KdMiatdMibu
+
 subroutine get_Xeq(Natoms,Xsize,ac2dArray,Req,Xeq)
   implicit none 
   ! Arguments
@@ -334,6 +390,35 @@ function YgradXYZest_KRR(Natoms,Xsize,Ntrain,NtrVal,NtrGrXYZ,itrgrxyzDim,itrgrxy
 
 end function YgradXYZest_KRR
 
+function YhessXYZest_KRR(Natoms,Xsize,Ntrain,NtrVal,NtrGrXYZ,Xipredict,XYZipredict,XYZ,X,alpha,ac2dArray,sigma)
+  implicit none 
+  integer, intent(in) :: Natoms,Xsize,Ntrain,NtrVal,NtrGrXYZ
+  real(kind=8), intent(in) :: Xipredict(1:Xsize),XYZipredict(1:3,1:Natoms),XYZ(1:3,1:Natoms,1:Ntrain),X(1:Xsize,1:Ntrain),alpha(1:NtrVal+NtrGrXYZ,1)
+  integer, intent(in) :: ac2dArray(1:Natoms,1:Natoms)
+  real(kind=8), intent(in) :: sigma
+  real(kind=8) :: YhessXYZest_KRR(1:3*Natoms,1:3*Natoms)
+  ! Local varibales 
+  integer :: jj,a,tt,bb,uu, dim1,dim2
+
+  YhessXYZest_KRR = 0.0
+
+  do a=1, Natoms 
+    do tt=1, 3
+      dim1 = 3*(a-1)+tt
+      do bb=1, Natoms 
+        do uu=1, 3
+          dim2 = 3*(bb-1)+uu
+          do jj=1, NtrVal 
+            YhessXYZest_KRR(dim1,dim2) = YhessXYZest_KRR(dim1,dim2) + alpha(jj,1)*d2KdMiatdMibu(Natoms,Xsize,a,tt,bb,uu,Xipredict,X(:,jj),XYZipredict,XYZ(:,:,jj),ac2dArray,sigma)
+          end do 
+        end do 
+      end do 
+    end do 
+  end do 
+
+
+end function YhessXYZest_KRR
+
 ! subroutine calc_estimation()
 !   implicit none 
 !   ! Local variables
@@ -446,7 +531,7 @@ subroutine train(Natoms,Xsize,Ntrain,NtrVal,NtrGrXYZ,ac2dArray,XYZ,X,Ytrain,K,al
 
 end subroutine train 
 
-subroutine predict(Natoms,Xsize,Ntrain,Npredict,NtrVal,NtrGrXYZ,ac2dArray,X,XYZ,Xpredict,XYZpredict,alpha,calcVal,calcGradXYZ,Yest,YgradXYZest,sigma)
+subroutine predict(Natoms,Xsize,Ntrain,Npredict,NtrVal,NtrGrXYZ,ac2dArray,X,XYZ,Xpredict,XYZpredict,alpha,calcVal,calcGradXYZ,calcHessXYZ,Yest,YgradXYZest,YhessXYZest,sigma)
   implicit none 
   ! Arguments
   integer, intent(in) :: Natoms,Xsize,Ntrain,Npredict,NtrVal,NtrGrXYZ
@@ -456,9 +541,10 @@ subroutine predict(Natoms,Xsize,Ntrain,Npredict,NtrVal,NtrGrXYZ,ac2dArray,X,XYZ,
   real(kind=8), intent(in) :: Xpredict(1:Xsize,1:Npredict)
   real(kind=8), intent(in) :: XYZpredict(1:3,1:Natoms,1:Npredict)
   real(kind=8), intent(in) :: alpha(1:NtrVal+NtrGrXYZ,1)
-  logical, intent(in) :: calcVal, calcGradXYZ
+  logical, intent(in) :: calcVal, calcGradXYZ, calcHessXYZ
   real(kind=8), intent(out) :: Yest(1:Npredict)
   real(kind=8), intent(out) :: YgradXYZest(1:3,1:Natoms,1:Npredict)
+  real(kind=8), intent(out) :: YhessXYZest(1:3*Natoms,1:3*Natoms,1:Npredict)
   real(kind=8), intent(in) :: sigma
 
   ! Local variables
@@ -499,7 +585,13 @@ subroutine predict(Natoms,Xsize,Ntrain,Npredict,NtrVal,NtrGrXYZ,ac2dArray,X,XYZ,
     !$OMP END PARALLEL DO
   end if 
 
-
+  if (calcHessXYZ) then 
+    !$OMP PARALLEL DO PRIVATE(ii) SHARED(YhessXYZest) SCHEDULE(STATIC)
+    do ii=1,Npredict 
+      YhessXYZest(:,:,ii) = YhessXYZest_KRR(Natoms,Xsize,Ntrain,NtrVal,NtrGrXYZ,Xpredict(:,ii),XYZpredict(:,:,ii),XYZ,X,alpha,ac2dArray,sigma)
+    end do 
+    !$OMP END PARALLEL DO 
+  end if
   
 end subroutine predict 
 

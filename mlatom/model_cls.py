@@ -47,6 +47,13 @@ class model():
         **kwargs):
         self.predict(molecule=molecule,
                      **kwargs)
+        if np.any(np.isnan(molecule.energy_gradients)):
+            print(' * Warning* No gradients were calculated, check the logs for any reasons of this critical failure.')
+            if 'error_message' in molecule.__dict__:
+                print(' Error message retrieved from the calculations:')
+                print('-'*10)
+                print(molecule.error_message)
+                print('-'*10)
         if dump_trajectory_interval != None:
             opttraj = data.molecular_trajectory()
             opttraj.load(filename=filename, format=format)

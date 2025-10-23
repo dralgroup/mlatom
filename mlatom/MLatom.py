@@ -4,11 +4,9 @@
   !---------------------------------------------------------------------------!
   !                                                                           !
   !     MLatom: a Package for Atomistic Simulations with Machine Learning     !
-  !                             MLatom 3.18.3                                 !
-  !                                   @                                       !
-  !                 Xiamen Atomistic Computing Suite (XACS)                   !
+  !                             MLatom 3.19.0                                 !
   !                                                                           !
-  !                http://mlatom.com/ @ https://XACScloud.com                 !
+  !                           http://mlatom.com/                              !
   !                                                                           !
   !            MIT License (modified to request proper citations)             !
   !                   Copyright (c) 2013- Pavlo O. Dral                       !
@@ -36,9 +34,9 @@
   ! Bao-Xin Xue, Mikolaj Martyka, Lina Zhang, Jakub Martinka, Quanhao Zhang,  !
   ! Xin-Yu Tong, Arif Ullah, Sebastian V. Pios, Vignesh B. Kumar, Yanchi Ou,  !
   ! Max Pinheiro Jr, Yuming Su, Yiheng Dai, Yangtao Chen, Shuang Zhang,       !
-  ! Matheus O. Bispo                                                          !
+  ! Jinming Hu, Matheus O. Bispo                                              !
   ! MLatom: A Package for Atomistic Simulations with Machine Learning,        !
-  ! version 3.18.3, Xiamen University, Xiamen, China, 2013-2025.              !
+  ! version 3.19.0, Xiamen University, Xiamen, China, 2013-2025.              !
   !                                                                           !
   ! The citations for MLatom's interfaces and features shall be eventually    !
   ! included too. See header.py, ref.json and http://mlatom.com.              !

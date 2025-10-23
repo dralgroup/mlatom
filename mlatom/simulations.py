@@ -12,6 +12,7 @@ Geomopt, freq, DMC
 '''
 from . import constants, data, models
 from .md import md as md
+from .irc import irc
 from .md_parallel import md_parallel as md_parallel
 from .initial_conditions import generate_initial_conditions
 from .md2vibr import vibrational_spectrum
@@ -23,7 +24,7 @@ warnings.filterwarnings("ignore")
 def run_in_parallel(molecular_database=None, task=None, task_kwargs={},
                     nthreads=None,
                     create_temp_directories=False,
-                    create_and_keep_temp_directories=False):
+                    create_and_keep_temp_directories=False, proceed_on_error=True):
     import joblib
     from joblib import Parallel, delayed
     if create_temp_directories or create_and_keep_temp_directories:
@@ -62,10 +63,25 @@ def run_in_parallel(molecular_database=None, task=None, task_kwargs={},
                         os.makedirs(tmpdirname)
                     tmpdirname = os.path.abspath(tmpdirname)
                 os.chdir(tmpdirname)
-                result = task_loc2()
-                os.chdir(cwd)
+                if proceed_on_error:
+                    try:
+                        result = task_loc2()
+                    except Exception as e:
+                        print(f"Task {imol} failed with error: {e}")
+                        result = None   
+                    os.chdir(cwd)
+                else:
+                    result = task_loc2()
+                    os.chdir(cwd)
         else:
-            result = task_loc2()
+            if proceed_on_error:
+                try:
+                    result = task_loc2()
+                except Exception as e:
+                    print(f"Task {imol} failed with error: {e}")
+                    result = None   
+            else:
+                result = task_loc2()
         
         return result
     
@@ -179,7 +195,7 @@ class optimize_geometry():
         
         self.dump_trajectory_interval = dump_trajectory_interval
         if self.program.casefold() == 'Gaussian'.casefold(): self.dump_trajectory_interval = 1 # Gaussian optimizer needs traj file to get the optimization trajectory
-        if self.program.casefold() == 'geometric'.casefold(): self.dump_trajectory_interval = 1
+        # if self.program.casefold() == 'geometric'.casefold(): self.dump_trajectory_interval = 1
         self.filename = filename
         self.format = format
         if self.print_properties != None and self.dump_trajectory_interval == None:
@@ -338,77 +354,16 @@ class optimize_geometry():
 
     def opt_geom_geometric(self):
 
-        # default optimization algorithm is BFGS
-
-        import geometric
-        import geometric.molecule
-
-        maximum_number_of_steps = self.maximum_number_of_steps
-        model_predict_kwargs = self.model_predict_kwargs
-        class MLatomEngine(geometric.engine.Engine):
-            def __init__(self, MLatomMol, model):
-                
-                molecule = geometric.molecule.Molecule()
-                self.mol = MLatomMol 
-                self.model = model
-                molecule.elem = MLatomMol.element_symbols.tolist()
-                molecule.xyzs = [MLatomMol.xyz_coordinates]
-                super(MLatomEngine, self).__init__(molecule)
-                self.cycle = 0
-                self.e_last = 0
-                self.maxsteps = maximum_number_of_steps
-
-            def calc_new(self, coords, dirname):
-                mol = self.mol.copy(atomic_labels=[],molecular_labels=[])
-                updated_coord = coords.reshape(-1,3)*constants.Bohr2Angstrom
-                mol.update_xyz_vectorial_properties('xyz_coordinates', updated_coord)
-                self.model._predict_geomopt(molecule=mol, **model_predict_kwargs)
-                energy = mol.energy
-                gradients = mol.get_energy_gradients()/constants.Angstrom2Bohr
-                self.cycle += 1
-                return {"energy": energy, "gradient": gradients.ravel()}
-        
-        import tempfile, contextlib
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            tmpdirname = os.path.abspath(tmpdirname)
-
-            import logging
-            loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
-            for logger in loggers:
-                if logger.name in ['geometric.nifty', 'geometric']:
-                    logger.setLevel(logging.CRITICAL)
-                    logger.propagate = False
-            
-            if self.ts:
-                print('Start calculating hessian on trainsition state as first step ...')
-                sys.stdout.flush()
-                self.model.predict(molecule=self.initial_molecule, calculate_hessian=True)
-                print('Finish calculating hessian and start optimizing geometry ...')
-                sys.stdout.flush()
-                hess = self.initial_molecule.hessian
-                hessdir = f'{tmpdirname}.tmp/hessian'
-                if not os.path.exists(hessdir):
-                    os.makedirs(hessdir)
-                np.savetxt(f'{hessdir}/hessian.txt',hess)
-                self.initial_molecule.write_file_with_xyz_coordinates(f'{hessdir}/coords.xyz')
-
-            mlatom_engine = MLatomEngine(self.initial_molecule, self.model)
-            try:
-                geometric.optimize.run_optimizer(customengine=mlatom_engine, input=tmpdirname, transition=self.ts, maxiter=self.maximum_number_of_steps, **self.program_kwargs)
-                self.successful = True
-                self.converge = True
-            except Exception as ex:
-                if type(ex) == geometric.errors.GeomOptNotConvergedError:
-                    print('Warning: Geometry optimization with geometric failed to converge. The last geometry will be used as the optimized geometry.')
-                    self.converge = False
-                    self.successful = True
-                else:
-                    print('Warning: Geometry optimization with geometric failed. The initial geometry will be used as the optimized geometry.')
-                    self.converge = False
-                    self.successful = False
-
+        from .interfaces import geometric_interface
+        self.optimization_trajectory, self.successful = geometric_interface.optimize_geometry(
+            model=self.model, 
+            model_predict_kwargs=self.model_predict_kwargs,
+            molecule=self.initial_molecule,
+            ts = self.ts, 
+            maximum_number_of_steps=self.maximum_number_of_steps,
+            geometric_kwargs=self.program_kwargs
+        ) 
         if self.successful:
-            self.optimization_trajectory.load(filename=os.path.join(self.working_directory,self.filename), format='json')
             self.optimized_molecule = self.optimization_trajectory.steps[-1].molecule
         else:
             self.optimized_molecule = self.initial_molecule
@@ -447,34 +402,6 @@ def gen_ts(
     else:
         raise ValueError(f"program {program} is not supported in gen_ts() to generate transition state and reaction path")
 
-
-class irc():
-    def __init__(self, **kwargs):
-        if 'model' in kwargs:
-            self.model = kwargs['model']
-        if 'ts_molecule' in kwargs:
-            self.ts_molecule = kwargs['ts_molecule'].copy(atomic_labels=['xyz_coordinates','number'],molecular_labels=[])
-
-        if 'model_predict_kwargs' in kwargs:
-            self.model_predict_kwargs = kwargs['model_predict_kwargs']
-        else:
-            self.model_predict_kwargs = {}
-
-        if 'program_kwargs' in kwargs:
-            self.program_kwargs = kwargs['program_kwargs']
-        else:
-            self.program_kwargs = {}
-
-        from .interfaces import gaussian_interface
-        if 'number' in self.ts_molecule.__dict__.keys(): suffix = f'_{self.ts_molecule.number}'
-        else: suffix = ''
-        filename = f'gaussian{suffix}'
-        self.model.dump(filename='model.json', format='json')
-        
-        # Run Gaussian
-        gaussian_interface.run_gaussian_job(filename=f'{filename}.com', molecule=self.ts_molecule, external_task='irc', model_predict_kwargs=self.model_predict_kwargs,**self.program_kwargs)
-        
-        #if os.path.exists('model.json'): os.remove('model.json')
 
 class freq():
     """

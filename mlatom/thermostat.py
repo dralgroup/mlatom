@@ -307,13 +307,30 @@ class Langevin_thermostat(Thermostat):
             time_step = kwargs['time_step']
         if 'molecule' in kwargs:
             molecule = kwargs['molecule']
+        else:
+            molecule = None 
+        if 'molecular_database' in kwargs:
+            molecular_database = kwargs['molecular_database']
+        else:
+            molecular_database = None 
         
-        C1 = np.exp(-0.5*time_step/self.tau)
-        masses = molecule.get_nuclear_masses()
-        C2 = np.sqrt(constants.kB_in_Hartree*self.temperature*(1.0-C1**2)/masses/constants.ram2au)
-        velocities = molecule.get_xyz_vectorial_properties('xyz_velocities')
-        velocities *= C1 
-        #print(C2)
-        velocities += C2.reshape(len(C2),1) * np.random.randn(velocities.shape[0],3)
-        molecule.update_xyz_vectorial_properties('xyz_velocities',velocities)
+        if molecule is not None:
+            C1 = np.exp(-0.5*time_step*self.tau)
+            masses = molecule.get_nuclear_masses()
+            C2 = np.sqrt(constants.kB_in_Hartree*self.temperature*(constants.Bohr2Angstrom**2*(constants.fs2au)**2)*(1.0-C1**2)/masses/constants.ram2au)
+            velocities = molecule.get_xyz_vectorial_properties('xyz_velocities')
+            velocities *= C1 
+            #print(C2)
+            velocities += C2.reshape(len(C2),1) * np.random.randn(velocities.shape[0],3)
+            molecule.update_xyz_vectorial_properties('xyz_velocities',velocities)
+        if molecular_database is not None:
+            for mol in molecular_database:
+                C1 = np.exp(-0.5*time_step*self.tau)
+                masses = mol.get_nuclear_masses()
+                C2 = np.sqrt(constants.kB_in_Hartree*self.temperature*(constants.Bohr2Angstrom**2*(constants.fs2au)**2)*(1.0-C1**2)/masses/constants.ram2au)
+                velocities = mol.get_xyz_vectorial_properties('xyz_velocities')
+                velocities *= C1 
+                #print(C2)
+                velocities += C2.reshape(len(C2),1) * np.random.randn(velocities.shape[0],3)
+                mol.update_xyz_vectorial_properties('xyz_velocities',velocities)
         return molecule

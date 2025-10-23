@@ -98,6 +98,14 @@ def printHeader(args):
             refItems['TorchANI program'] = refs['TorchANI']
             if args.freq:
                 refItems['Uncertainty quantification of AIQM1 heats of formation'] = refs['HoF-ANI1ccx']
+
+        if args.method.casefold() in [m.casefold() for m in ['AIQM2', 'AIQM2@DFT']]:
+            refItems['AIQM2']  = refs['AIQM2']
+            refItems['GFN2-xTB']  = refs['xtb']
+            refItems['D4']  = refs['D4']
+            refItems['D4 program']  = refs['D4prog']
+            refItems['ANI model'] = refs['ANI']
+            refItems['TorchANI program'] = refs['TorchANI']
     
         if args.method.casefold() in [models.mndo_methods.supported_methods + models.sparrow_methods.supported_methods]:
             if args.ODM2:
@@ -139,6 +147,9 @@ def printHeader(args):
         if args.ani2xd4:
             refItems['D4']  = refs['D4']
             refItems['D4 program']  = refs['D4prog']
+
+    if args.omnip1:
+        refItems['OMNI-P1'] = refs['OMNI-P1']
 
     if args.method:
         if 'DM21' in args.method.upper():
@@ -213,12 +224,19 @@ def printHeader(args):
             refItems['Atomic simulation environment (ASE)']  = refs['ASE']
                 
     if args.irc:
-        if 'optprog=ase' in ' '.join(args.args2pass).lower():
-            refItems['Atomic simulation environment (ASE)']  = refs['ASE']
-        elif 'optprog=gaussian' in ' '.join(args.args2pass).lower():
+        # if 'optprog=ase' in ' '.join(args.args2pass).lower():
+        #     refItems['Atomic simulation environment (ASE)']  = refs['ASE']
+        # elif 'optprog=gaussian' in ' '.join(args.args2pass).lower():
+        #     refItems['Gaussian program']  = refs['Gaussian']
+        # else:
+        #     refItems['Gaussian program']  = refs['Gaussian']
+        if args.ircprog == 'pysisyphus':
+            refItems['pysisyphus'] = refs['pysisyphus']
+        elif args.ircprog == 'gaussian':
             refItems['Gaussian program']  = refs['Gaussian']
-        else:
-            refItems['Gaussian program']  = refs['Gaussian']
+        elif args.ircprog == 'geometric':
+            refItems['geomeTRIC program']  = refs['geometric']
+        
     
     if 'periodkernel' in ' '.join(args.args2pass).lower():
         refItems['Periodic kernel'] = refs['4D'] + '\n\n' + refs['sklpaper']

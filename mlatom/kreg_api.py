@@ -89,7 +89,7 @@ class KREG_API(models.model):
 
 
 
-    def predict(self, molecular_database=None,molecule=None,property_to_predict=None, xyz_derivative_property_to_predict=None):
+    def predict(self, molecular_database=None,molecule=None,property_to_predict=None, xyz_derivative_property_to_predict=None,hessian_to_predict=None):
         # Assuming that you have trained or loaded a model
         if property_to_predict != None:
             calculate_energy = True 
@@ -99,6 +99,10 @@ class KREG_API(models.model):
             calculate_energy_gradients = True 
         else:
             calculate_energy_gradients = False
+        if hessian_to_predict != None:
+            calculate_hessian = True 
+        else:
+            calculate_hessian = False
         molDB = super().predict(molecular_database=molecular_database, molecule=molecule)
         XYZpredict = molDB.xyz_coordinates
         Npredict = len(XYZpredict)
@@ -109,18 +113,22 @@ class KREG_API(models.model):
         # Predict
         Yest = np.zeros(Npredict)
         YgradXYZest = np.zeros((3,self.Natoms,Npredict))
+        YhessXYZest = np.zeros((3*self.Natoms,3*self.Natoms,Npredict))
         if self.nthreads != None:
             import os
             os.environ["OMP_NUM_THREADS"] = str(self.nthreads)
             os.environ["MKL_NUM_THREADS"] = str(self.nthreads)
-        Yest, YgradXYZest = KREG.kreg.predict(ntrval=self.NtrVal,ntrgrxyz=self.NtrGrXYZ,ac2darray=self.ac2dArray,x=self.array_py2f_dim2(self.X),xyz=self.array_py2f_dim3(self.XYZ),xpredict=self.array_py2f_dim2(Xpredict),xyzpredict=self.array_py2f_dim3(XYZpredict),alpha=self.array_f2py_dim2(self.alpha),calcval=calculate_energy,calcgradxyz=calculate_energy_gradients,sigma=self.sigma)
+        Yest, YgradXYZest, YhessXYZest = KREG.kreg.predict(ntrval=self.NtrVal,ntrgrxyz=self.NtrGrXYZ,ac2darray=self.ac2dArray,x=self.array_py2f_dim2(self.X),xyz=self.array_py2f_dim3(self.XYZ),xpredict=self.array_py2f_dim2(Xpredict),xyzpredict=self.array_py2f_dim3(XYZpredict),alpha=self.array_f2py_dim2(self.alpha),calcval=calculate_energy,calcgradxyz=calculate_energy_gradients,calchessxyz=calculate_hessian,sigma=self.sigma)
         Yest = Yest + self.prior
         YgradXYZest = self.array_f2py_dim3(YgradXYZest)
+        YhessXYZest = self.array_f2py_dim3(YhessXYZest)
         # Get predictions
         if calculate_energy:
             molDB.add_scalar_properties(Yest,property_name=property_to_predict)
         if calculate_energy_gradients:
             molDB.add_xyz_vectorial_properties(YgradXYZest,xyz_vectorial_property=xyz_derivative_property_to_predict)
+        if calculate_hessian:
+            molDB.add_scalar_properties(YhessXYZest,property_name=hessian_to_predict)
 
 
     def save_model(self,filename):

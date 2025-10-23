@@ -34,7 +34,7 @@ class aiqm2(method_model, downloadable_model):
     def __init__(
         self,
         method: str = 'AIQM2',
-        working_directory: str = '.',
+        working_directory: str = None,
         baseline_kwargs: dict = None,
         dispersion_kwargs: dict = None,
         nthreads: int = 1
@@ -42,11 +42,12 @@ class aiqm2(method_model, downloadable_model):
 
         self.method = method.lower()
         self.model_name = self.method.replace('@','at')
-        self.working_directory = working_directory
         if baseline_kwargs is None: self.baseline_kwargs = {}
         else: self.baseline_kwargs = baseline_kwargs
         if dispersion_kwargs is None: self.dispersion_kwargs = {}
         else: self.dispersion_kwargs = dispersion_kwargs
+        if working_directory is not None:
+            self.set_working_directory(working_directory)
         self.load()
         self.nthreads = nthreads
 
@@ -57,8 +58,46 @@ class aiqm2(method_model, downloadable_model):
     @nthreads.setter
     def nthreads(self, value):
         self._nthreads = value
-        self.aiqm2_model.nthreads = self._nthreads
+        self.aiqm2_model.nthreads = self._nthreads # nthreads can be directly assigned to each tree node
+    
+    @property
+    def working_directory(self):
+        return self._working_directory
 
+    @working_directory.setter
+    def working_directory(self, value):
+        self._working_directory = value
+        self.set_working_directory(value)
+        self.reload_baseline(); self.reload_dispersion()
+        self.reload()
+
+    def set_working_directory(self, working_directory):
+        self.baseline_kwargs["working_directory"] = os.path.join(os.path.abspath(working_directory), "_baseline")
+        self.dispersion_kwargs["working_directory"] = os.path.join(os.path.abspath(working_directory), "_dispersion")
+
+    def reload_baseline(self):
+        from .models import methods
+        self.baseline = model_tree_node(
+            name='gfn2xtbstar',
+            model=methods(method='GFN2-xTB*', **self.baseline_kwargs),
+            operator='predict'
+        )
+    
+    def reload_dispersion(self):
+        from .models import methods
+        self.d4 = model_tree_node(
+            name='d4wb97x',
+            model=methods(method='D4', functional='wb97x',**self.dispersion_kwargs),
+            operator='predict'
+        )
+    
+    def reload(self):
+        self.aiqm2_model = model_tree_node(
+            name=self.model_name,
+            children=[self.baseline, self.nn, self.d4],
+            operator='sum'
+        )
+            
     def predict(
         self, 
         molecular_database=None, 
@@ -99,7 +138,6 @@ class aiqm2(method_model, downloadable_model):
         molecule.__dict__[f'{self.model_name}_nn'].standard_deviation(properties=['energy'])
 
     def load(self):
-        from .models import methods
 
         if self.model_name.lower() == 'aiqm2':
             download_links = [
@@ -119,16 +157,9 @@ class aiqm2(method_model, downloadable_model):
         
         model_paths = [os.path.join(mlatom_model_dir, model_files[ii]) for ii in range(8)]
 
-        baseline = model_tree_node(
-            name='gfn2xtbstar',
-            model=methods(method='GFN2-xTB*', working_directory=self.working_directory,**self.baseline_kwargs),
-            operator='predict'
-        )
-        d4 = model_tree_node(
-            name='d4wb97x',
-            model=methods(method='D4', functional='wb97x', working_directory=self.working_directory, **self.dispersion_kwargs),
-            operator='predict'
-        )
+        self.reload_baseline()
+        self.reload_dispersion()
+
         from .interfaces.torchani_interface import ani
         class ani_wrapper(ani):
             def __init__(self,**kwargs):
@@ -140,7 +171,7 @@ class aiqm2(method_model, downloadable_model):
                 if 'calculate_polarizability_derivatives' in kwargs.keys():
                     del kwargs['calculate_polarizability_derivatives']
                 super().predict(**kwargs)
-        nn = model_tree_node(
+        self.nn = model_tree_node(
             name=f'{self.model_name}_nn',
             children=[
                 model_tree_node(
@@ -159,7 +190,7 @@ class aiqm2(method_model, downloadable_model):
 
         self.aiqm2_model = model_tree_node(
             name=self.model_name,
-            children=[baseline, nn, d4],
+            children=[self.baseline, self.nn, self.d4],
             operator='sum'
         )
 

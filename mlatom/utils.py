@@ -289,3 +289,51 @@ def fortran_double(arg):
     if isinstance(arg, str):
         arg = arg.replace("D", "E")
     return float(arg)
+
+def wait_for_file_stable(path, timeout=10, interval=0.2):
+    """
+    Wait until a file exists and its size stops changing.
+
+    Parameters
+    ----------
+    path : str
+        Path to the file to monitor.
+    timeout : float
+        Maximum time (in seconds) to wait before giving up.
+    interval : float
+        Time (in seconds) between size checks.
+
+    Returns
+    -------
+    bool
+        True if the file became stable before timeout, False otherwise.
+    """
+    import time
+    start_time = time.time()
+    last_size = -1
+
+    while time.time() - start_time < timeout:
+        if not os.path.exists(path):
+            time.sleep(interval)
+            continue
+
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            time.sleep(interval)
+            continue
+
+        # Try opening and closing the file to ensure it's accessible
+        try:
+            with open(path, 'rb'):
+                pass
+        except (IOError, OSError):
+            time.sleep(interval)
+            continue
+
+        if size == last_size:
+            return True  # file exists and size stable
+        last_size = size
+        time.sleep(interval)
+
+    return False
