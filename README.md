@@ -9,7 +9,9 @@ MLatom is a package for atomistic simulations with machine learning and quantum 
 
 Official website: [MLatom.com](http://mlatom.com) with manuals and tutorials.
 
-MLatom is supported by [Aitomistic](https://aitomistic.com), which enables simulations with MLatom online on the [Aitomistic Hub](https://aitomistic.xyz) (registration free), with AI assistant Aitomia helping with autonomous atomistic simulations. Aitomistic also distributes [add-ons](https://aitomistic.com/en/product/aitomic) to MLatom, which supercharge MLatom with the most advanced features and ML models, often before they are published.
+MLatom is supported by [Aitomistic](https://aitomistic.com), which enables simulations with MLatom online on the [Aitomistic Hub](https://aitomistic.xyz) (registration free), with [AI assistant Aitomia](http://mlatom.com/aitomia/) helping with autonomous atomistic simulations. Aitomistic also distributes [add-ons](https://aitomistic.com/en/product/aitomic) to MLatom, which supercharge MLatom with the most advanced features and ML models, often before they are published.
+
+The package was founded by `Pavlo O. Dral <http://dr-dral.com>`__ on 10 September 2013. Pavlo continues to develop and supervise the development of the package.
 
 ## Local installation
 
