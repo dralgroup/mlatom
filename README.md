@@ -11,7 +11,7 @@ Official website: [MLatom.com](http://mlatom.com) with manuals and tutorials.
 
 MLatom is supported by [Aitomistic](https://aitomistic.com), which enables simulations with MLatom online on the [Aitomistic Hub](https://aitomistic.xyz) (registration free), with [AI assistant Aitomia](http://mlatom.com/aitomia/) helping with autonomous atomistic simulations. Aitomistic also distributes [add-ons](https://aitomistic.com/en/product/aitomic) to MLatom, which supercharge MLatom with the most advanced features and ML models, often before they are published.
 
-The package was founded by `Pavlo O. Dral <http://dr-dral.com>`__ on 10 September 2013. Pavlo continues to develop and supervise the development of the package.
+The package was founded by [Pavlo O. Dral](http://dr-dral.com) on 10 September 2013. Pavlo continues to develop and supervise the development of the package.
 
 ## Local installation
 
@@ -50,11 +50,11 @@ Full [release notes](http://mlatom.com/docs/releases.html).
 - MLatom 3.4.0 (29.04.2024) - [usability improvements with focus on geometry optimizations](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-4-0)
 - MLatom 3.3.0 (03.04.2024) - [surface-hopping dynamics](https://mlatom.com/docs/releases.html#mlatom-3-3-0)
 - MLatom 3.2.0 (19.03.2024) - [diffusion Monte Carlo and energy-weighted training](http://mlatom.com/docs/releases.html#mlatom-3-2-0)
+- MLatom 3.1.0 (12.29.2023) - [MACE interface](http://mlatom.com/releases/#Version_31)
+- MLatom 3.0.0 (12.09.2023)
 
 # Contributions and derivatives
 
 We highly welcome the contributions to the MLatom project. You may also create your own private derivatives of the project by following the license requirements.
 
 If you want to contribute to the main MLatom repository, the easiest way is to create a fork and then send a pull request. Alternatively, you can ask us to create a branch for you. After we receive a pull request, we will review the submitted modifications to the code and may clean up of the code and do other changes to it and eventually include your modifications in the main repository and the official release.
-- MLatom 3.1.0 (12.29.2023) - [MACE interface](http://mlatom.com/releases/#Version_31)
-- MLatom 3.0.0 (12.09.2023)
