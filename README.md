@@ -13,6 +13,9 @@ MLatom is supported by [Aitomistic](https://aitomistic.com), which enables simul
 
 The package was founded by [Pavlo O. Dral](http://dr-dral.com) on 10 September 2013. Pavlo continues to develop and supervise the development of the package.
 
+## Subscribe for updates
+Do not miss MLatom updates – [subscribe to us](https://aitomistic.com/en/contact) on the Aitomistic channels, including email newsletter and your favorite social media platform.
+
 ## Local installation
 
 Quick installation:
@@ -21,11 +24,11 @@ Quick installation:
 
 See detailed [installation instructions](http://mlatom.com/docs/installation.html) on recommended dependences and other tips.
 
-# Brief overview of features
+## Brief overview of features
 
 <p align="center"><img src="http://mlatom.com/docs/_images/image1.png"/></p>
 
-# Releases
+## Releases
 Full [release notes](http://mlatom.com/docs/releases.html).
 
 - MLatom 3.18.0 - FSSH, KRR in Julia, MDtrajNet-1 - universal model for directly predicting MD trajectories, ECTS - a diffusion model for generating TSs.
@@ -53,7 +56,7 @@ Full [release notes](http://mlatom.com/docs/releases.html).
 - MLatom 3.1.0 (12.29.2023) - [MACE interface](http://mlatom.com/releases/#Version_31)
 - MLatom 3.0.0 (12.09.2023)
 
-# Contributions and derivatives
+## Contributions and derivatives
 
 We highly welcome the contributions to the MLatom project. You may also create your own private derivatives of the project by following the license requirements.
 
