@@ -105,6 +105,7 @@ class md():
                  maximum_propagation_time=1000,
                  dump_trajectory_interval=None,
                  filename=None, format='h5md',
+                 eliminate_momentum=False,
                  stop_function=None, stop_function_kwargs=None):
         self.model = model
         self.model_predict_kwargs ={'calculate_energy':True, 'calculate_energy_gradients':True}
@@ -148,6 +149,7 @@ class md():
             self.degrees_of_freedom = 3 * self.Natoms - 5
         else:
             self.degrees_of_freedom = 3 * self.Natoms - 6
+        self.eliminate_momentum = eliminate_momentum
         self.propagate()
         
     def propagate(self):
@@ -197,6 +199,13 @@ class md():
                 
                 # Velocity update half step
                 velocity = velocity + acceleration*self.time_step*0.5
+
+                # Remove angular momentum
+                if self.eliminate_momentum:
+                    total_mass = np.sum(self.masses)
+                    v_cm = sum(velocity*self.mass) / total_mass
+                    velocity = velocity - v_cm
+                    velocity = getridofang(coord,velocity,self.masses)
 
                 for iatom in range(self.Natoms):
                     molecule.atoms[iatom].xyz_coordinates = np.copy(coord[iatom])
@@ -260,3 +269,39 @@ class nve():
             molecule = kwargs['molecule']
         return molecule
 
+def getridofang(coord,vel,mass):
+    omega = getAngV(coord,vel,mass)
+    coord_ = coord - getCoM(coord,mass)
+    vel = vel - np.cross(omega,coord_)
+
+    return vel 
+
+def getAngV(xyz,v,m,center=None):
+    L=getAngM(xyz,v,m,center)
+    I=getMomentOfInertiaTensor(xyz,m,center)
+    omega=np.linalg.inv(I).dot(L)
+    return omega
+
+def getCoM(xyz,m=None):
+    if m is None:
+        m=np.ones(xyz.shape[-2])
+    return np.sum(xyz*m[:,np.newaxis],axis=-2)/np.sum(m)
+
+def getAngM(xyz,v,m,center=None):
+    if center is None:
+        centered=xyz-getCoM(xyz,m)
+    else:
+        centered=xyz-center
+    L=np.sum(m[:,np.newaxis]*np.cross(centered,v),axis=0)
+    return L
+
+def getMomentOfInertiaTensor(xyz,m,center=None):
+    if center is None:
+        center=getCoM(xyz,m)
+    centered=xyz-center
+    I=np.zeros((3,3))
+    for i in range(3):
+        for j in range(3):
+            for k in range(len(m)):
+                I[i,j]+=m[k]*(np.sum(centered[k]**2)-centered[k,i]*centered[k,j]) if i==j else m[k]*(-centered[k,i]*centered[k,j])
+    return I

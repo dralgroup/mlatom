@@ -4,7 +4,7 @@
   !---------------------------------------------------------------------------!
   !                                                                           !
   !     MLatom: a Package for Atomistic Simulations with Machine Learning     !
-  !                             MLatom 3.19.0                                 !
+  !                             MLatom 3.19.1                                 !
   !                                                                           !
   !                           http://mlatom.com/                              !
   !                                                                           !
@@ -36,7 +36,7 @@
   ! Max Pinheiro Jr, Yuming Su, Yiheng Dai, Yangtao Chen, Shuang Zhang,       !
   ! Jinming Hu, Matheus O. Bispo                                              !
   ! MLatom: A Package for Atomistic Simulations with Machine Learning,        !
-  ! version 3.19.0, Xiamen University, Xiamen, China, 2013-2025.              !
+  ! version 3.19.1, Xiamen University, Xiamen, China, 2013-2025.              !
   !                                                                           !
   ! The citations for MLatom's interfaces and features shall be eventually    !
   ! included too. See header.py, ref.json and http://mlatom.com.              !

@@ -18,6 +18,7 @@ from .initial_conditions import generate_initial_conditions
 from .md2vibr import vibrational_spectrum
 import os, sys, math, shutil
 import numpy as np
+from typing import Optional
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -93,19 +94,42 @@ class optimize_geometry():
     Geometry optimization.
 
     Arguments:
-        model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): any model or method which provides energies and forces.
-        initial_molecule (:class:`mlatom.data.molecule`): the molecule object to optimize.
-        ts (bool, optional): whether to do transition state search. Currently only be done with program=Gaussian, ASE and geometric.
-        program (str, optional): the engine used in geometry optimization. Currently supports Gaussian, ASE, scipy and PySCF.
-        optimization_algorithm (str, optional): the optimization algorithm used in ASE. Default value: LBFGS (ts=False), dimer (ts=True).
-        maximum_number_of_steps (int, optional): the maximum number of steps for ASE, SciPy and geometric. Default value: 200.
-        convergence_criterion_for_forces (float, optional): forces convergence criterion in ASE. Default value: 0.02 eV/Angstroms.
-        working_directory (str, optional): working directory. Default value: '.', i.e., current directory.
-        constraints (dict, optional): constraints for geometry optimization. Currently only available with program=ASE and program=geometric. For program=ASE, constraints follows the same conventions as in ASE: ``constraints={'bonds':[[target,[index0,index1]], ...],'angles':[[target,[index0,index1,index2]], ...],'dihedrals':[[target,[index0,index1,index2,index3]], ...]}`` (check `FixInternals class in ASE <https://wiki.fysik.dtu.dk/ase/ase/constraints.html>`__ for more information). For program=geometric, the name of constraint file should be provided and please refer to `constrained optimization <https://geometric.readthedocs.io/en/latest/constraints.html#constraint-types>`__ for the format of the constraint file. 
-        print_properties (None or str, optional): properties to print. Default: None. Possible 'all'.
-        dump_trajectory_interval (int, optional): dump trajectory at every time step (1). Set to ``None`` to disable dumping (default).
-        filename (str, optional): the file that saves the dumped trajectory.
-        format (str, optional): format in which the dumped trajectory is saved.
+        model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): 
+            any model or method which provides energies and forces.
+        model_predict_kwargs (dict):
+            additional kwargs of model prediction.
+        initial_molecule (:class:`mlatom.data.molecule`): 
+            the molecule object to optimize.
+        molecule (:class:`mlatom.data.molecule`,optional): 
+            the molecule object to optimize.
+        ts (bool, optional): 
+            whether to do transition state search. Currently only be done with program=Gaussian, ASE and geometric.
+        reactants (:class:`mlatom.data.molecule`,optional):
+            reactant of the transition state, used in qst2 and qst3 only.
+        products (:class:`mlatom.data.molecule`,optional):
+            products of the transition state, used in qst2 and qst3 only.
+        program (str, optional): 
+            the engine used in geometry optimization. Currently supports Gaussian, ASE, scipy and PySCF.
+        program_kwargs (dict, optional):
+            additional kwargs of program
+        optimization_algorithm (str, optional): 
+            the optimization algorithm. Default value: None.
+        maximum_number_of_steps (int, optional): 
+            the maximum number of steps for ASE, SciPy and geometric. Default value: 200.
+        convergence_criterion_for_forces (float, optional): 
+            forces convergence criterion in ASE. Default value: 0.02 eV/Angstroms.
+        working_directory (str, optional): 
+            working directory. Default value: '.', i.e., current directory.
+        constraints (dict, optional): 
+            constraints for geometry optimization. Currently only available with program=ASE and program=geometric. For program=ASE, constraints follows the same conventions as in ASE: ``constraints={'bonds':[[target,[index0,index1]], ...],'angles':[[target,[index0,index1,index2]], ...],'dihedrals':[[target,[index0,index1,index2,index3]], ...]}`` (check `FixInternals class in ASE <https://wiki.fysik.dtu.dk/ase/ase/constraints.html>`__ for more information). For program=geometric, the name of constraint file should be provided and please refer to `constrained optimization <https://geometric.readthedocs.io/en/latest/constraints.html#constraint-types>`__ for the format of the constraint file. 
+        print_properties (None or str, optional): 
+            properties to print. Default: None. Possible 'all'.
+        dump_trajectory_interval (int, optional): 
+            dump trajectory at every time step (1). Set to ``None`` to disable dumping (default).
+        filename (str, optional): 
+            the file that saves the dumped trajectory.
+        format (str, optional): 
+            format in which the dumped trajectory is saved.
 
     Examples:
 
@@ -128,16 +152,26 @@ class optimize_geometry():
 
     """
 
-    def __init__(self,
-                 model=None,  model_predict_kwargs={},
-                 initial_molecule=None, molecule=None,
-                 ts=False, reactants=None, products=None,
-                 program=None, program_kwargs=None,
-                 optimization_algorithm=None, maximum_number_of_steps=None, convergence_criterion_for_forces=None,working_directory=None, 
-    print_properties=None,
-    dump_trajectory_interval=None, # Only None and 1 are supported at the moment
-    filename=None, format='json',
-    constraints=None,
+    def __init__(
+        self,
+        model=None,  
+        model_predict_kwargs:dict={},
+        initial_molecule:Optional[data.molecule]=None, 
+        molecule:Optional[data.molecule]=None,
+        ts:Optional[bool]=False, 
+        reactants:Optional[data.molecule]=None, 
+        products:Optional[data.molecule]=None,
+        program:Optional[str]=None, 
+        program_kwargs:Optional[dict]=None,
+        optimization_algorithm:Optional[str]=None, 
+        maximum_number_of_steps:Optional[int]=None, 
+        convergence_criterion_for_forces:Optional[float]=None,
+        working_directory:Optional[str]=None, 
+        print_properties:Optional[bool]=None,
+        dump_trajectory_interval:Optional[int]=None, # Only None and 1 are supported at the moment
+        filename:Optional[str]=None, 
+        format:Optional[str]='json',
+        constraints:Optional[dict]=None,
     ):
         if model != None:
             self.model = model
@@ -408,12 +442,26 @@ class freq():
     Frequence analysis.
 
     Arguments:
-        model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): any model or method which provides energies and forces and Hessian.
-        molecule (:class:`mlatom.data.molecule`): the molecule object with necessary information.
-        program (str, optional): the engine used in frequence analysis through modified TorchANI (if Gaussian not found or any other string is given), pyscf or Gaussian interfaces.
-        normal_mode_normalization (str, optional): normal modes output scheme. It should be one of: mass weighted normalized, mass deweighted unnormalized, and mass deweighted normalized (default). 
-        anharmonic (bool): whether to do anharmonic frequence calculation.
-        working_directory (str, optional): working directory. Default value: '.', i.e., current directory.
+        model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): 
+            any model or method which provides energies and forces and Hessian.
+        model_predict_kwargs (dict):
+            additional kwargs of model prediction.
+        molecule (:class:`mlatom.data.molecule`): 
+            the molecule object with necessary information.
+        model_predict_kwargs (dict, optional): 
+            Additional keywords used for prediction.
+        program (str, optional): 
+            the engine used in frequence analysis through modified TorchANI (if Gaussian not found or any other string is given), pyscf or Gaussian interfaces.
+        normal_mode_normalization (str, optional): 
+            normal modes output scheme. It should be one of: ``mass weighted normalized``, ``mass deweighted unnormalized``, and ``mass deweighted normalized``. Default: ``mass deweighted normalized``.
+        anharmonic (bool): 
+            whether to do anharmonic frequence calculation.
+        working_directory (str, optional): 
+            working directory. Default value: '.', i.e., current directory.
+        ir (bool): 
+            whether to calculate infrared (IR) intensities 
+        raman (bool): 
+            whether to calculate Raman intensities
 
     Examples:
 
@@ -431,7 +479,20 @@ class freq():
 
 
     """
-    def __init__(self, model=None, model_predict_kwargs=None, molecule=None, program=None, ir=False, raman=False, normal_mode_normalization='mass deweighted normalized', anharmonic=False, anharmonic_kwargs={}, working_directory=None,program_kwargs={}):
+    def __init__(
+        self, 
+        model=None, 
+        model_predict_kwargs:dict=None, 
+        molecule:data.molecule=None, 
+        program:Optional[str]=None, 
+        ir:Optional[bool]=False, 
+        raman:Optional[bool]=False, 
+        normal_mode_normalization:Optional[str]='mass deweighted normalized', 
+        anharmonic:Optional[bool]=False, 
+        anharmonic_kwargs:Optional[dict]={}, 
+        working_directory:Optional[str]=None,
+        program_kwargs:Optional[dict]=None
+    ):
         self.model = model
         if not model_predict_kwargs: self.model_predict_kwargs = {}
         else: self.model_predict_kwargs = model_predict_kwargs
@@ -439,6 +500,8 @@ class freq():
         self.ir = ir
         self.raman = raman
         self.program_kwargs = program_kwargs
+        if self.program_kwargs is None:
+            self.program_kwargs = {}
         if self.ir:
             # import inspect
             # args = ['self']
