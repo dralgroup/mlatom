@@ -172,7 +172,8 @@ class dftbplus_methods(OMP_model, method_model):
             # Check excited state of interest
             if self.current_state > 0:
                 input_lines.append(f"\t\tStateOfInterest = {self.current_state}\n")
-                input_lines.append("\t\tExcitedStateForces = Yes\n\n")
+                if self.calculate_energy_gradients:
+                    input_lines.append("\t\tExcitedStateForces = Yes\n\n")
             input_lines.append("}\n}\n")
 
         # todo: Add electron dynamic input lines
@@ -218,6 +219,8 @@ class dftbplus_methods(OMP_model, method_model):
             if len(forces) > 0:
                 forces = np.array(forces)
                 energy_gradients = -forces / Bohr2Angstrom
+                molecule.add_xyz_derivative_property(derivative=energy_gradients, property_name="energy", xyz_derivative_property="energy_gradients")
+                
         
         # Read hessian
         if self.calculate_hessian == True:
@@ -263,7 +266,7 @@ class dftbplus_methods(OMP_model, method_model):
                     state_mol.energy = gsmol.energy + excitation_energies[ii]
                     molecule.electronic_states.append(state_mol)
                 # if self.calculate_energy_gradients:
-                #     molecule.add_xyz_vectorial_property(vector=energy_gradients, xyz_vectorial_property="energy_gradients")
+                #     molecule.add_xyz_derivative_property(derivative=energy_gradients, property_name="energy", xyz_derivative_property="energy_gradients")
             
             elif self.current_state > 0:
                 molecule.electronic_states += [data.molecule.from_xyz_string(xyzstring) for _ in range(self.nstates - 1)]
@@ -277,6 +280,7 @@ class dftbplus_methods(OMP_model, method_model):
                 if self.calculate_hessian:
                     molecule.electronic_states[self.current_state].hessian = hessian
                     molecule.hessian = hessian
+
 
     @doc_inherit
     def predict(self, 

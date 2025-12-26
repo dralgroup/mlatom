@@ -228,7 +228,8 @@ class pyscf_methods(OMP_pyscf):
             if self.density_fitting:
                 molecule.energy = pyscf_method.e_tot
             else:
-                if pyscf_method.converged:
+                converged = self.check_convergence(pyscf_method)
+                if converged:
                     molecule.energy = pyscf_method.e_tot
                     if 'CCSD(T)' == self.method.upper():
                         molecule.energy = pyscf_method.e_tot + pyscf_method.ccsd_t()
@@ -244,7 +245,8 @@ class pyscf_methods(OMP_pyscf):
             # NOTE: PySCF use Bohr as unit by default for gradients calculation
             molecule_gradients = pyscf_method.nuc_grad_method().kernel()
             
-            if pyscf_method.converged:
+            converged = self.check_convergence(pyscf_method)
+            if converged:
                 molecule_gradients = molecule_gradients/constants.Bohr2Angstrom
 
                 if 'CCSD(T)' == self.method.upper():
@@ -294,7 +296,8 @@ class pyscf_methods(OMP_pyscf):
             # NOTE: PySCF use Bohr as unit by default for hessian calculation
             hess = pyscf_method.Hessian().kernel()
 
-            if pyscf_method.converged:
+            converged = self.check_convergence(pyscf_method)
+            if converged:
                 natom = len(molecule.atoms)
                 h = np.zeros((3*natom, 3*natom))
                 for ii in range(natom):
@@ -306,6 +309,14 @@ class pyscf_methods(OMP_pyscf):
                     calc_dipole_derivatives(pyscf_method,molecule,method_type)
             else:
                 print("PySCF doesn't converge and hessian will not be stored in molecule")
+
+    def check_convergence(self,pyscf_method):
+        if 'converged' in pyscf_method.__dict__:
+            return pyscf_method.converged
+        else:
+            # For MP2
+            return pyscf_method._scf.converged
+
 
     def predict_for_molecule_DM21(self, molecule=None, pyscf_mol=None, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=False, **kwargs):
         # reference: https://github.com/google-deepmind/deepmind-research/tree/f5de0ede8430809180254ee957abf36ed62579ef/density_functional_approximation_dm21

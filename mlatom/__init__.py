@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from . import MLatom, args_class, MLtasks, header, data, models, plot, simulations, stats, xyz, namd, constants, spectra, model_cls
 from .MLatom import run
+from .ciopt import ci_opt
 from .simulations import optimize_geometry, irc, freq, thermochemistry, md, generate_initial_conditions, vibrational_spectrum, md_parallel
 from .data import atom, molecule, molecular_database
 from .models import kreg, ani, msani
@@ -12,4 +13,4 @@ from .gap_md import gap_md, gap_model
 # add-ons
 from .models import uaiqm, omnip1, omnip2x, vecmsani
 
-__version__ = '3.19.0'
+__version__ = '3.20.0'

@@ -45,11 +45,20 @@ class aiqm1(torchani_model, method_model):
                        'AIQM1@DFT': {1:-0.50139362, 6:-37.84623117, 7:-54.59175573, 8:-75.07674376}}
     atomic_energies['AIQM1@DFT*'] = atomic_energies['AIQM1@DFT']
     
-    def __init__(self, method='AIQM1', qm_program=None, qm_program_kwargs={}, dftd4_kwargs={}, **kwargs):
-        from .models import methods
+    def __init__(self, method='AIQM1', qm_program=None, qm_program_kwargs={}, dftd4_kwargs={}, working_directory=None, **kwargs):
+        
         self.method = method.upper()
         self.qm_program = qm_program
         self.qm_program_kwargs = qm_program_kwargs
+        self.dftd4_kwargs = dftd4_kwargs
+        if working_directory is None:
+            self._working_directory = None 
+            self.load_model()
+        else:
+            self.working_directory = working_directory
+        
+    def load_model(self):
+        from .models import methods
         modelname = self.method.lower().replace('*','star').replace('@','at')
         ani_nn_children = []
 
@@ -58,10 +67,10 @@ class aiqm1(torchani_model, method_model):
             ani_nn_children.append(nn_i)
         ani_nns = model_tree_node(name=f'{modelname}_nn', children=ani_nn_children, operator='average')
         shift = model_tree_node(name=f'{modelname}_atomic_energy_shift', operator='predict', model=atomic_energy_shift(method=self.method))
-        odm2star = model_tree_node(name='odm2star', operator='predict', model=methods(method='ODM2*', program=qm_program, **qm_program_kwargs))
+        odm2star = model_tree_node(name='odm2star', operator='predict', model=methods(method='ODM2*', program=self.qm_program, **self.qm_program_kwargs))
         aiqm1_children = [ani_nns, shift, odm2star]
         if self.method != 'AIQM1@DFT*':
-            d4 = model_tree_node(name='d4_wb97x', operator='predict', model=methods(method='D4', functional='wb97x', **dftd4_kwargs))
+            d4 = model_tree_node(name='d4_wb97x', operator='predict', model=methods(method='D4', functional='wb97x', **self.dftd4_kwargs))
             aiqm1_children.append(d4)
         self.aiqm1_model = model_tree_node(name=modelname, children=aiqm1_children, operator='sum')
     
@@ -98,7 +107,7 @@ class aiqm1(torchani_model, method_model):
             standard_atom = data.atom(atomic_number=molecule.atoms[0].atomic_number)
             if molecule.charge != 0 or molecule.multiplicity != standard_atom.multiplicity:
                 from .models import methods
-                odm2model = methods(method='ODM2*', program=self.qm_program)
+                odm2model = methods(method='ODM2*', program=self.qm_program, working_directory=self.working_directory)
                 mol_odm2 = molecule.copy()
                 odm2model.predict(molecule=mol_odm2, nstates=nstates, **kwargs)
                 mol_standard_odm2 = molecule.copy() ; mol_standard_odm2.charge = 0; mol_standard_odm2.multiplicity=standard_atom.multiplicity
@@ -129,7 +138,17 @@ class aiqm1(torchani_model, method_model):
                     mol_el_st.__dict__[f'{modelname}_nn'].standard_deviation(properties=properties+atomic_properties)
             else:
                 molecule.__dict__[f'{modelname}_nn'].standard_deviation(properties=properties+atomic_properties)
-            
+                
+    @property
+    def working_directory(self):
+        return self._working_directory
+    
+    @working_directory.setter 
+    def working_directory(self,value):
+        self._working_directory = value 
+        self.qm_program_kwargs["working_directory"] = self._working_directory
+        self.dftd4_kwargs["working_directory"] = self._working_directory 
+        self.load_model()
 
 class atomic_energy_shift(model):
     atomic_energy_shifts = {'AIQM1': {1: -4.29365862e-02, 6: -3.34329586e+01, 7: -4.69301173e+01, 8: -6.29634763e+01},

@@ -204,7 +204,7 @@ class atom:
 
     def __init__(self, nuclear_charge: Union[int, None] = None, atomic_number: Union[int, None] = None, element_symbol: Union[str, None] = None, nuclear_mass: Union[float, None] = None, xyz_coordinates: Union[np.ndarray, List, None] = None):
         '''
-        initialize atom object with atomic_number and xyz_coordinates only
+        Initialize atom object with atomic_number/nuclear_charge/element_symbol and xyz_coordinates. The nuclear_mass can be used to defind the mass of the atom (unit: AMU, atomic mass unit). By default, use the relative atomic mass.
         '''
         
         if atomic_number != None:
@@ -221,6 +221,9 @@ class atom:
     
     @property
     def nuclear_charge(self):
+        '''
+        Nuclear charge of the atom.
+        '''
         if '_nuclear_charge' in self.__dict__:
             self.atomic_number = self._nuclear_charge
             return self._nuclear_charge
@@ -232,6 +235,9 @@ class atom:
     
     @property
     def element_symbol(self):
+        '''
+        Element symbol of the atom.
+        '''
         if '_element_symbol' in self.__dict__:
             self.atomic_number = element_symbol2atomic_number[self._element_symbol]
             return self._element_symbol
@@ -243,6 +249,9 @@ class atom:
     
     @property
     def nuclear_mass(self):
+        '''
+        Nuclear mass of the atom.
+        '''
         if '_nuclear_mass' not in self.__dict__:
             if self.nuclear_charge > 0:
                 most_abundant_isotope = isotopes.get_most_abundant_with_given_nuclear_charge(
@@ -256,6 +265,9 @@ class atom:
 
     @property
     def multiplicity(self):
+        '''
+        Multiplicity of the atom.
+        '''
         nuclear_mass = self.nuclear_mass
         isotope = isotopes.get_most_similar_isotope_given_nuclear_charge_and_mass(self.nuclear_charge, nuclear_mass)
         if 'multiplicity' in isotope.__dict__:
@@ -264,6 +276,9 @@ class atom:
 
     @property
     def H0(self):
+        '''
+        Enthalpy of formation at 0 K.
+        '''
         nuclear_mass = self.nuclear_mass
         isotope = isotopes.get_most_similar_isotope_given_nuclear_charge_and_mass(self.nuclear_charge, nuclear_mass)
         if 'H0' in isotope.__dict__:
@@ -272,15 +287,21 @@ class atom:
 
     @property
     def nuclear_spin(self):
+        '''
+        Nuclear spin of the atom
+        '''
         nuclear_mass = self.nuclear_mass
         isotope = isotopes.get_most_similar_isotope_given_nuclear_charge_and_mass(self.nuclear_charge, nuclear_mass)
         if 'nuclear_spin' in isotope.__dict__:
             return isotope.nuclear_spin
         return
 
-    def copy(self, atomic_labels=None) -> atom:
+    def copy(self, atomic_labels:List[str]=None) -> atom:
         '''
-        Return a copy of the current atom object.
+        Return a copy of the current atom object. It will always copy the basis properties of the atom (atomic number, nuclear mass, etc.).
+        
+        Arguments:
+            atomic_labels (List[str]): A list of properties to copy. It can be ``['xyz_coordinates']`` if you want to copy the xyz coordinates of the atom.
         '''
         if type(atomic_labels) == type(None):
             atomic_labels = []
@@ -354,7 +375,7 @@ class molecule:
         charge: The electric charge of the molecule.
         multiplicity: The multiplicity of the molecule.
     
-    load(filename: string, format: string):
+    load(filename: str, format: str) -> molecule:
         Load a molecule object from a dumped file.
         
         Updates a molecule object if initialized:
@@ -367,7 +388,19 @@ class molecule:
         Arguments:
             filename (str): filename or path
             
-            format (str, optional): currently, only 'json' format is supported.
+            format (str, optional): currently, ``'json'``, ``'xyz'``, ``'xyzstring'``, ``'gaussian'``, and ``'mndo'`` are supported.
+            
+            .. table::
+                :align: center
+                
+                ============= =====================================
+                 'json'        json format
+                 'xyz'         xyz file
+                 'xyzstring'   xyz string
+                 'gaussian'    Gaussian output file
+                 'mndo'        MNDO output file
+                ============= =====================================
+                
     '''
     load = load_molecule_cls()
     def __init__(self, charge: int = 0, multiplicity: int = 1, atoms: List[atom] = None, pbc: Optional[Union[np.ndarray, bool]] = None, cell: Optional[np.ndarray] = None): 
@@ -605,7 +638,14 @@ class molecule:
         self.add_xyz_vectorial_property(
             vector=derivative, xyz_vectorial_property=xyz_derivative_property)
     
-    def add_hessian_property(self, hessian, hessian_propety='hessian'):
+    def add_hessian_property(self, hessian, hessian_propety:str='hessian') -> None:
+        '''
+        Add a hessian property to the molecule
+        
+        Arguments:
+            hessian: Hessian matrix (3N, 3N) to be added
+            hessian_propety (str, optional): the name assign to the hessian property
+        '''
         self.add_scalar_property(hessian[:len(self)*3,:len(self)*3], property_name=hessian_propety)
     
     def add_xyz_vectorial_property(self, vector, xyz_vectorial_property: str = 'xyz_vector') -> None:
@@ -728,7 +768,10 @@ class molecule:
         return self.get_xyz_vectorial_properties('energy_gradients')
     
     @property
-    def energy_gradients(self):
+    def energy_gradients(self) -> np.ndarray:
+        '''
+        Energy gradients of the molecule.
+        '''
         return self.get_energy_gradients()
     
     @energy_gradients.setter
@@ -736,9 +779,15 @@ class molecule:
         self.add_xyz_derivative_property(value, property_name='energy', xyz_derivative_property='energy_gradients')
 
     def get_number_of_atoms(self):
+        '''
+        Get the number of atoms in the molecule.
+        '''
         return len(self)
     
     def get_property(self, property_name):
+        '''
+        Get the property in the molecule.
+        '''
         if property_name in self.__dict__:
             return self.__dict__[property_name] 
         elif property_name in self.__dir__() and isinstance(getattr(self.__class__, property_name), property):
@@ -757,11 +806,36 @@ class molecule:
         else: 
             return np.nan
 
-    def set_property(self, **kwargs):
+    def set_property(self, **kwargs) -> None:
+        '''
+        Set properties to the molecule.
+        
+        Example: 
+        
+            .. code-block:: python
+
+                import mlatom as ml
+                mol = ml.data.molecule.load(...)
+                mol.set_property(property1=..., property2=...)
+        '''
         for property_name, value in kwargs.items():
             setattr(self, property_name, value)
 
-    def get_xyz_vectorial_properties(self, property_name):
+    def get_xyz_vectorial_properties(self, property_name) -> np.ndarray:
+        '''
+        Get the xyz vectorial property of the molecule
+        
+        Example:
+        
+            .. code-block:: python
+
+                import mlatom as ml
+                mol = ml.data.molecule.load(...)
+                xyz_coordinates = mol.get_xyz_vectorial_properties("xyz_coordinates")
+                # It is equivalent to 
+                xyz_coordinates = mol.xyz_coordinates
+                
+        '''
         vectorial_properties = []
         for atom in self.atoms: 
             vectorial_properties.append(atom.__dict__[property_name] if property_name in atom.__dict__ else np.full(3, np.nan))
@@ -771,7 +845,10 @@ class molecule:
         return array([atom.nuclear_mass for atom in self.atoms])
 
     @property
-    def nuclear_masses(self):
+    def nuclear_masses(self) -> np.ndarray:
+        '''  
+        Get the array of nuclear masses of the atoms in the molecule.
+        '''
         return self.get_nuclear_masses()
     
     def calculate_kinetic_energy(self):
@@ -833,9 +910,13 @@ class molecule:
         for iatom in range(len(self.atoms)):
             self.atoms[iatom].__dict__[property_name] = vectorial_properties[iatom]
 
-    def copy(self, atomic_labels=None, molecular_labels=None):
+    def copy(self, atomic_labels:List[str]=None, molecular_labels:List[str]=None) -> molecule:
         '''
-        Return a copy of current molecule object.
+        Return a copy of current molecule object. By default it will copy all the things in the molecule unless the user specifies either ``atomic_labels`` or ``molecular_labels``.
+        
+        Arguments:
+            atomic_labels (List[str]): A list of atomic properties to copy. It can be ``['xyz_coordinates']`` if you want to copy the xyz coordinates of the atoms.
+            molecular_labels (List[str]): A list of molecular properties to copy. It can be ``['energy']`` if you want to copy the energy of the molecule.
         '''
         if type(atomic_labels) != type(None) or type(molecular_labels) != type(None):
             new_molecule = molecule()
@@ -860,7 +941,18 @@ class molecule:
         new_molecule.id = str(uuid.uuid4())
         return new_molecule
     
-    def update_from(self, another_molecule):
+    def update_from(self, another_molecule:molecule) -> None:
+        '''  
+        Update the current molecule with properties from another molecule
+        
+        Example:
+        
+            .. code-block:python
+            
+                mol1 = ml.data.molecule.load(...)
+                mol2 = ml.data.molecule.load(...)
+                mol1.update_from(mol2)
+        '''
         # First, update regular instance attributes
         self.__dict__.update(another_molecule.__dict__)
         
@@ -877,7 +969,7 @@ class molecule:
                     except (AttributeError, TypeError) as e:
                         print(f"Warning: Could not set property '{attr_name}': {e}")
     
-    def bond_length(self, a1, a2):
+    def bond_length(self, a1, a2) -> float:
         """Return the distance between atom numbers a1 and a2.
     
         Atoms are numbered from zero.
@@ -886,32 +978,32 @@ class molecule:
         diff = self.atoms[a1].xyz_coordinates - self.atoms[a2].xyz_coordinates
         return np.linalg.norm(diff)
         
-    def bond_angle(self, a1, a2, a3, degrees=True):
-            """Return the bond angle a1-a2-a3.
-    
-            The angle is defined by the vectors a1-a2 and a2-a3.
-            Atoms are numbered from zero.
-            based on Tom Keal MNDOtools.py, October 2007
-            degrees - if true, return angle in degrees, else radians.
-    
-            """
-            # Based on the bond angle routine from geoman.f90 by Eduardo Fabiano
-            # vector 1 = 1->2
-            v1 = self.atoms[a2].xyz_coordinates - self.atoms[a1].xyz_coordinates
-            v1 = v1/np.linalg.norm(v1)
-    
-            # vector 2 = 2->3
-            v2 = self.atoms[a3].xyz_coordinates - self.atoms[a2].xyz_coordinates
-            v2 = v2/np.linalg.norm(v2)
-    
-            # dot product
-            dotp = np.dot(v1, v2)
-            # angle in radians
-            ang = math.pi - math.acos(dotp)
-            if degrees:
-                ang *= (180.0 / math.pi)
-            return ang
-    def dihedral_angle(self, a1, a2, a3, a4, degrees=True):
+    def bond_angle(self, a1, a2, a3, degrees=True) -> float:
+        """Return the bond angle a1-a2-a3.
+
+        The angle is defined by the vectors a1-a2 and a2-a3.
+        Atoms are numbered from zero.
+        based on Tom Keal MNDOtools.py, October 2007
+        degrees - if true, return angle in degrees, else radians.
+
+        """
+        # Based on the bond angle routine from geoman.f90 by Eduardo Fabiano
+        # vector 1 = 1->2
+        v1 = self.atoms[a2].xyz_coordinates - self.atoms[a1].xyz_coordinates
+        v1 = v1/np.linalg.norm(v1)
+
+        # vector 2 = 2->3
+        v2 = self.atoms[a3].xyz_coordinates - self.atoms[a2].xyz_coordinates
+        v2 = v2/np.linalg.norm(v2)
+
+        # dot product
+        dotp = np.dot(v1, v2)
+        # angle in radians
+        ang = math.pi - math.acos(dotp)
+        if degrees:
+            ang *= (180.0 / math.pi)
+        return ang
+    def dihedral_angle(self, a1, a2, a3, a4, degrees=True) -> float:
         """Return the dihedral angle a1-a2-a3-a4.
     
         The angle is defined between the planes a1-a2-a3 and a2-a3-a4.
@@ -1051,9 +1143,9 @@ class molecule:
             xyzs.append(self.xyz_coordinates + shift @ self.cell)
         return self.from_numpy(np.concatenate(xyzs, 0), np.tile(self.atomic_numbers, len(shifts)))
     
-    def dump(self, filename=None, format='json'):
+    def dump(self, filename=None, format='json') -> None:
         '''
-        Dump the current molecule object into a file. Only in json format, which is supported now.
+        Dump the current molecule object into a file. Now, json and Gaussian output formats are supported.
         '''
         if format.casefold() == 'json'.casefold():
             jsonfile = open(filename, 'w')
@@ -1063,7 +1155,10 @@ class molecule:
         if format.casefold() == 'gaussian'.casefold():
             write_gaussian_log(self, filename)
     
-    def get_internuclear_distance_matrix(self):
+    def get_internuclear_distance_matrix(self) -> np.ndarray:
+        '''
+        Get the internuclear distance matrix
+        '''
         natoms = len(self.atoms)
         distmat = np.zeros((natoms, natoms))
         for iatomind in range(natoms):
@@ -1073,6 +1168,9 @@ class molecule:
         return distmat
     
     def get_bonds(self):
+        '''  
+        Get bonds in the molecule. Shape: (Nbonds, 2). Each row has the indices of two bonding atoms.
+        '''
         bonds = []
         natoms = len(self.atoms)
         for iatomind in range(natoms):
@@ -1094,7 +1192,10 @@ class molecule:
         bb = self.atoms[atom2_index]
         return np.sqrt(np.sum(np.square(aa.xyz_coordinates-bb.xyz_coordinates)))
     
-    def is_it_linear(self):
+    def is_it_linear(self) -> bool:
+        '''  
+        Check if the molecule is linear.
+        '''
         eps = 1.0E-8
         coord = self.xyz_coordinates
         if len(coord) == 2:
@@ -1277,7 +1378,10 @@ class molecule:
             animate(normal_mode)
 
     @property
-    def velocities(self):
+    def velocities(self) -> np.ndarray:
+        '''  
+        XYZ velocities of the molecule.
+        '''
         return self.get_xyz_vectorial_properties('xyz_velocities')
     
     @velocities.setter
@@ -1285,15 +1389,24 @@ class molecule:
         self.add_xyz_vectorial_property(v, 'xyz_velocities')
 
     @property
-    def CoM(self):
+    def CoM(self) -> np.ndarray:
+        '''
+        Center of mass of the molecule.
+        '''
         return np.sum(self.xyz_coordinates * self.nuclear_masses[:,np.newaxis], axis=-2,keepdims=True) / np.sum(self.nuclear_masses)
         
     @property
-    def linear_momoentum(self):
+    def linear_momentum(self) -> np.ndarray:
+        '''  
+        Linear momentum of the molecule.
+        '''
         return np.sum(self.velocities * self.nuclear_masses[:,np.newaxis], axis=-2,keepdims=True) / np.sum(self.nuclear_masses)
 
     @property
-    def angular_momoentum(self):
+    def angular_momentum(self) -> np.ndarray:
+        '''  
+        Angular momentum of the molecule
+        '''
         return self.get_angular_momoentum()
     
     def get_angular_momoentum(self, center=None):
@@ -1305,7 +1418,10 @@ class molecule:
         return L#*1822.888515*24.188843265e-3/0.529177210903
 
     @property
-    def moment_of_inertia_tensor(self):
+    def moment_of_inertia_tensor(self) -> np.ndarray:
+        '''  
+        Moment of inertia tensor of the molecule.
+        '''
         return self.get_moment_of_inertia_tensor
 
     def get_moment_of_inertia_tensor(self, center=None):
@@ -1320,7 +1436,10 @@ class molecule:
         return I
     
     @property
-    def angular_velocities(self):
+    def angular_velocities(self) -> np.ndarray:
+        '''
+        Angular velocities of the molecule.
+        '''
         return self.get_angular_velocities()
         
     def get_angular_velocities(self, center=None):
@@ -1329,7 +1448,10 @@ class molecule:
         omega=np.linalg.inv(I).dot(L)
         return omega
 
-    def zero_angular_momentum(self,center=None):
+    def zero_angular_momentum(self,center=None) -> None:
+        '''  
+        Clear the angular momentum of the molecule.
+        '''
         if center is None:
             center=self.CoM
         omega=self.angular_velocities(center)
@@ -1341,7 +1463,7 @@ class molecule:
         L0=self.get_angular_momoentum(center)
         I=self.get_moment_of_inertia_tensor(center)
         omega=np.dot(np.linalg.inv(I),(L-L0))
-        self.velocities+=np.cross(omega,self.xyz_coordinates-center)-self.linear_momoentum+P/np.sum(self.nuclear_masses)
+        self.velocities+=np.cross(omega,self.xyz_coordinates-center)-self.linear_momentum+P/np.sum(self.nuclear_masses)
 
 class properties_tree_node():
     def __init__(self, name=None, parent=None, children=None, properties=None):
@@ -2632,7 +2754,7 @@ class molecular_trajectory():
             data['state_energies'] = []
             data['aux_state_energies'] = []
             data['state_gradients'] = []
-            if 'nacv' in self.steps[0].molecule[0].__dict__: data['nacv'] = []
+            if 'nacv' in self.steps[0].molecule.__dict__: data['nacv'] = []
             data['random_number'] = []
             data['hopping_probabilities'] = []
             if 'state_coefficients' in self.steps[0].__dict__: data['state_coefficients_r'] = []
@@ -2686,7 +2808,7 @@ class molecular_trajectory():
                         for i in range(0, len(istep.molecule.electronic_states)):
                             aux_state_energies.append(istep.molecule.electronic_states[i].aux_energy)
                         data['aux_state_energies'].append(np.array(aux_state_energies))
-                if 'nacv' in data.keys(): data['nacv'].append(istep.molecule.get_xyz_vectorial_properties('nacv'))
+                if 'nacv' in data.keys(): data['nacv'].append(istep.molecule.nacv)
                 
                 data['kinetic_energy'].append(istep.molecule.kinetic_energy)
                 data['potential_energy'].append(istep.molecule.energy)

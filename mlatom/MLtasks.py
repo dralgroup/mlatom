@@ -537,6 +537,9 @@ def freq(args, molDB=None):
                 elif args.AIQM1:
                     scaling = True 
                     scaling_factor = 0.957
+                elif args.AIQM3:
+                    scaling = True
+                    scaling_factor = 0.959
                 # if args.method and 'uqiam_gfn2xtbstar' in args.method and 'cc' in args.method:
                 #     scaling = True 
                 #     scaling_factor = 0.962
