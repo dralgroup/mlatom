@@ -17,7 +17,7 @@ from .md import md as md
 
 def generate_random_seed():
     return int(np.random.randint(0, 2**31 - 1))
-    
+
 class surface_hopping_md():
     '''
     Surface-hopping molecular dynamics
@@ -34,6 +34,7 @@ class surface_hopping_md():
         integrator (str, optional): Integrator of semiclassical time dependent Schrödinger equation.
         decoherence_model (str, optional): Decoherence correction type
         decoherence_SDM_decay (float, optional): Decay used in Simplified Decay of Mixing decoherence correction.
+        coupling_calc_threshold (float, optional): Calculate NACs/TDBAs only, when dE < coupling_calc_threshold (units: eV; typical values are 0.5-0.6 eV). By default, NACs/TDBA are calculated for all time steps.
         maximum_propagation_time (float): Maximum propagation time in femtoseconds.
         dump_trajectory_interval (int, optional): Dump trajectory at which interval. Set to ``None`` to disable dumping.
         filename (str, optional): The file that saves the dumped trajectory
@@ -107,6 +108,21 @@ class surface_hopping_md():
                     'initial_state': 2
                     }
 
+        # .. setup TDBA dynamics calculations
+        namd_kwargs = {
+                    'model': model,
+                    'time_step': 0.1,
+                    'time_step_tdse': 0.005,
+                    'maximum_propagation_time': 5,
+                    'hopping_algorithm': 'TDBA',
+                    # the lines commented out are the defaults
+                    #'decoherence_model': 'SDM',
+                    #'rescale_velocity_direction': 'momentum',
+                    #'prevent_back_hop': False,
+                    'nstates': 3,
+                    'initial_state': 2
+                    }
+
         # .. run trajectories in parallel
         dyns = ml.simulations.run_in_parallel(molecular_database=init_cond_db,
                                             task=ml.namd.surface_hopping_md,
@@ -146,6 +162,7 @@ class surface_hopping_md():
                  integrator='Butcher',
                  decoherence_model='SDM',
                  decoherence_SDM_decay=0.1,
+                 coupling_calc_threshold=None,
                  maximum_propagation_time=100,
                  dump_trajectory_interval=None,
                  filename=None, format='h5md',
@@ -191,8 +208,10 @@ class surface_hopping_md():
             self.hopping_algorithm = 'FSSH'
         elif hopping_algorithm.casefold() in ['lzbl', 'lzsh']:
             self.hopping_algorithm = 'LZBL'
+        elif hopping_algorithm.casefold() == 'tdba':
+            self.hopping_algorithm = 'TDBA'
         else:
-            raise ValueError("Invalid hopping_algorithm. Possible values are: 'FSSH' and 'LZBL' (default).")
+            raise ValueError("Invalid hopping_algorithm. Possible values are: 'FSSH', 'TDBA' and 'LZBL' (default).")
         self.nstates=nstates
         self.initial_state = initial_state
         if self.initial_state is None:
@@ -235,7 +254,7 @@ class surface_hopping_md():
             self.reduce_kinetic_energy_factor = self.degrees_of_freedom
         else:
             self.reduce_kinetic_energy_factor = 1
-        if self.hopping_algorithm == 'FSSH':
+        if self.hopping_algorithm == 'FSSH' or self.hopping_algorithm == 'TDBA':
             if time_step_tdse == None:
                 self.time_step_tdse = time_step / 20
             else:
@@ -248,6 +267,7 @@ class surface_hopping_md():
                 self.integrator = integrator
             self.decoherence_model = decoherence_model
             self.decoherence_SDM_decay = decoherence_SDM_decay
+            self.coupling_calc_threshold = coupling_calc_threshold
         self.propagate()
 
     def propagate(self):
@@ -289,7 +309,7 @@ class surface_hopping_md():
                         self.model_predict_kwargs['calculate_energy_gradients'] = [False] * self.nstates
                     self.model_predict_kwargs['calculate_energy_gradients'][self.current_state] = True
             else:
-                if self.hopping_algorithm == 'FSSH':
+                if self.hopping_algorithm == 'FSSH' or self.hopping_algorithm == 'TDBA':
                     # All gradients might be needed in some cases like rescaling velocities along the gradient difference or when the gradient difference is needed for as descriptor for ML-NAC model
                     self.model_predict_kwargs['calculate_energy_gradients'] = [True] * self.nstates
                 else:
@@ -328,14 +348,14 @@ class surface_hopping_md():
                     self.molecular_trajectory.steps[-1].time = (istep + 1) * self.time_step
             if istep == 0:
                 self.molecular_trajectory.steps[istep].current_state = self.current_state
-                if self.hopping_algorithm == 'FSSH':
+                if self.hopping_algorithm == 'FSSH' or self.hopping_algorithm == 'TDBA':
                     self.molecular_trajectory.steps[istep].state_coefficients = np.zeros(self.nstates, dtype=complex)
                     self.molecular_trajectory.steps[istep].state_coefficients[self.initial_state] = 1
             # fssh/lzsh/znsh: prob list
             if self.hopping_algorithm == 'LZBL':
                 random_number = np.random.random()
                 hopping_probabilities = self.lzsh(istep=istep)
-            elif self.hopping_algorithm == 'FSSH':
+            elif self.hopping_algorithm == 'FSSH' or self.hopping_algorithm == 'TDBA':
                 hopping_probabilities, random_number = self.fssh(istep=istep)
             self.molecular_trajectory.steps[-2].random_number = random_number
             self.molecular_trajectory.steps[-2].hopping_probabilities = hopping_probabilities
@@ -353,14 +373,13 @@ class surface_hopping_md():
                 elif self.rescale_velocity_direction.casefold() in ['momentum', 'along velocities']:
                     vector = 'velocities'
                 elif self.rescale_velocity_direction == 'gradient difference':
-                    # TODO: test if units are correct
-                    vector = np.array([atom.electronic_states[self.initial_state].get_energy_gradients() - atom.electronic_states[self.current_state].get_energy_gradients() for atom in self.atoms]) / constants.Angstrom2Bohr
+                    vector = np.array(mol_istep_plus1.electronic_states[self.initial_state].get_energy_gradients() - mol_istep_plus1.electronic_states[self.current_state].get_energy_gradients()) / constants.Angstrom2Bohr
                 mol_istep_plus1.rescale_velocities(
                     kinetic_energy_change=kinetic_energy_change,
                     vector=vector,
                     if_not_enough_kinetic_energy=self.insufficient_energy_action)
                 self.change_properties_of_hopping_step()
-                if self.hopping_algorithm == 'LZBL' or self.hopping_algorithm == 'FSSH':
+                if self.hopping_algorithm == 'LZBL' or self.hopping_algorithm == 'FSSH' or self.hopping_algorithm == 'TDBA':
                     del self.molecular_trajectory.steps[-1]
                     one_step_propagation = True
                     self.molecular_trajectory.steps[-1].current_state = self.current_state
@@ -376,7 +395,7 @@ class surface_hopping_md():
                         del self.molecular_trajectory.steps[-1]
                         if self.reduce_memory_usage: 
                             self.molecular_trajectory.dump(filename=self.filename, format=self.format)
-            elif self.hopping_algorithm == 'LZBL' or self.hopping_algorithm == 'FSSH':
+            elif self.hopping_algorithm == 'LZBL' or self.hopping_algorithm == 'FSSH' or self.hopping_algorithm == 'TDBA':
                 one_step_propagation = False
                 self.molecular_trajectory.steps[-2].current_state = self.current_state
 
@@ -408,7 +427,7 @@ class surface_hopping_md():
                                 self.molecular_trajectory.dump(filename=self.filename, format=self.format)
                                 del self.molecular_trajectory
                                 self.molecular_trajectory = temp_traj
-                            if self.hopping_algorithm == 'FSSH':
+                            if self.hopping_algorithm == 'FSSH' or self.hopping_algorithm == 'TDBA':
                                 temp_traj.steps.append(self.molecular_trajectory.steps[-4])
                                 temp_traj.steps.append(self.molecular_trajectory.steps[-3])
                                 temp_traj.steps.append(self.molecular_trajectory.steps[-2])
@@ -526,30 +545,49 @@ class surface_hopping_md():
         velocity_initial = np.array(self.molecular_trajectory.steps[-3].molecule.get_xyz_vectorial_properties('xyz_velocities'))*constants.Angstrom2Bohr/constants.fs2au
         velocity_final = np.array(self.molecular_trajectory.steps[-2].molecule.get_xyz_vectorial_properties('xyz_velocities'))*constants.Angstrom2Bohr/constants.fs2au
 
-        # Load NACs
-        nac_initial = np.array(self.molecular_trajectory.steps[-3].molecule.nacv)/constants.Angstrom2Bohr
-        nac_final = np.array(self.molecular_trajectory.steps[-2].molecule.nacv)/constants.Angstrom2Bohr
-        for iState in range(self.nstates):
-            for jState in range(iState):
-                # Phase alignment within trajectory based on the dot product of NAC(t) and NAC(t+dt)
-                if np.vdot(nac_initial[iState][jState], nac_final[iState][jState]) < 0:
-                    self.molecular_trajectory.steps[-2].molecule.nacv[iState][jState] *= -1
-                    self.molecular_trajectory.steps[-2].molecule.nacv[jState][iState] *= -1
-                    nac_final[iState][jState] *= -1
-                    nac_final[jState][iState] *= -1
+        if self.hopping_algorithm == 'FSSH':
+            # Load NACs
+            if istep > 1:
+                nac_initial0 = np.array(self.molecular_trajectory.steps[-4].molecule.nacv)/constants.Angstrom2Bohr
+            nac_initial = np.array(self.molecular_trajectory.steps[-3].molecule.nacv)/constants.Angstrom2Bohr
+            nac_final = np.array(self.molecular_trajectory.steps[-2].molecule.nacv)/constants.Angstrom2Bohr
+            for iState in range(self.nstates):
+                for jState in range(iState):
+                    # Phase alignment within trajectory based on the dot product of NAC(t) and NAC(t+dt)
+                    if istep == 1:
+                        if np.vdot(nac_initial[iState][jState], nac_final[iState][jState]) < 0:
+                            self.molecular_trajectory.steps[-2].molecule.nacv[iState][jState] *= -1
+                            self.molecular_trajectory.steps[-2].molecule.nacv[jState][iState] *= -1
+                            nac_final[iState][jState] *= -1
+                            nac_final[jState][iState] *= -1
+                    # Phase alignment within trajectory based on the dot product of NAC(t-dt), NAC(t) and NAC(t+dt)
+                    elif istep > 1:
+                        h_extr = 2 * nac_initial[iState][jState] - nac_initial0[iState][jState]
+                        if np.vdot(h_extr, nac_final[iState][jState])/(np.linalg.norm(h_extr[iState][jState])*np.linalg.norm(nac_final[iState][jState])) < 0:
+                            self.molecular_trajectory.steps[-2].molecule.nacv[iState][jState] *= -1
+                            self.molecular_trajectory.steps[-2].molecule.nacv[jState][iState] *= -1
+                            nac_final[iState][jState] *= -1
+                            nac_final[jState][iState] *= -1
+        elif self.hopping_algorithm == 'TDBA':
+            dt_initial = self.get_tdba_dt_coupling(istep, self.coupling_calc_threshold)
+            dt_final = self.get_tdba_dt_coupling(istep, self.coupling_calc_threshold, next_step=True)
 
         if istep == 0:
             ss_E = [energies_interpolated[0]]
             ss_v = [velocity_initial]
-            ss_NAC = [nac_initial]
-            ss_dt = [self.get_dt_coupling(velocity_initial, nac_initial)]
+            if self.hopping_algorithm == 'FSSH':
+                ss_NAC = [nac_initial]
+                ss_dt = [self.get_dt_coupling(velocity_initial, nac_initial)]
+            elif self.hopping_algorithm == 'TDBA':
+                ss_dt = [dt_initial]
             ss_ph = [np.zeros((self.nstates, self.nstates))]
             ss_c = [self.molecular_trajectory.steps[istep].state_coefficients]
             ss_cdot = [self.coeff_dot(ss_c[-1], ss_dt[-1], ss_ph[-1])]
         else:
             ss_E = self.molecular_trajectory.steps[-4].substep_potential_energy[-4:]
             ss_v = self.molecular_trajectory.steps[-4].substep_velocities[-4:]
-            ss_NAC = self.molecular_trajectory.steps[-4].substep_nonadiabatic_coupling_vectors[-4:]
+            if self.hopping_algorithm == 'FSSH':
+                ss_NAC = self.molecular_trajectory.steps[-4].substep_nonadiabatic_coupling_vectors[-4:]
             ss_dt = self.molecular_trajectory.steps[-4].substep_time_derivative_coupling[-4:]
             ss_c = self.molecular_trajectory.steps[-4].substep_state_coefficients[-4:]
             ss_cdot = self.molecular_trajectory.steps[-4].substep_state_coefficients_dot[-4:]
@@ -562,8 +600,11 @@ class surface_hopping_md():
             # Interpolation
             ss_E.append(energies_interpolated[iSubStep+1])
             ss_v.append(velocity_initial + (iSubStep+1)/n_substeps * (velocity_final - velocity_initial))
-            ss_NAC.append(nac_initial + (iSubStep+1)/n_substeps * (nac_final - nac_initial))
-            ss_dt.append(self.get_dt_coupling(ss_v[-1], ss_NAC[-1]))
+            if self.hopping_algorithm == 'FSSH':
+                ss_NAC.append(nac_initial + (iSubStep+1)/n_substeps * (nac_final - nac_initial))
+                ss_dt.append(self.get_dt_coupling(ss_v[-1], ss_NAC[-1]))
+            elif self.hopping_algorithm == 'TDBA':
+                ss_dt.append(dt_initial + (iSubStep+1)/n_substeps * (dt_final - dt_initial))
 
             if (istep == 0 and iSubStep == 0):
                 ss_ph.append(self.evolve_phase(ss_ph[0], ss_E[-2:]))
@@ -573,9 +614,16 @@ class surface_hopping_md():
                 # Calculate hopping probabilities
                 hopping_probabilities = []
                 for stat in range(self.nstates):
+                    if self.hopping_algorithm == 'FSSH':
+                        if self.rescale_velocity_direction == 'momentum':
+                            frustrated_hop = self.is_hop_frustrated(ss_v[-1], ss_v[-1], ss_E[-1], stat)
+                        else: # 'nacv' and 'gradient difference' (not interpolated)
+                            frustrated_hop = self.is_hop_frustrated(ss_NAC[-1][stat][self.current_state], ss_v[-1], ss_E[-1], stat)
+                    elif self.hopping_algorithm == 'TDBA':
+                        frustrated_hop = self.is_hop_frustrated(ss_v[-1], ss_v[-1], ss_E[-1], stat)
                     if stat == self.current_state:
                         prob = -1.0
-                    elif stat > self.current_state and (self.prevent_back_hop or self.is_hop_frustrated(ss_NAC[-1][stat][self.current_state], ss_v[-1], ss_E[-1], stat)):
+                    elif stat > self.current_state and (self.prevent_back_hop or frustrated_hop):
                             prob = -1.0
                     else:
                         prob0 = -2*np.real(ss_c[0][self.current_state]*np.conj(ss_c[0][stat])*np.exp(0+1j*ss_ph[0][stat][self.current_state]))*ss_dt[0][stat][self.current_state]
@@ -604,9 +652,16 @@ class surface_hopping_md():
                 if not hop_occured:
                     hopping_probabilities = []
                     for stat in range(self.nstates):
+                        if self.hopping_algorithm == 'FSSH':
+                            if self.rescale_velocity_direction == 'momentum':
+                                frustrated_hop = self.is_hop_frustrated(ss_v[-1], ss_v[-1], ss_E[-1], stat)
+                            else: # 'nacv' and 'gradient difference' (not interpolated)
+                                frustrated_hop = self.is_hop_frustrated(ss_NAC[-1][stat][self.current_state], ss_v[-1], ss_E[-1], stat)
+                        elif self.hopping_algorithm == 'TDBA':
+                            frustrated_hop = self.is_hop_frustrated(ss_v[-1], ss_v[-1], ss_E[-1], stat)
                         if stat == self.current_state:
                             prob = -1.0
-                        elif stat > self.current_state and (self.prevent_back_hop or self.is_hop_frustrated(ss_NAC[-1][stat][self.current_state], ss_v[-1], ss_E[-1], stat)):
+                        elif stat > self.current_state and (self.prevent_back_hop or frustrated_hop):
                                 prob = -1.0
                         else:
                             prob0 = -2*np.real(ss_c[-1][self.current_state]*np.conj(ss_c[-1][stat])*np.exp(0+1j*ss_ph[-1][stat][self.current_state]))*ss_dt[-1][stat][self.current_state]
@@ -634,7 +689,8 @@ class surface_hopping_md():
         if istep == 0:
             self.molecular_trajectory.steps[istep].substep_potential_energy = ss_E
             self.molecular_trajectory.steps[istep].substep_velocities = ss_v
-            self.molecular_trajectory.steps[istep].substep_nonadiabatic_coupling_vectors = ss_NAC
+            if self.hopping_algorithm == 'FSSH':
+                self.molecular_trajectory.steps[istep].substep_nonadiabatic_coupling_vectors = ss_NAC
             self.molecular_trajectory.steps[istep].substep_time_derivative_coupling = ss_dt
             self.molecular_trajectory.steps[istep].substep_state_coefficients = ss_c
             self.molecular_trajectory.steps[istep].substep_state_coefficients_dot = ss_cdot
@@ -642,7 +698,8 @@ class surface_hopping_md():
         else:
             self.molecular_trajectory.steps[-3].substep_potential_energy = ss_E[3:]
             self.molecular_trajectory.steps[-3].substep_velocities = ss_v[3:]
-            self.molecular_trajectory.steps[-3].substep_nonadiabatic_coupling_vectors = ss_NAC[3:]
+            if self.hopping_algorithm == 'FSSH':
+                self.molecular_trajectory.steps[-3].substep_nonadiabatic_coupling_vectors = ss_NAC[3:]
             self.molecular_trajectory.steps[-3].substep_time_derivative_coupling = ss_dt[3:]
             self.molecular_trajectory.steps[-3].substep_state_coefficients = ss_c[3:]
             self.molecular_trajectory.steps[-3].substep_state_coefficients_dot = ss_cdot[3:]
@@ -685,6 +742,43 @@ class surface_hopping_md():
             for jState in range(iState):
                 dt_coupling[iState][jState] = np.vdot(velocity, nac[iState][jState])
                 dt_coupling[jState][iState] = -dt_coupling[iState][jState]
+        return dt_coupling
+
+    def get_tdba_dt_coupling(self, istep, coupling_calc_threshold=None, next_step=False):
+        # Energy formula implementation, as in 10.12688/openreseurope.13624.2 and 10.1021/acs.jctc.1c01080
+        dt_coupling = np.zeros((self.nstates, self.nstates))
+        if istep < 2:
+            return dt_coupling
+        if coupling_calc_threshold is None:
+            coupling_calc_threshold = 1000
+        for iState in range(self.nstates):
+            for jState in range(iState):
+                if (self.molecular_trajectory.steps[-3].molecule.electronic_states[iState].energy-self.molecular_trajectory.steps[-3].molecule.electronic_states[jState].energy) * constants.Hartree2eV > coupling_calc_threshold:
+                    dt_coupling[iState][jState] = 0
+                    dt_coupling[jState][iState] = 0
+                else:
+                    if istep == 2:
+                        gap_per_stat = []
+                        for iistep in [-4, -3, -2]:
+                            if next_step:
+                                iistep += 1
+                            gap_per_stat.append(self.molecular_trajectory.steps[iistep].molecule.electronic_states[iState].energy-self.molecular_trajectory.steps[iistep].molecule.electronic_states[jState].energy)
+                        gap = gap_per_stat[-1]
+                        gap_sotd = (gap - 2*gap_per_stat[-2] + gap_per_stat[-3]) / (self.time_step*constants.fs2au)**2
+                    else:
+                        gap_per_stat = []
+                        for iistep in [-5, -4, -3, -2]:
+                            if next_step:
+                                iistep += 1
+                            gap_per_stat.append(self.molecular_trajectory.steps[iistep].molecule.electronic_states[iState].energy-self.molecular_trajectory.steps[iistep].molecule.electronic_states[jState].energy)
+                        gap = gap_per_stat[-1]
+                        gap_sotd = (2*gap - 5*gap_per_stat[-2] + 4*gap_per_stat[-3] - gap_per_stat[-4]) / (self.time_step*constants.fs2au)**2
+                    if gap_sotd / gap <= 0:
+                        dt_coupling[iState][jState] = 0
+                        dt_coupling[jState][iState] = 0
+                    else:
+                        dt_coupling[iState][jState] = np.sign(gap) * np.sqrt(gap_sotd / gap) / 2
+                        dt_coupling[jState][iState] = -dt_coupling[iState][jState]
         return dt_coupling
 
     def coeff_dot(self, coeff, dt_coupling, phase):
@@ -939,3 +1033,312 @@ def plot_population_from_disk(time_step=0.1, max_propagation_time=100.0, nstates
     plt.legend(loc='best', frameon=False, prop={'size': 10})
     plt.savefig(filename, bbox_inches='tight', dpi=300)
     np.savetxt(pop_filename, popArray)
+
+def plot_pes(traj, ax=None):
+    """
+    Plot potential energy surfaces (PESs) and current state along a trajectory.
+
+    Parameters
+    ----------
+    traj : object
+        Molecular trajectory object containing steps.
+    ax : matplotlib.axes.Axes, optional
+        Axis object used for plotting.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    if ax is None:
+        fig, ax = plt.subplots(1, figsize=(8, 3))
+    nstates = len(traj.steps[0].molecule.electronic_states)
+    colors = [plt.cm.tab20(i) for i in range(nstates)]
+    time_step = traj.steps[1].time - traj.steps[0].time
+    time = list(np.arange(traj.steps[0].time, len(traj.steps) * time_step, time_step))
+    energies = []
+    for iState in range(nstates):
+        energies.append(np.array([istep.molecule.electronic_states[iState].energy for istep in traj.steps]))
+    en_current = np.array([istep.molecule.electronic_states[int(istep.current_state)].energy for istep in traj.steps])
+    en_kin = np.array([istep.molecule.kinetic_energy for istep in traj.steps]) * constants.Hartree2eV
+    emin = min(energies[0])
+    for iState in range(nstates):
+        ax.plot(time, (energies[iState]-emin) * constants.Hartree2eV, c=colors[iState], label=f"$S_{iState}$")
+    ax.scatter(time, (en_current-emin) * constants.Hartree2eV, c=en_kin, cmap=plt.cm.viridis, s=9, label="Current", zorder=2)
+    ax.set_ylabel("Energy [eV]", fontsize=10)
+    ax.set_xlim([time[0], time[-1]])
+    ax.legend(ncols=nstates+1, fontsize=10)
+
+def plot_nacs(traj, ax=None):
+    """
+    Plot the Frobenius norms of nonadiabatic coupling vectors (NACs) over time.
+
+    Parameters
+    ----------
+    traj : object
+        Molecular trajectory object containing steps.
+    ax : matplotlib.axes.Axes, optional
+        Axis object used for plotting.
+
+    Notes
+    -----
+    - If predicted NACs are available in `traj.steps[i].molecule.nacv_predicted`,
+      they are overlaid with hollow markers for comparison.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    if ax is None:
+        fig, ax = plt.subplots(1, figsize=(8, 3))
+    nstates = len(traj.steps[0].molecule.electronic_states)
+    colors = [plt.cm.tab20(i) for i in range(int(nstates*(nstates-1)/2))]
+    nsteps = len(traj.steps)
+    time_step = traj.steps[1].time - traj.steps[0].time
+    time = list(np.arange(traj.steps[0].time, nsteps * time_step, time_step))
+    norm_nacs = np.zeros((nsteps, nstates, nstates))
+    norm_nacs_pred = np.zeros((nsteps, nstates, nstates))
+    has_pred = hasattr(traj.steps[0].molecule, 'nacv_predicted')
+    for istep, step in enumerate(traj.steps):
+        for iState in range(nstates):
+            for jState in range(iState):
+                norm_nacs[istep, iState, jState] = np.linalg.norm(step.molecule.nacv[iState][jState], ord='fro')
+                if has_pred:
+                    norm_nacs_pred[istep, iState, jState] = np.linalg.norm(step.molecule.nacv_predicted[iState][jState], ord='fro')
+    icolor = 0
+    for iState in range(nstates):
+        for jState in range(iState):
+            ax.plot(time, norm_nacs[:, iState, jState], c=colors[icolor], label=f"$S_{iState}-S_{jState}$")
+            if has_pred:
+                ax.plot(time, norm_nacs_pred[:, iState, jState], 'o', mfc='none', c=colors[icolor], label=f"$S_{iState}-S_{jState}$")
+            icolor += 1
+    ax.set_ylabel("norm of NACs [1/Å]", fontsize=10)
+    ax.set_xlim([time[0], time[-1]])
+    ax.legend(fontsize=10)
+
+def plot_tdc(traj, ax=None):
+    """
+    Plot the time-derivative couplings (TDCs) between each pair of electronic states over time.
+
+    Parameters
+    ----------
+    traj : object
+        Molecular trajectory object containing steps.
+    ax : matplotlib.axes.Axes, optional
+        Axis object used for plotting.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    if ax is None:
+        fig, ax = plt.subplots(1, figsize=(8, 3))
+    nstates = len(traj.steps[0].molecule.electronic_states)
+    colors = [plt.cm.tab20(i) for i in range(int(nstates*(nstates-1)/2))]
+    nsteps = len(traj.steps)
+    time_step = traj.steps[1].time - traj.steps[0].time
+    time = np.arange(traj.steps[0].time, nsteps * time_step, time_step)
+    tdcs = np.zeros((nsteps, nstates, nstates))
+    for istep_idx, istep in enumerate(traj.steps):
+        for iState in range(nstates):
+            for jState in range(iState):
+                tdcs[istep_idx, iState, jState] = istep.substep_time_derivative_coupling[0][iState][jState]
+    icolor = 0
+    for iState in range(nstates):
+        for jState in range(iState):
+            ax.plot(time, tdcs[:, iState, jState], c=colors[icolor], label=f"$S_{iState}-S_{jState}$")
+            icolor += 1
+    ax.set_ylabel("TDCs [a.u.]", fontsize=10)
+    ax.set_xlim([time[0], time[-1]])
+    ax.legend(ncols=icolor//5+1, fontsize=10)
+
+def plot_pop(traj, ax=None):
+    """
+    Plot the populations of electronic states over time.
+
+    Parameters
+    ----------
+    traj : object
+        Molecular trajectory object containing steps.
+    ax : matplotlib.axes.Axes, optional
+        Axis object used for plotting.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    if ax is None:
+        fig, ax = plt.subplots(1, figsize=(8, 3))
+    nstates = len(traj.steps[0].molecule.electronic_states)
+    time_step = traj.steps[1].time - traj.steps[0].time
+    time_substep = time_step / (len(traj.steps[0].substep_state_coefficients) - 1)
+    colors = [plt.cm.tab20(i) for i in range(nstates)]
+    for iState in range(nstates):
+        times = []
+        state_pop = []
+        for istep, step in enumerate(traj.steps):
+            if istep == len(traj.steps) - 1:
+                continue
+            nsub = len(step.substep_state_coefficients) - 1
+            sub_times = istep * time_step + np.arange(nsub) * time_substep
+            sub_pop = [abs(step.substep_state_coefficients[isub][iState])**2 for isub in range(nsub)]
+            times.extend(sub_times)
+            state_pop.extend(sub_pop)
+        ax.plot(times, state_pop, c=colors[iState], label=f"$S_{iState}$")
+    ax.set_xlabel("Time [fs]", fontsize=10)
+    ax.set_ylabel("$|c|^2$", fontsize=10)
+    ax.set_xlim([times[0], times[-1]])
+    ax.legend(fontsize=10)
+
+def plot_dist(traj, ax=None, geom_params=[[0, 1]], left_axis=False):
+    """
+    Plot degrees of freedom defined by 2(distance), 3(angle) or 4(dihedral angle) atoms over time.
+
+    Parameters
+    ----------
+    traj : object
+        Molecular trajectory object containing steps.
+    ax : matplotlib.axes.Axes, optional
+        Axis object used for plotting.
+    geom_params : list of lists, optional
+        List of degrees of freedom to plot. Each element is:
+        - [i, j] for bond distances between atoms i and j
+        - [i, j, k] for bond angles between atoms i-j-k
+        - [i, j, k, l] for dihedral angles between atoms i-j-k-l.
+    left_axis : bool, optional
+        If True, shift the primary axis to the left and update the right y-axis position.
+    """
+    import numpy as np
+    import matplotlib.pyplot as plt
+    if ax is None:
+        fig, ax = plt.subplots(1, figsize=(8, 3))
+    time_step = traj.steps[1].time - traj.steps[0].time
+    time = np.arange(traj.steps[0].time, len(traj.steps) * time_step, time_step)
+    colors = [plt.cm.gist_ncar(i / len(geom_params)) for i in range(len(geom_params))]
+    plot_types = []
+    for d in geom_params:
+        if len(d) == 2 and "r" not in plot_types: plot_types.append("r")
+        elif len(d) == 3 and "a" not in plot_types: plot_types.append("a")
+        elif len(d) == 4 and "d" not in plot_types: plot_types.append("d")
+    axes = {plot_types[0]: ax}
+    extra_axes_count = -1 if left_axis else 0
+    for p in plot_types[1:]:
+        extra_axes_count += 1
+        ax_new = ax.twinx()
+        ax_new.spines["right"].set_position(("outward", 45 * extra_axes_count))
+        ax_new.tick_params(axis="y", labelsize=10)
+        axes[p] = ax_new
+    for i, d in enumerate(geom_params):
+        if len(d) == 2: axes["r"].plot(time, [s.molecule.bond_length(*d) for s in traj.steps], c=colors[i], label=fr"$r({d[0]},{d[1]})$")
+        elif len(d) == 3: axes["a"].plot(time, [s.molecule.bond_angle(*d, degrees=True) for s in traj.steps], c=colors[i], label=fr"$\alpha({d[0]},{d[1]},{d[2]})$")
+        elif len(d) == 4: axes["d"].plot(time, [s.molecule.dihedral_angle(*d, degrees=True) for s in traj.steps], c=colors[i], label=fr"$\delta({d[0]},{d[1]},{d[2]},{d[3]})$")
+    handles, labels = [], []
+    for p in plot_types:
+        h, l = axes[p].get_legend_handles_labels()
+        handles.extend(h)
+        labels.extend(l)
+    ax.legend(handles, labels, ncols=len(geom_params), fontsize=10)
+    ax.set_xlabel("Time [fs]", fontsize=10)
+    ax.tick_params(axis="both", labelsize=10)
+    ax.set_xlim([time[0], time[-1]])
+    if "r" in axes: axes["r"].set_ylabel(r"Distance $r$ [Å]", fontsize=10)
+    if "a" in axes: axes["a"].set_ylabel(r"Angle $\alpha$ [°]", fontsize=10)
+    if "d" in axes: axes["d"].set_ylabel(r"Dihedral angle $\delta$ [°]", fontsize=10)
+
+def plot_trajs(trajectories=None, geom_params=[[0,1]], show_tdc=False, only_energy_params=False, filename=None):
+    """
+    Plot multiple aspects of molecular trajectories including PES, NACs/TDCs, populations, and degrees of freedom.
+
+    Parameters
+    ----------
+    trajectories : list
+        List of molecular trajectory objects.
+    geom_params : list of lists, optional
+        List of degrees of freedom to plot. Each element is:
+        - [i, j] for bond distances between atoms i and j
+        - [i, j, k] for bond angles between atoms i-j-k
+        - [i, j, k, l] for dihedral angles between atoms i-j-k-l.
+    show_tdc : bool, optional
+        If True, plot TDCs instead of NACs when available.
+    only_energy_params : bool, optional
+        If True, adjust extra y-axis positions to match Landau-Zener surface hopping plotting style.
+    filename : str, optional
+        File path to save the figure. If None, the figure is not saved.
+    """
+    import matplotlib.pyplot as plt
+    for itraj, traj in enumerate(trajectories):
+        has_tdc = hasattr(traj.steps[0], 'substep_time_derivative_coupling')
+        has_nacv = hasattr(traj.steps[0], 'substep_nonadiabatic_coupling_vectors')
+        if has_tdc and not only_energy_params:
+            fig = plt.figure(figsize=(12, 4))
+            gs = fig.add_gridspec(2, 2, hspace=0, wspace=0)
+            axs = gs.subplots()
+            plot_pes(traj, axs[0][0])
+            if has_nacv and not show_tdc:
+                plot_type = 'nacs'
+                plot_nacs(traj, axs[0][1])
+            else:
+                plot_type = 'tdba'
+                plot_tdc(traj, axs[0][1])
+            plot_pop(traj, axs[1][0])
+            plot_dist(traj, axs[1][1], geom_params, left_axis=False)
+            for ax in [axs[0][1], axs[1][1]]:
+                ax.yaxis.set_label_position("right")
+                ax.yaxis.tick_right()
+            for ax in [axs[0][0], axs[0][1], axs[1][0], axs[1][1]]:
+                ax.tick_params(axis='both', which='major', labelsize=10)
+                ax.grid(True, which='major', linestyle='--', color='lightgray', linewidth=0.8)
+            for ax in [axs[0][0], axs[0][1]]:
+                ax.set_xticklabels([])
+            labels = [item.get_text() for item in axs[1][1].get_xticklabels()]
+            labels[0] = ''
+            axs[1][1].set_xticklabels(labels)
+        else:
+            plot_type = 'lzsh'
+            fig = plt.figure(figsize=(6, 4))
+            gs = fig.add_gridspec(2, 1, hspace=0, wspace=0)
+            axs = gs.subplots()
+            plot_pes(traj, axs[0])
+            plot_dist(traj, axs[1], geom_params, left_axis=True)
+            for ax in axs:
+                ax.tick_params(axis='both', which='major', labelsize=10)
+                ax.grid(True, which='major', linestyle='--', color='lightgray', linewidth=0.8)
+            axs[0].set_xticklabels([])
+        plt.tight_layout()
+        if filename:
+            plt.savefig(f'{filename}_{plot_type}_{itraj}', bbox_inches='tight', dpi=1200)
+        plt.show()
+
+def internal_consistency_check(trajectories=None, filename=None):
+    """
+    Compare classical state occupations with average adiabatic populations to check internal consistency.
+
+    Parameters
+    ----------
+    trajectories : list
+        List of molecular trajectory objects.
+    filename : bool, optional
+        File path to save the figure. If None, the figure is not saved.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    nstates = len(trajectories[0].steps[0].molecule.electronic_states)
+    colors = [plt.cm.tab20(i) for i in range(nstates)]
+    time_step = trajectories[0].steps[1].time - trajectories[0].steps[0].time
+    Ntrajs = []
+    pop_cs = []
+    pop_qm = []
+    for traj in trajectories:
+        for istep, step in enumerate(traj.steps):
+            if istep == len(Ntrajs):
+                Ntrajs.append(0)
+                pop_cs.append(np.zeros(nstates))
+                pop_qm.append(np.zeros(nstates))
+            Ntrajs[istep] += 1
+            pop_cs[istep][int(step.current_state)] += 1
+            pop_qm[istep] += np.abs(step.substep_state_coefficients[0])**2
+    time = np.arange(trajectories[0].steps[0].time, len(Ntrajs) * time_step, time_step)
+    fig, ax = plt.subplots(1, figsize=(8, 5))
+    for iState in range(nstates):
+        ax.plot(time, np.array(pop_cs)[:, iState] / np.array(Ntrajs), c=colors[iState], lw=2, label=rf"Occupation S$_{iState}$")
+        ax.plot(time, np.array(pop_qm)[:, iState] / np.array(Ntrajs), ':', c=colors[iState], lw=2, label=rf"Adiabatic S$_{iState}$")
+    ax.set_xlabel("Time [fs]")
+    ax.set_ylabel("Population")
+    ax.set_xlim([time[0], time[-1]])
+    ax.grid(linestyle='--', dashes=(5, 9), linewidth=0.5)
+    ax.legend(fontsize=10)
+    plt.tight_layout()
+    if filename:
+        plt.savefig(filename, bbox_inches='tight', dpi=1200)
+    plt.show()

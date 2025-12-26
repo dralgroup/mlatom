@@ -2,7 +2,7 @@ from . import data, constants
 import sys, os, shutil, tempfile
 import numpy as np 
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 TASK_ROOT = "irc"; TRAJ_ROOT = "traj"; PLOT_ROOT = "plot"; CALC_ROOT = "calc"
 DUMP_FILENAME = "irc_traj"; DUMP_FORMAT = ["json", "xyz"]; PLOT_FILENAME = "irc_plot"
@@ -77,18 +77,18 @@ class irc():
            trajdb: data.molecular_database = None,
            ftrajdb: data.molecular_database = None,
            btrajdb: data.molecular_database = None, 
-           program:str = None, 
-           program_kwargs:dict = None,
-           forward:bool = None, 
-           backward:bool = None, 
-           working_directory:str = None, 
-           overwrite:bool = True,
-           plot:bool = True, 
-           plot_filename:str = None,
-           dump:bool = True, 
-           dump_filename:str = None, 
-           dump_format:List[str] = None,
-           verbose:bool = True):
+           program:Optional[str] = None, 
+           program_kwargs:Optional[dict] = None,
+           forward:Optional[bool] = None, 
+           backward:Optional[bool] = None, 
+           working_directory:Optional[str] = None, 
+           overwrite:Optional[bool] = None,
+           plot:Optional[bool] = None, 
+           plot_filename:Optional[str] = None,
+           dump:Optional[bool] = None, 
+           dump_filename:Optional[str] = None, 
+           dump_format:Optional[List[str]] = None,
+           verbose:Optional[bool] = None):
 
         # --- check whether irc traj exists --- #
         self.trajdb = trajdb; self.ftrajdb = ftrajdb; self.btrajdb = btrajdb
@@ -104,6 +104,7 @@ class irc():
         if working_directory is None: 
             working_directory = os.path.abspath(os.path.join(os.getcwd(), TASK_ROOT))
         else: working_directory = os.path.abspath(working_directory)
+        if overwrite is None: overwrite = True
         if os.path.exists(working_directory):
             if overwrite: 
                 print(f"IRC working directory {working_directory} found and overwrite was set to True. The working directory will be recreated."); sys.stdout.flush()
@@ -118,6 +119,10 @@ class irc():
         if program is None: program = 'mlatom'
         if program_kwargs is None: program_kwargs = {}
         if model_predict_kwargs is None: model_predict_kwargs = {}
+        if plot is None: plot = True
+        if dump is None: dump = True
+        if verbose is None: verbose = True
+
         if plot:
             if plot_filename is None: plot_filename = PLOT_FILENAME
         else: plot_filename = None
@@ -387,21 +392,23 @@ class irc():
         energies -= ts_energy
         energies = energies*data.constants.Hartree2kcalpermol
         if verbose:
-            print(f"Path to plot: {filename}"); sys.stdout.flush()
-        plt.plot(reaction_coordinates,energies,marker='.')
+            print(f"Path to plot: \n{plot_filename}\n{data_filename}"); sys.stdout.flush()
+        
+        fig, ax = plt.subplots(constrained_layout=True)
+        ax.plot(reaction_coordinates,energies,marker='.')
         
         # add text above each point
         # hhover = (energies[1]-energies[0])/4
         # for rc, ee in zip(reaction_coordinates, energies):
         #     plt.text(rc, ee+hhover, f"{ee:.2f}", ha='center')
-        plt.xlabel(f'Intrinsic reaction coordinate / '+ x_unit)
-        plt.ylabel('Total energy relative to TS (kcal/mol)')
-        plt.title('Total energy along IRC (' + r'$E_\text{TS}$' + f'={ts_energy:.6} Ha)')
+        ax.set_xlabel(f'Intrinsic reaction coordinate / '+ x_unit)
+        ax.set_ylabel('Total energy relative to TS (kcal/mol)')
+        ax.set_title('Total energy along IRC (' + r'$E_\text{TS}$' + f'={ts_energy:.6} Ha)')
         # plt.ticklabel_format(axis='y', useOffset=False)
         # plt.gca().yaxis.set_major_formatter(plt.FormatStrFormatter('%.2f'))
-        plt.grid()
-        plt.tight_layout()
-        plt.savefig(plot_filename, dpi=150)
+        # plt.grid()
+        ax.grid(True)
+        fig.savefig(plot_filename, dpi=150)
 
     def dump(self, working_directory=None, filename=None, format=None, verbose=True):
 

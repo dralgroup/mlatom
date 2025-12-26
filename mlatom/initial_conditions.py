@@ -10,6 +10,7 @@ from . import constants
   !---------------------------------------------------------------------------! 
 '''
 import numpy as np 
+from typing import Optional
 from . import data
 from . import stopper
 from . import constants
@@ -66,16 +67,22 @@ def excitation_energy_window_filter(molecular_database=None,
     else:
         return check_os, init_cond_db
 
-def generate_initial_conditions(molecule=None, generation_method=None, number_of_initial_conditions=1,
-                                file_with_initial_xyz_coordinates=None, file_with_initial_xyz_velocities=None,
-                                eliminate_angular_momentum=True,
-                                degrees_of_freedom=None,
-                                initial_temperature=None, initial_kinetic_energy=None,
-                                use_hessian=False,
-                                reaction_coordinate_momentum=True,
-                                filter_by_energy_window=False,
-                                window_filter_kwargs={},
-                                random_seed=None):
+def generate_initial_conditions(
+        molecule:Optional[data.molecule]=None, 
+        generation_method:Optional[str]=None, 
+        number_of_initial_conditions:Optional[int]=1,
+        file_with_initial_xyz_coordinates:Optional[str]=None, 
+        file_with_initial_xyz_velocities:Optional[str]=None,
+        eliminate_angular_momentum:Optional[bool]=True,
+        degrees_of_freedom:Optional[int]=None,
+        initial_temperature:Optional[float]=None, 
+        initial_kinetic_energy:Optional[float]=None,
+        use_hessian:Optional[bool]=False,
+        reaction_coordinate_momentum:Optional[bool]=True,
+        filter_by_energy_window:Optional[bool]=False,
+        window_filter_kwargs:Optional[dict]={},
+        random_seed:Optional[int]=None
+    ):
     '''
     Generate initial conditions
 
@@ -92,6 +99,7 @@ def generate_initial_conditions(molecule=None, generation_method=None, number_of
         random_seed (int): random seed for numpy random number generator (do not use unless you want to obtain the same results every time)
         filter_by_energy_window (bool): filter by excitation energy window
         window_filter_kwargs (dict): keyword arguments for filtering the energy window, see below the table
+        reaction_coordinate_momentum (bool): add velocities to the reaction coordinate
 
     .. table::
         :align: center

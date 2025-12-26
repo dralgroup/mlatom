@@ -568,7 +568,7 @@ class mlatom_args(ArgsBase):
         })
         #irc
         self.add_dict_args({
-            "ircprog": "pysisyphus",
+            "ircprog": "mlatom",
         })
         self.add_default_dict_args([
             "forward", "backward",
