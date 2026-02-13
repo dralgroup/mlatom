@@ -113,14 +113,14 @@ class md():
         self.model = model
         self.model_predict_kwargs ={'calculate_energy':True, 'calculate_energy_gradients':True}
         self.model_predict_kwargs.update(model_predict_kwargs)
-        if not molecule_with_initial_conditions is None and not molecule is None:
+        if molecule_with_initial_conditions is not None and molecule is not None:
             stopper.stopMLatom('molecule and molecule_with_initial_conditions cannot be used at the same time')
-        if not molecule_with_initial_conditions is None:
+        if molecule_with_initial_conditions is not None:
             self.molecule_with_initial_conditions = molecule_with_initial_conditions 
-        if not molecule is None:
+        if molecule is not None:
             self.molecule_with_initial_conditions = molecule
         self.ensemble = ensemble
-        if thermostat != None:
+        if thermostat is not None:
             self.thermostat = thermostat
         self.time_step = time_step
         self.maximum_propagation_time = maximum_propagation_time
@@ -135,11 +135,11 @@ class md():
             self.propagation_algorithm = self.thermostat
         
         self.dump_trajectory_interval = dump_trajectory_interval
-        if dump_trajectory_interval != None:
+        if dump_trajectory_interval is not None:
             self.format = format
             if format == 'h5md': ext = '.h5'
             elif format == 'json': ext = '.json'
-            if filename == None:
+            if filename is None:
                 import uuid
                 filename = str(uuid.uuid4()) + ext
             self.filename = filename 
@@ -165,7 +165,7 @@ class md():
             trajectory_step = data.molecular_trajectory_step()
             if istep == 0:
                 molecule = self.molecule_with_initial_conditions.copy()
-                if not 'energy_gradients' in molecule.atoms[0].__dict__:
+                if 'energy_gradients' not in molecule.atoms[0].__dict__:
                     self.model.predict(molecule=molecule,
                                     **self.model_predict_kwargs)
                 forces = -np.copy(molecule.get_energy_gradients())
@@ -225,13 +225,16 @@ class md():
             trajectory_step.molecule = molecule 
             self.molecular_trajectory.steps.append(trajectory_step)
             # Stop function
-            if type(self.stop_function) != type(None):
-                if self.stop_function_kwargs == None: self.stop_function_kwargs = {}
-                stop = self.stop_function(molecule, **self.stop_function_kwargs)
+            if self.stop_function is not None:
+                if self.stop_function_kwargs is None:
+                    self.stop_function_kwargs = {}
+                if 'stop_state' not in locals():
+                    stop_state = None
+                stop, stop_state = self.stop_function(mol=molecule, stop_state=stop_state, **self.stop_function_kwargs)
             if istep*self.time_step >= self.maximum_propagation_time:
                 stop = True
             # Dump trajectory at some interval
-            if self.dump_trajectory_interval != None:
+            if self.dump_trajectory_interval is not None:
                 
                 if istep % self.dump_trajectory_interval == 0:
                     if self.format == 'h5md':

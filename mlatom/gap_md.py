@@ -27,7 +27,7 @@ class gap_model():
         self.model.predict(molecule=molecule,nstates=self.nstates,calculate_energy=True, calculate_energy_gradients=[True]*self.nstates)
         energy_gap = molecule.electronic_states[self.surface1].energy - molecule.electronic_states[self.surface0].energy
         molecule.energy = molecule.electronic_states[self.current_surface].energy
-        if not 'initial_energy' in self.__dict__: self.initial_energy = molecule.electronic_states[self.current_surface].energy
+        if 'initial_energy' not in self.__dict__: self.initial_energy = molecule.electronic_states[self.current_surface].energy
         if energy_gap > self.gap_threshold: gap = True
         else: gap = False
         if molecule.electronic_states[self.current_surface].energy - self.initial_energy > self.init_Ekin: gap = False
@@ -53,20 +53,20 @@ class gap_md():
                  filename=None, format='h5md',
                  stop_function=None, stop_function_kwargs=None, reduce_memory_usage=False):
         self.current_state= current_state
-        if not molecule_with_initial_conditions is None:
+        if molecule_with_initial_conditions is not None:
             self.molecule_with_initial_conditions = molecule_with_initial_conditions
-        if not molecule is None:
+        if molecule is not None:
             self.molecule_with_initial_conditions = molecule
         if isinstance(model, gap_model):
             self.model = model
         else:
-            if init_Ekin == None:
+            if init_Ekin is None:
                 self.init_Ekin = self.molecule_with_initial_conditions.calculate_kinetic_energy()*random.random()
             else:
                 self.init_Ekin = init_Ekin
             self.model = gap_model(model=model, surface0=lower_state, surface1=upper_state, current_surface=current_state, gap_threshold=0.03, init_Ekin=self.init_Ekin,nstates=nstates)      
         self.ensemble = ensemble
-        if thermostat != None:
+        if thermostat is not None:
             self.thermostat = thermostat
         self.time_step = time_step
         self.maximum_propagation_time = maximum_propagation_time
@@ -79,7 +79,7 @@ class gap_md():
         if dump_trajectory_interval:
             if format == 'h5md': ext = '.h5'
             elif format == 'json': ext = '.json'
-            if filename == None:
+            if filename is None:
                 import uuid
                 filename = str(uuid.uuid4()) + ext
                 self.filename = filename 
@@ -117,7 +117,7 @@ class gap_md():
             for atom in init_mol.atoms:
                 atom.xyz_velocities *= ww
             
-            if self.dump_trajectory_interval != None:
+            if self.dump_trajectory_interval is not None:
                 if self.dump_trajectory_interval % self.time_step == 0:
                     if self.format == 'h5md':
                         if istep ==0:
@@ -141,14 +141,12 @@ class gap_md():
             
             if istep == 0: istep += 1
             istep += 1
-            if type(self.stop_function) != type(None):
-                if self.stop_function_kwargs == None: self.stop_function_kwargs = {}
-                if 'stop_check' not in locals():
-                    stop_check = False
-                stop, stop_check = self.stop_function(stop_check=stop_check,
-                                                      mol=self.molecular_trajectory.steps[-1].molecule, 
-                                                      current_state=self.current_state, 
-                                                      **self.stop_function_kwargs)
+            if self.stop_function is not None:
+                if self.stop_function_kwargs is None:
+                    self.stop_function_kwargs = {}
+                if 'stop_state' not in locals():
+                    stop_state = None
+                stop, stop_state = self.stop_function(mol=self.molecular_trajectory.steps[-1].molecule, stop_state=stop_state, **self.stop_function_kwargs)
                 if stop:
                     if self.reduce_memory_usage: 
                         self.molecular_trajectory.dump(filename=self.filename, format=self.format)

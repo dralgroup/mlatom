@@ -4,7 +4,8 @@
 
   !---------------------------------------------------------------------------! 
   ! mndo: interface to the MNDO program                                       ! 
-  ! Implementations by: Pavlo O. Dral, Peikun Zheng, and Lina Zhang           !
+  ! Implementations by: Pavlo O. Dral, Peikun Zheng, and Lina Zhang,          !
+  ! Mikołaj Martyka                                                           !
   !---------------------------------------------------------------------------! 
 '''
 
@@ -306,6 +307,11 @@ def parse_mndo_output(filename=None, molecule=None):
         if found_ffort15_ens_flag and (not found_ffort15_ens_end_flag):
             if line.strip() == '':
                 found_ffort15_ens_end_flag = True
+            else:
+                try:
+                    ffort15_ms_ens_indices.append(i)
+                except NameError:
+                    ffort15_ms_ens_indices = [i]
             continue
         if line == ffort15_grad_flag:
             found_ffort15_grad_flag = True
@@ -343,22 +349,31 @@ def parse_mndo_output(filename=None, molecule=None):
         mol.energy = energy
     
     if nstates > 1:
-        if found_output_multi_ens_flag:
-            state_energies = []
-            for idx in output_ens_index:
-                parts = outputs[idx].split('E=')
-                if len(parts) == 2:
-                    energy = parts[1].split()[0]
-                    energy = float(energy) / 27.21
-                    state_energies.append(energy)
-            mol_copy = mol.copy()
-            mol_copy.electronic_states = []
-            for _ in range(nstates - len(mol.electronic_states)):
-                mol.electronic_states.append(mol_copy.copy())
-            for i in range(nstates):
-                mol.electronic_states[i].energy = state_energies[i]
-            # mol.__dict__[energy_label] = mol.electronic_states[current_state].energy
-            if current_state: mol.energy = mol.electronic_states[current_state].energy
+        state_energies = []
+        #If multi-state energy/grad flag found, take all energies from fort.15
+        if found_ffort15_ens_flag:
+            for i in ffort15_ms_ens_indices:
+                state_e_kcal = ffort15_lines[int(i)].split()[1]
+                state_e_hartree = float(state_e_kcal)/ (27.21 * 23.061)
+                state_energies.append(state_e_hartree)
+        #if no multigrad flag found, take S0 energy from fort.15 and add EE to it
+        if len(state_energies) < nstates:
+            if found_ffort15_en_flag:
+                energy = ffort15_lines[ffort15_en_index].split()[0]
+                energy = float(energy) / (27.21 * 23.061)
+                state_energies.append(energy)
+            for idx in output_ens_index[len(state_energies):]:
+                parts = outputs[idx].split('E-E(1)')
+                ee = parts[1].split()[1]
+                state_energies.append(float(ee)/27.21+state_energies[0])
+        
+        mol_copy = mol.copy()
+        mol_copy.electronic_states = []
+        for _ in range(nstates - len(mol.electronic_states)):
+            mol.electronic_states.append(mol_copy.copy())
+        for i in range(nstates):
+            mol.electronic_states[i].energy = state_energies[i]
+        if current_state: mol.energy = mol.electronic_states[current_state].energy
 
     if found_output_os_flag:
         # read oscillator strengths

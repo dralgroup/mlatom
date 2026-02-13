@@ -13,4 +13,4 @@ from .gap_md import gap_md, gap_model
 # add-ons
 from .models import uaiqm, omnip1, omnip2x, vecmsani
 
-__version__ = '3.20.0'
+__version__ = '3.21.0'

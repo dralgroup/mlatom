@@ -327,6 +327,9 @@ def load_return_molecule(filename=None, format='json'):
     elif format.casefold() == 'gaussian'.casefold():
         from .interfaces import gaussian_interface
         newmol = gaussian_interface.parse_gaussian_output(filename=filename)
+    elif format.casefold() == 'orca'.casefold():
+        from .interfaces import orca_interface
+        newmol = orca_interface.parse_orca_output(filename=filename)
     elif format.casefold() == 'mndo'.casefold():
         from .interfaces import mndo_interface
         newmol = mndo_interface.parse_mndo_output(filename=filename)

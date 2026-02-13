@@ -7,7 +7,7 @@ from . import gap_md, namd
 
 class Sampler():
     def __init__(self,sampler_function=None):
-        if type(sampler_function) == str:
+        if type(sampler_function) is str:
             if sampler_function.casefold() == 'wigner'.casefold():
                 self.sampler_function = self.wigner 
             elif sampler_function.casefold() == 'geomopt'.casefold():
@@ -44,12 +44,12 @@ class Sampler():
 
         if molecule is None and molecular_database is None:
             stopper("Sampler(fixed): Neither molecule nor molecular_database is provided")
-        elif not molecule is None and not molecular_database is None:
+        elif molecule is not None and molecular_database is not None:
             stopper("Sampler(fixed): Both molecule and molecular_database are provided")
-        elif not molecule is None:
+        elif molecule is not None:
             molecular_database = data.molecular_database()
             molecular_database.append(molecule)
-        elif not molecular_database is None:
+        elif molecular_database is not None:
             pass 
 
         # add the source of molecule
@@ -133,8 +133,8 @@ class Sampler():
             **kwargs
         ):
 
-        if not uq_threshold is None:
-            print(f"UQ threshold is provided in sampler, overwriting saved threshold")
+        if uq_threshold is not None:
+            print("UQ threshold is provided in sampler, overwriting saved threshold")
             print(f"Current threshold: {uq_threshold}")
             ml_model.uq_threshold = uq_threshold
 
@@ -150,7 +150,7 @@ class Sampler():
             # if not stop_function is None:
             for istep in range(len(opt.optimization_trajectory.steps)):
                 step = opt.optimization_trajectory.steps[istep]
-                stop = internal_stop_function(step.molecule)
+                stop, _ = internal_stop_function(mol=step.molecule) # stop, stop_state = stop_function(mol, stop_state, **kwargs)
                 if stop:
                     if 'need_to_be_labeled' in step.molecule.__dict__:
                         print(f'Adding molecule from trajectory {itraj} at step {istep}')
@@ -194,8 +194,8 @@ class Sampler():
         if stop_function is None:
             stop_function = internal_stop_function
 
-        if not uq_threshold is None:
-            print(f"UQ threshold is provided in sampler, overwriting saved threshold")
+        if uq_threshold is not None:
+            print("UQ threshold is provided in sampler, overwriting saved threshold")
             print(f"Current threshold: {uq_threshold}")
             ml_model.uq_threshold = uq_threshold
 
@@ -273,8 +273,8 @@ class Sampler():
         if stop_function is None:
             stop_function = internal_stop_function
 
-        if not uq_threshold is None:
-            print(f"UQ threshold is provided in sampler, overwriting saved threshold")
+        if uq_threshold is not None:
+            print("UQ threshold is provided in sampler, overwriting saved threshold")
             print(f"Current threshold: {uq_threshold}")
             ml_model.uq_threshold = uq_threshold
 
@@ -351,8 +351,8 @@ class Sampler():
             nthreads = joblib.cpu_count()
         if stop_function is None:
             stop_function = internal_stop_function
-        if not uq_threshold is None:
-            print(f"UQ threshold is provided in sampler, overwriting saved threshold")
+        if uq_threshold is not None:
+            print("UQ threshold is provided in sampler, overwriting saved threshold")
             print(f"Current threshold: {uq_threshold}")
             ml_model.uq_threshold = uq_threshold
 
@@ -414,7 +414,7 @@ class Sampler():
                             maximum_propagation_time=maximum_propagation_time,
                             excess_energy=excess_energy[imol],
                             dump_trajectory_interval=None,
-                            stop_function=internal_stop_function,)
+                            stop_function=internal_stop_function)
                 traj = dyn.molecular_trajectory 
                 return traj 
             
@@ -504,7 +504,7 @@ class Sampler():
         else:
             impulsion_energy = 70
 
-        if not 'excess_energy_generator' in self.__dict__:
+        if 'excess_energy_generator' not in self.__dict__:
             self.excess_energy_generator = excess_energy_generator(
                 molecule=molecular_database[0],
                 average_IEE_per_atom=averate_IEE_per_atom,
@@ -554,7 +554,7 @@ class Sampler():
         else:
             model_predict_kwargs = {}
         if 'stop_uncertain_md' in kwargs:
-            if kwargs['stop_uncertain_md'] == True:
+            if kwargs['stop_uncertain_md']:
                 stop_function = internal_stop_function_namd
             else:
                 stop_function = None
@@ -792,7 +792,7 @@ class Sampler():
                 stop_index = -1
                 print(f"Trajectory {itraj} number of steps: {len(traj.steps)}")
                 for index, step in enumerate(traj.steps):
-                    if step.molecule.uncertain==True:
+                    if step.molecule.uncertain:
                         traj_stopped = True
                         moldb.molecules.append(step.molecule)
                         print('Adding molecule from trajectory %d at time %.2f fs' % (itraj, step.time))
@@ -853,7 +853,7 @@ class Sampler():
                 stop_index = -1
                 print(f"Trajectory {itraj} number of steps: {len(gap_traj.steps)}")
                 for index, step in enumerate(gap_traj.steps):
-                    if step.molecule.uncertain==True:
+                    if step.molecule.uncertain:
                         print('Adding molecule from trajectory %d at time %.2f fs' % (itraj, step.time))
                         moldb.molecules.append(step.molecule)
                         stop_index = index
@@ -891,7 +891,7 @@ class Sampler():
                 gap_traj.load("gapMD_traj{}.h5".format(i), format="h5md")
                 print(f"Trajectory {itraj} number of steps: {len(gap_traj.steps)}")
                 for index, step in enumerate(gap_traj.steps):
-                    if step.molecule.uncertain==True:
+                    if step.molecule.uncertain:
                         print('Adding molecule from trajectory %d at time %.2f fs' % (itraj, step.time))
                         moldb.molecules.append(step.molecule)
                         stop_index = index
@@ -949,7 +949,7 @@ class excess_energy_generator():
         return internal_excess_energies
 
     def optimize_IEE_parameters(self):
-        if not 'aa' in self.__dict__ and not 'bb' in self.__dict__:
+        if 'aa' not in self.__dict__ and 'bb' not in self.__dict__:
             target = len(self.molecule)*self.average_IEE_per_atom
             def func(aa):
                 bb = 7*aa 
@@ -1344,7 +1344,7 @@ class ml_model(models.ml_model):
                                                device=self.device,
                                                verbose=self.verbose)
 
-        if not 'uq_threshold' in al_info.keys():
+        if 'uq_threshold' not in al_info.keys():
             self.predict(molecular_database=valdb)
             uqs = valdb.get_properties('uq')
             al_info['uq_threshold'] = self.threshold_metric(uqs,metric='m+3mad')
@@ -1360,7 +1360,7 @@ class ml_model(models.ml_model):
         self.summary(subtraindb=subtraindb,valdb=valdb,workdir=workdir)
 
     def predict(self,molecule=None,molecular_database=None,**kwargs):
-        if not molecule is None:
+        if molecule is not None:
             molecular_database = data.molecular_database(molecule)
         else:
             if molecular_database is None:
@@ -1371,7 +1371,7 @@ class ml_model(models.ml_model):
         # Calculate uncertainties
         for mol in molecular_database:
             mol.uq = abs(mol.energy-mol.aux_energy)
-            if not self.uq_threshold is None:
+            if self.uq_threshold is not None:
                 if mol.uq > self.uq_threshold:
                     mol.uncertain = True 
                 else:
@@ -1476,9 +1476,9 @@ class ml_model(models.ml_model):
         ax.plot(diagonal_line,diagonal_line,color='C3')
         ax.scatter(values[0:Nsubtrain],estimated_values[0:Nsubtrain],color='C0',label='subtraining points')
         ax.scatter(values[Nsubtrain:Ntrain],estimated_values[Nsubtrain:Ntrain],color='C1',label='validation points')
-        ax.set_xlabel(f'Energy (Hartree)')
-        ax.set_ylabel(f'Estimated energy (Hartree)')
-        plt.suptitle(f'Main model (energies)')
+        ax.set_xlabel('Energy (Hartree)')
+        ax.set_ylabel('Estimated energy (Hartree)')
+        plt.suptitle('Main model (energies)')
         plt.legend()
         plt.savefig(os.path.join(workdir,'mlmodel_energies.png'),dpi=300)
         fig.clear()
@@ -1490,9 +1490,9 @@ class ml_model(models.ml_model):
             ax.plot(diagonal_line,diagonal_line,color='C3')
             ax.scatter(gradients[0:Nsubtrain].flatten(),estimated_gradients[0:Nsubtrain].flatten(),color='C0',label='subtraining points')
             ax.scatter(gradients[Nsubtrain:Ntrain].flatten(),estimated_gradients[Nsubtrain:Ntrain].flatten(),color='C1',label='validation points')
-            ax.set_xlabel(f'Energy gradients (Hartree/Angstrom)')
-            ax.set_ylabel(f'Estimated energy gradients (Hartree/Angstrom)')
-            ax.set_title(f'Main model (energy gradients)')
+            ax.set_xlabel('Energy gradients (Hartree/Angstrom)')
+            ax.set_ylabel('Estimated energy gradients (Hartree/Angstrom)')
+            ax.set_title('Main model (energy gradients)')
             plt.legend()
             plt.savefig(os.path.join(workdir,'mlmodel_energy_gradients.png'),dpi=300)
             fig.clear()
@@ -1506,9 +1506,9 @@ class ml_model(models.ml_model):
         ax.plot(diagonal_line,diagonal_line,color='C3')
         ax.scatter(values[0:Nsubtrain],aux_estimated_values[0:Nsubtrain],color='C0',label='subtraining points')
         ax.scatter(values[Nsubtrain:Ntrain],aux_estimated_values[Nsubtrain:Ntrain],color='C1',label='validation points')
-        ax.set_xlabel(f'Energy (Hartree)')
-        ax.set_ylabel(f'Estimated energy (Hartree)')
-        ax.set_title(f'Auxiliary model (energies)')
+        ax.set_xlabel('Energy (Hartree)')
+        ax.set_ylabel('Estimated energy (Hartree)')
+        ax.set_title('Auxiliary model (energies)')
         plt.legend()
         plt.savefig(os.path.join(workdir,'aux_mlmodel_energies.png'),dpi=300)
 
@@ -1718,7 +1718,7 @@ class ml_model_msani(models.ml_model):
                                                device=self.device,
                                                verbose=self.verbose)
 
-        if not 'uq_thresholds' in al_info.keys():
+        if 'uq_thresholds' not in al_info.keys():
             self.predict(molecular_database=valdb,nstates=self.nstates)
             uq_thresholds =[]
             for istate in range(self.nstates):
@@ -1738,7 +1738,7 @@ class ml_model_msani(models.ml_model):
         self.summary(subtraindb=subtraindb,valdb=valdb,workdir=workdir)
 
     def predict(self,molecule=None,molecular_database=None,calculate_energy=True,calculate_energy_gradients=True, nstates=1, current_state=0, **kwargs):
-        if not molecule is None:
+        if molecule is not None:
             molecular_database = data.molecular_database(molecule)
         else:
             if molecular_database is None:
@@ -1768,7 +1768,7 @@ class ml_model_msani(models.ml_model):
                 mol.uq.append(abs(mol.electronic_states[i].energy - mol.electronic_states[i].aux_energy))
                 exec('mol.uq_state{} = mol.uq[i]'.format(i))
             
-            if not self.uq_thresholds is None:
+            if self.uq_thresholds is not None:
                 check_flag = False
                 istate = int(current_state)
                 if mol.uq[istate] > self.uq_thresholds[istate]:
@@ -1890,9 +1890,9 @@ class ml_model_msani(models.ml_model):
         ax.plot(diagonal_line,diagonal_line,color='C3')
         ax.scatter(values[0:Nsubtrain],estimated_values[0:Nsubtrain],color='C0',label='subtraining points')
         ax.scatter(values[Nsubtrain:Ntrain],estimated_values[Nsubtrain:Ntrain],color='C1',label='validation points')
-        ax.set_xlabel(f'Energy (Hartree)')
-        ax.set_ylabel(f'Estimated energy (Hartree)')
-        plt.suptitle(f'Main model (energies)')
+        ax.set_xlabel('Energy (Hartree)')
+        ax.set_ylabel('Estimated energy (Hartree)')
+        plt.suptitle('Main model (energies)')
         plt.legend()
         plt.savefig(os.path.join(workdir,'mlmodel_energies.png'),dpi=300)
         fig.clear()
@@ -1904,9 +1904,9 @@ class ml_model_msani(models.ml_model):
             ax.plot(diagonal_line,diagonal_line,color='C3')
             ax.scatter(gradients[0:Nsubtrain].flatten(),estimated_gradients[0:Nsubtrain].flatten(),color='C0',label='subtraining points')
             ax.scatter(gradients[Nsubtrain:Ntrain].flatten(),estimated_gradients[Nsubtrain:Ntrain].flatten(),color='C1',label='validation points')
-            ax.set_xlabel(f'Energy gradients (Hartree/Angstrom)')
-            ax.set_ylabel(f'Estimated energy gradients (Hartree/Angstrom)')
-            ax.set_title(f'Main model (energy gradients)')
+            ax.set_xlabel('Energy gradients (Hartree/Angstrom)')
+            ax.set_ylabel('Estimated energy gradients (Hartree/Angstrom)')
+            ax.set_title('Main model (energy gradients)')
             plt.legend()
             plt.savefig(os.path.join(workdir,'mlmodel_energy_gradients.png'),dpi=300)
             fig.clear()
@@ -1920,9 +1920,9 @@ class ml_model_msani(models.ml_model):
         ax.plot(diagonal_line,diagonal_line,color='C3')
         ax.scatter(values[0:Nsubtrain],aux_estimated_values[0:Nsubtrain],color='C0',label='subtraining points')
         ax.scatter(values[Nsubtrain:Ntrain],aux_estimated_values[Nsubtrain:Ntrain],color='C1',label='validation points')
-        ax.set_xlabel(f'Energy (Hartree)')
-        ax.set_ylabel(f'Estimated energy (Hartree)')
-        ax.set_title(f'Auxiliary model (energies)')
+        ax.set_xlabel('Energy (Hartree)')
+        ax.set_ylabel('Estimated energy (Hartree)')
+        ax.set_title('Auxiliary model (energies)')
         plt.legend()
         plt.savefig(os.path.join(workdir,'aux_mlmodel_energies.png'),dpi=300)
 
@@ -2059,16 +2059,16 @@ def stop_function_deprecated(mol,properties,thresholds,bonds=[]):
             break 
     return stop 
 
-def internal_stop_function(mol):
+def internal_stop_function(mol, stop_state=None, **kwargs):
     stop = False 
     if mol.uncertain:
         stop = True 
-    return stop
-def internal_stop_function_namd(stop_check, current_state, mol):
+    return stop, stop_state
+def internal_stop_function_namd(mol, stop_state=None, **kwargs):
     stop = False 
     if mol.uncertain:
         stop = True 
-    return stop, stop_check
+    return stop, stop_state
 def stopper(errMsg):
     '''
     function printing error message

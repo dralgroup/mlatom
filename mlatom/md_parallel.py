@@ -108,15 +108,15 @@ class md_parallel():
                  filename=None, format='h5md',
                  stop_function=None, stop_function_kwargs=None):
         self.model = model
-        if not molecule_with_initial_conditions is None and not molecule is None:
+        if molecule_with_initial_conditions is not None and molecule is not None:
             stopper.stopMLatom('molecule and molecule_with_initial_conditions cannot be used at the same time')
-        if not molecule_with_initial_conditions is None:
+        if molecule_with_initial_conditions is not None:
             molecular_database = molecule_with_initial_conditions
-        if not molecule is None:
+        if molecule is not None:
             molecular_database = molecule
         self.molecular_database = data.molecular_database(molecular_database)
         self.ensemble = ensemble
-        if thermostat != None:
+        if thermostat is not None:
             self.thermostat = thermostat
         self.time_step = time_step
         self.maximum_propagation_time = maximum_propagation_time
@@ -137,11 +137,11 @@ class md_parallel():
             self.propagation_algorithm = self.thermostat
         
         self.dump_trajectory_interval = dump_trajectory_interval
-        if dump_trajectory_interval != None:
+        if dump_trajectory_interval is not None:
             self.format = format
             if format == 'h5md': ext = '.h5'
             elif format == 'json': ext = '.json'
-            if filename == None:
+            if filename is None:
                 import uuid
                 filename = str(uuid.uuid4()) + ext
             self.filename = filename 
@@ -228,11 +228,14 @@ class md_parallel():
 
             self.molecular_trajectory.steps.append(molecular_database_saved)
             # Stop function
-            if type(self.stop_function) != type(None):
+            if self.stop_function is not None:
                 index_array = []
-                if self.stop_function_kwargs == None: self.stop_function_kwargs = {}
+                if self.stop_function_kwargs is None:
+                    self.stop_function_kwargs = {}
+                if 'stop_state' not in locals():
+                    stop_state = None
                 for ii in range(len(molecular_database)):
-                    stop_ii = self.stop_function(molecular_database[ii], **self.stop_function_kwargs)
+                    stop_ii, stop_state = self.stop_function(mol=molecular_database[ii], stop_state=stop_state, **self.stop_function_kwargs)
                     stop_array[molecular_database[ii].index] = stop_ii
                     if not stop_ii:
                         index_array.append(ii)

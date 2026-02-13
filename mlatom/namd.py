@@ -76,7 +76,7 @@ class surface_hopping_md():
     Lina Zhang, Sebastian V. Pios, Mikołaj Martyka, Fuchun Ge, Yi-Fan Hou, Yuxinxin Chen, Lipeng Chen, Joanna Jankowska, Mario Barbatti, and `Pavlo O. Dral <http://dr-dral.com>`__. MLatom Software Ecosystem for Surface Hopping Dynamics in Python with Quantum Mechanical and Machine Learning Methods. Journal of Chemical Theory and Computation 2024 20 (12), 5043-5057. DOI: 10.1021/acs.jctc.4c00468 
 
     For FSSH implementation details
-    Jakub Martinka, Lina Zhang, Yi-Fan Hou, Mikołaj Martyka, Jiří Pittner, Mario Barbatti, and `Pavlo O. Dral <http://dr-dral.com>`__. A Descriptor Is All You Need: Accurate Machine Learning of Nonadiabatic Coupling Vectors. **2025**. Preprint on arXiv: https://arxiv.org/abs/2505.23344 (2025.05.29).
+    Jakub Martinka, Lina Zhang, Yi-Fan Hou, Mikołaj Martyka, Jiří Pittner, Mario Barbatti, and `Pavlo O. Dral <http://dr-dral.com>`__. A Descriptor Is All You Need: Accurate Machine Learning of Nonadiabatic Coupling Vectors. The Journal of Physical Chemistry Letters 2025 16 (45), 11732-11744. DOI: 10.1021/acs.jpclett.5c02810.
 
     Examples:
 
@@ -177,12 +177,12 @@ class surface_hopping_md():
                  reduce_kinetic_energy=False):
         self.model = model
         self.model_predict_kwargs = model_predict_kwargs
-        if not molecule_with_initial_conditions is None:
+        if molecule_with_initial_conditions is not None:
             self.molecule_with_initial_conditions = molecule_with_initial_conditions 
-        if not molecule is None:
+        if molecule is not None:
             self.molecule_with_initial_conditions = molecule
         self.ensemble = ensemble
-        if thermostat != None:
+        if thermostat is not None:
             self.thermostat = thermostat
         self.time_step = time_step
         self.maximum_propagation_time = maximum_propagation_time
@@ -192,10 +192,10 @@ class surface_hopping_md():
         self.format = format
         self.filename = filename 
 
-        if dump_trajectory_interval != None:
+        if dump_trajectory_interval is not None:
             if format == 'h5md': ext = '.h5'
             elif format == 'json': ext = '.json'
-            if filename == None:
+            if filename is None:
                 import uuid
                 filename = str(uuid.uuid4()) + ext
                 self.filename = filename 
@@ -255,7 +255,7 @@ class surface_hopping_md():
         else:
             self.reduce_kinetic_energy_factor = 1
         if self.hopping_algorithm == 'FSSH' or self.hopping_algorithm == 'TDBA':
-            if time_step_tdse == None:
+            if time_step_tdse is None:
                 self.time_step_tdse = time_step / 20
             else:
                 if round(1e6*time_step) % round(1e6*time_step_tdse) != 0:
@@ -304,7 +304,7 @@ class surface_hopping_md():
             self.model_predict_kwargs['current_state'] = self.current_state
             self.model_predict_kwargs['calculate_energy'] = True
             if 'calculate_energy_gradients' in self.model_predict_kwargs:
-                if self.model_predict_kwargs['calculate_energy_gradients'] != True:
+                if self.model_predict_kwargs['calculate_energy_gradients'] is not True:
                     if not isinstance(self.model_predict_kwargs['calculate_energy_gradients'], list):
                         self.model_predict_kwargs['calculate_energy_gradients'] = [False] * self.nstates
                     self.model_predict_kwargs['calculate_energy_gradients'][self.current_state] = True
@@ -383,14 +383,12 @@ class surface_hopping_md():
                     del self.molecular_trajectory.steps[-1]
                     one_step_propagation = True
                     self.molecular_trajectory.steps[-1].current_state = self.current_state
-                    if type(self.stop_function) != type(None):
-                        if self.stop_function_kwargs == None: self.stop_function_kwargs = {}
-                        if 'stop_check' not in locals():
-                            stop_check = False
-                        stop, stop_check = self.stop_function(stop_check=stop_check,
-                                                              mol=self.molecular_trajectory.steps[-1].molecule, 
-                                                              current_state=self.current_state, 
-                                                              **self.stop_function_kwargs)
+                    if self.stop_function is not None:
+                        if self.stop_function_kwargs is None:
+                            self.stop_function_kwargs = {}
+                        if 'stop_state' not in locals():
+                            stop_state = None
+                        stop, stop_state = self.stop_function(mol=self.molecular_trajectory.steps[-1].molecule, stop_state=stop_state, **self.stop_function_kwargs)
                     if stop:
                         del self.molecular_trajectory.steps[-1]
                         if self.reduce_memory_usage: 
@@ -399,21 +397,19 @@ class surface_hopping_md():
                 one_step_propagation = False
                 self.molecular_trajectory.steps[-2].current_state = self.current_state
 
-                if type(self.stop_function) != type(None):
-                    if self.stop_function_kwargs == None: self.stop_function_kwargs = {}
-                    if 'stop_check' not in locals():
-                        stop_check = False
-                    stop, stop_check = self.stop_function(stop_check=stop_check,
-                                                          mol=self.molecular_trajectory.steps[-2].molecule, 
-                                                          current_state=self.current_state, 
-                                                          **self.stop_function_kwargs)
+                if self.stop_function is not None:
+                    if self.stop_function_kwargs is None:
+                        self.stop_function_kwargs = {}
+                    if 'stop_state' not in locals():
+                        stop_state = None
+                    stop, stop_state = self.stop_function(mol=self.molecular_trajectory.steps[-2].molecule, stop_state=stop_state, **self.stop_function_kwargs)
                     if stop:
                         del self.molecular_trajectory.steps[-1]
                         if self.reduce_memory_usage: 
                             self.molecular_trajectory.dump(filename=self.filename, format=self.format)
 
             # Dump trajectory at some interval
-            if self.dump_trajectory_interval != None:
+            if self.dump_trajectory_interval is not None:
                 if istep % self.dump_trajectory_interval == 0 and istep !=0:
                     if self.format == 'h5md':
                         temp_traj_dump = data.molecular_trajectory()

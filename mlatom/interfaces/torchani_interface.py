@@ -42,17 +42,23 @@ def molDB2ANIdata_state(molDB,
     from torchani.data import TransformableIterable, IterableAdapter
     return TransformableIterable(IterableAdapter(lambda: molDBiter()))
 
-def unpackData2State(mol_db):
+def unpackData2State(mol_db, property_to_learn=None,
+                  xyz_derivative_property_to_learn=None):
     train_data = data.molecular_database()
     for mol_id, i in enumerate(mol_db):
         for idx, state in enumerate(i.electronic_states):
             new_mol = data.molecule()
             new_mol.read_from_xyz_string(i.get_xyz_string())
             new_mol.current_state = idx
-            new_mol.energy = state.energy
-            new_mol.add_xyz_derivative_property(state.get_xyz_vectorial_properties("energy_gradients"), 'energy', 'energy_gradients' )
+
+            cmd = 'new_mol.{} = state.{}'.format(property_to_learn,property_to_learn)
+            exec(cmd)
+            cmd2 = "new_mol.add_xyz_derivative_property(state.get_xyz_vectorial_properties(\"{}\"), \'{}\', \'{}\' )".format(xyz_derivative_property_to_learn, property_to_learn, xyz_derivative_property_to_learn)
+            if xyz_derivative_property_to_learn:
+                exec(cmd2)            
             new_mol.mol_id = mol_id
-            train_data.append(new_mol)
+            if not np.isnan(getattr(state, property_to_learn)):
+                train_data.append(new_mol)
     return train_data
 #The two MOLDB2ANIdata should be merged, i just didnt have the time to do it.
 def molDB2ANIdata(molDB, 
@@ -1048,6 +1054,7 @@ class msani(ml_model, torchani_model):
         reset_parameters: bool = False,
         reset_network: bool = False,
         reset_optimizer: bool = False,
+        reset_energy_shifter: bool = False,
         save_every_epoch: bool = False,
         energy_weighting_function: Callable = None,
         energy_weighting_function_kwargs: dict = {},
@@ -1070,7 +1077,16 @@ class msani(ml_model, torchani_model):
             self.hyperparameters.update(hyperparameters)
 
         energy_weighting_function_kwargs = {k: (v.value if isinstance(v, hyperparameter) else v) for k, v in energy_weighting_function_kwargs.items()}
-        
+        if reset_energy_shifter:
+            import torchani
+            if self.energy_shifter:
+                self.energy_shifter_ = self.energy_shifter
+            if type(reset_energy_shifter) == list:
+                self.energy_shifter = torchani.utils.EnergyShifter(reset_energy_shifter)
+            elif isinstance(reset_energy_shifter, torchani.utils.EnergyShifter):
+                self.energy_shifter = reset_energy_shifter
+            else:
+                self.energy_shifter = torchani.utils.EnergyShifter(None)
         self.data_setup(molecular_database, validation_molecular_database, spliting_ratio, property_to_learn, xyz_derivative_property_to_learn)
 
         if not self.model:
@@ -1507,6 +1523,7 @@ class msani(ml_model, torchani_model):
 
     def data_setup(self, molecular_database, validation_molecular_database, spliting_ratio,
                    property_to_learn, xyz_derivative_property_to_learn, ):
+        import torch
         assert molecular_database, 'provide molecular database'
 
         self.property_name = property_to_learn
@@ -1527,8 +1544,10 @@ class msani(ml_model, torchani_model):
             molecular_database, validation_molecular_database = [molecular_database[i_split] for i_split in np.split(idx, [int(len(idx) * spliting_ratio)])]
         elif not validation_molecular_database:
             raise NotImplementedError("please specify validation_molecular_database or set it to 'sample_from_molecular_database'")
-        molecular_database = unpackData2State(molecular_database)
-        validation_molecular_database = unpackData2State(validation_molecular_database)
+        molecular_database = unpackData2State(molecular_database,property_to_learn=property_to_learn,
+                  xyz_derivative_property_to_learn=xyz_derivative_property_to_learn)
+        validation_molecular_database = unpackData2State(validation_molecular_database,property_to_learn=property_to_learn,
+                  xyz_derivative_property_to_learn=xyz_derivative_property_to_learn)
         if self.energy_shifter.self_energies is None:
             if np.isnan(molecular_database.get_properties(property_to_learn)).sum():
                 print(property_to_learn)
@@ -1539,9 +1558,20 @@ class msani(ml_model, torchani_model):
                 self.subtraining_set = molDB2ANIdata_state(molecular_database, property_to_learn, xyz_derivative_property_to_learn).subtract_self_energies(self.energy_shifter, self.species_order).species_to_indices(self.species_order).cache()
         else:
             self.subtraining_set = molDB2ANIdata_state(molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).cache()
-        self.validation_set = molDB2ANIdata_state(validation_molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).cache()
         
+        
+        if len(self.species_order) != len(self.energy_shifter.self_energies):
+            true_species_order = sorted(data_element_symbols, key=lambda x: self.species_order.index(x))
+            expanded_self_energies = np.zeros((len(self.species_order)))
+            for ii, sp in enumerate(self.species_order):
+                if sp in true_species_order:
+                    expanded_self_energies[ii] = self.energy_shifter.self_energies[true_species_order.index(sp)]
+                elif 'energy_shifter_' in self.__dict__:
+                    expanded_self_energies[ii] = self.energy_shifter_.self_energies[ii]
+            self.energy_shifter.self_energies = torch.tensor(expanded_self_energies)
         self.energy_shifter = self.energy_shifter.to(self.device)
+        self.validation_set = molDB2ANIdata_state(validation_molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).cache()
+
         
         self.subtraining_set = self.subtraining_set.collate(self.hyperparameters.batch_size, PADDING)
         self.validation_set = self.validation_set.collate(self.hyperparameters.batch_size, PADDING)
