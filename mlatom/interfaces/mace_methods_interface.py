@@ -17,19 +17,19 @@ class mace_methods(torch_model, downloadable_model, method_model):
     supported_methods = ['mace-off24', 'mace-off24m', 'mace-off23', 'mace-off23s', 'mace-off23m', 'mace-off23bm', 'mace-off23l'] # currently only MACE-OFF series are supported
     methods_info = {
         'mace-off23s':
-            ['MACE-OFF23_small.model',"https://github.com/ACEsuit/mace-off/blob/main/mace_off23/MACE-OFF23_small.model?raw=true"],
+            ['MACE-OFF23_small.model'],
         'mace-off23m':
-            ['MACE-OFF23_medium.model',"https://github.com/ACEsuit/mace-off/raw/main/mace_off23/MACE-OFF23_medium.model?raw=true"],
+            ['MACE-OFF23_medium.model'],
         'mace-off23l':
-            ['MACE-OFF23_large.model',"https://github.com/ACEsuit/mace-off/blob/main/mace_off23/MACE-OFF23_large.model?raw=true"],
+            ['MACE-OFF23_large.model'],
         'mace-off23bm': 
-            ['MACE-OFF23b_medium.model', "https://github.com/ACEsuit/mace-off/raw/main/mace_off23/MACE-OFF23b_medium.model?raw=true"],
+            ['MACE-OFF23b_medium.model'],
         'mace-off23':
-            ['MACE-OFF23_medium.model',"https://github.com/ACEsuit/mace-off/raw/main/mace_off23/MACE-OFF23_medium.model?raw=true"],
+            ['MACE-OFF23_medium.model'],
         'mace-off24':
-            ['MACE-OFF24_medium.model', "https://github.com/ACEsuit/mace-off/raw/main/mace_off24/MACE-OFF24_medium.model?raw=true"],
+            ['MACE-OFF24_medium.model'],
         'mace-off24m':
-            ['MACE-OFF24_medium.model', "https://github.com/ACEsuit/mace-off/raw/main/mace_off24/MACE-OFF24_medium.model?raw=true"]
+            ['MACE-OFF24_medium.model']
     }
 
     def __init__(self, method=None, device=None, model_kwargs=None, nthreads=1):
@@ -54,11 +54,13 @@ class mace_methods(torch_model, downloadable_model, method_model):
         from mace.calculators import mace_off # MACE ASE calculator
         model_dir = 'mace_off_model'
         model_files = self.methods_info[self.method.lower()][0]
-        download_links = self.methods_info[self.method.lower()][1]
+        # download_links = self.methods_info[self.method.lower()][1]
 
         mlatom_model_dir, to_download = self.check_model_path(model_dir, model_files)
         mlatom_model_path = os.path.join(mlatom_model_dir, model_files)
-        if to_download: self.download(download_links, mlatom_model_path, extract=False, flatten=False)
+        # if to_download: self.download(download_links, mlatom_model_path, extract=False, flatten=False)
+        if to_download:
+            raise ValueError(f"MACE model {model_files} not found in {mlatom_model_dir}. Please download it manually and place it at {mlatom_model_path}")
 
         self.model = mace_off(model=mlatom_model_path, device=self.device, **self.model_kwargs)
 

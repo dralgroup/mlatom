@@ -10,8 +10,9 @@
 import numpy as np
 from . import data
 from . import constants
-from .thermostat import Andersen_thermostat, Nose_Hoover_thermostat, Langevin_thermostat
+from .thermostat import Thermostat, Andersen_thermostat, Nose_Hoover_thermostat, Langevin_thermostat
 from . import stopper
+from typing import Optional
 
 class md():
     '''
@@ -96,27 +97,30 @@ class md():
     Nose_Hoover_thermostat = Nose_Hoover_thermostat
     Langevin_thermostat = Langevin_thermostat
     def __init__(self, model=None,
-                 model_predict_kwargs={},
-                 molecule_with_initial_conditions=None,
-                 molecule=None,
-                 ensemble='NVE',
-                 thermostat=None,
-                 time_step=0.1,
-                 maximum_propagation_time=1000,
-                 dump_trajectory_interval=None,
-                 filename=None, format='h5md',
-                 stop_function=None, stop_function_kwargs=None):
+                 model_predict_kwargs:Optional[dict]={},
+                 molecule_with_initial_conditions:Optional[data.molecule]=None,
+                 molecule:Optional[data.molecule]=None,
+                 ensemble:Optional[str]='NVE',
+                 thermostat:Optional[Thermostat]=None,
+                 time_step:Optional[float]=0.1,
+                 maximum_propagation_time:Optional[float]=1000,
+                 dump_trajectory_interval:Optional[int]=None,
+                 filename:Optional[str]=None, 
+                 format:Optional[str]='h5md',
+                 eliminate_momentum:Optional[bool]=False,
+                 stop_function=None, 
+                 stop_function_kwargs=None):
         self.model = model
         self.model_predict_kwargs ={'calculate_energy':True, 'calculate_energy_gradients':True}
         self.model_predict_kwargs.update(model_predict_kwargs)
-        if not molecule_with_initial_conditions is None and not molecule is None:
+        if molecule_with_initial_conditions is not None and molecule is not None:
             stopper.stopMLatom('molecule and molecule_with_initial_conditions cannot be used at the same time')
-        if not molecule_with_initial_conditions is None:
+        if molecule_with_initial_conditions is not None:
             self.molecule_with_initial_conditions = molecule_with_initial_conditions 
-        if not molecule is None:
+        if molecule is not None:
             self.molecule_with_initial_conditions = molecule
         self.ensemble = ensemble
-        if thermostat != None:
+        if thermostat is not None:
             self.thermostat = thermostat
         self.time_step = time_step
         self.maximum_propagation_time = maximum_propagation_time
@@ -131,11 +135,11 @@ class md():
             self.propagation_algorithm = self.thermostat
         
         self.dump_trajectory_interval = dump_trajectory_interval
-        if dump_trajectory_interval != None:
+        if dump_trajectory_interval is not None:
             self.format = format
             if format == 'h5md': ext = '.h5'
             elif format == 'json': ext = '.json'
-            if filename == None:
+            if filename is None:
                 import uuid
                 filename = str(uuid.uuid4()) + ext
             self.filename = filename 
@@ -148,6 +152,7 @@ class md():
             self.degrees_of_freedom = 3 * self.Natoms - 5
         else:
             self.degrees_of_freedom = 3 * self.Natoms - 6
+        self.eliminate_momentum = eliminate_momentum
         self.propagate()
         
     def propagate(self):
@@ -160,7 +165,7 @@ class md():
             trajectory_step = data.molecular_trajectory_step()
             if istep == 0:
                 molecule = self.molecule_with_initial_conditions.copy()
-                if not 'energy_gradients' in molecule.atoms[0].__dict__:
+                if 'energy_gradients' not in molecule.atoms[0].__dict__:
                     self.model.predict(molecule=molecule,
                                     **self.model_predict_kwargs)
                 forces = -np.copy(molecule.get_energy_gradients())
@@ -198,6 +203,13 @@ class md():
                 # Velocity update half step
                 velocity = velocity + acceleration*self.time_step*0.5
 
+                # Remove angular momentum
+                if self.eliminate_momentum:
+                    total_mass = np.sum(self.masses)
+                    v_cm = sum(velocity*self.mass) / total_mass
+                    velocity = velocity - v_cm
+                    velocity = getridofang(coord,velocity,self.masses)
+
                 for iatom in range(self.Natoms):
                     molecule.atoms[iatom].xyz_coordinates = np.copy(coord[iatom])
                     molecule.atoms[iatom].xyz_velocities = np.copy(velocity[iatom])
@@ -213,13 +225,16 @@ class md():
             trajectory_step.molecule = molecule 
             self.molecular_trajectory.steps.append(trajectory_step)
             # Stop function
-            if type(self.stop_function) != type(None):
-                if self.stop_function_kwargs == None: self.stop_function_kwargs = {}
-                stop = self.stop_function(molecule, **self.stop_function_kwargs)
+            if self.stop_function is not None:
+                if self.stop_function_kwargs is None:
+                    self.stop_function_kwargs = {}
+                if 'stop_state' not in locals():
+                    stop_state = None
+                stop, stop_state = self.stop_function(mol=molecule, stop_state=stop_state, **self.stop_function_kwargs)
             if istep*self.time_step >= self.maximum_propagation_time:
                 stop = True
             # Dump trajectory at some interval
-            if self.dump_trajectory_interval != None:
+            if self.dump_trajectory_interval is not None:
                 
                 if istep % self.dump_trajectory_interval == 0:
                     if self.format == 'h5md':
@@ -260,3 +275,39 @@ class nve():
             molecule = kwargs['molecule']
         return molecule
 
+def getridofang(coord,vel,mass):
+    omega = getAngV(coord,vel,mass)
+    coord_ = coord - getCoM(coord,mass)
+    vel = vel - np.cross(omega,coord_)
+
+    return vel 
+
+def getAngV(xyz,v,m,center=None):
+    L=getAngM(xyz,v,m,center)
+    I=getMomentOfInertiaTensor(xyz,m,center)
+    omega=np.linalg.inv(I).dot(L)
+    return omega
+
+def getCoM(xyz,m=None):
+    if m is None:
+        m=np.ones(xyz.shape[-2])
+    return np.sum(xyz*m[:,np.newaxis],axis=-2)/np.sum(m)
+
+def getAngM(xyz,v,m,center=None):
+    if center is None:
+        centered=xyz-getCoM(xyz,m)
+    else:
+        centered=xyz-center
+    L=np.sum(m[:,np.newaxis]*np.cross(centered,v),axis=0)
+    return L
+
+def getMomentOfInertiaTensor(xyz,m,center=None):
+    if center is None:
+        center=getCoM(xyz,m)
+    centered=xyz-center
+    I=np.zeros((3,3))
+    for i in range(3):
+        for j in range(3):
+            for k in range(len(m)):
+                I[i,j]+=m[k]*(np.sum(centered[k]**2)-centered[k,i]*centered[k,j]) if i==j else m[k]*(-centered[k,i]*centered[k,j])
+    return I

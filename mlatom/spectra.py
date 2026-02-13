@@ -101,11 +101,14 @@ class spectrum():
 
         new_spectrum = cls()
         new_spectrum.x = data.array(spectrum_range)
+        new_spectrum.y_components = []
         for ii in range(len(line_spectrum)):
+            curve = broadening_func(line_spectrum[ii][0],line_spectrum[ii][1],new_spectrum.x,**broadening_func_kwargs)
+            new_spectrum.y_components.append(curve.copy())
             if ii==0:
-                new_spectrum.y = broadening_func(line_spectrum[ii][0],line_spectrum[ii][1],new_spectrum.x,**broadening_func_kwargs)
+                new_spectrum.y = curve.copy()
             else:
-                new_spectrum.y += broadening_func(line_spectrum[ii][0],line_spectrum[ii][1],new_spectrum.x,**broadening_func_kwargs)
+                new_spectrum.y += curve.copy()
         new_spectrum.set_data(x=new_spectrum.x, y=new_spectrum.y)
         return new_spectrum
     
@@ -1021,9 +1024,15 @@ def plot_spectra(spectra=None, linespectra=None,
                 labels=[],
                 colors=[],
                 normalize=False,
+                band_width:float=0.3,
                 shift=False, shiftby=None,
                 plotstart=None, plotend=None,
-                ):
+                print_peaks:bool=False,
+                analyze_component:bool=False,
+                contribution_threshold:float=None,
+                max_print:int=None,
+                molecule:data.molecule=None,
+                molecular_database:data.molecular_database=None):  # molecule or molecular_database is needed if calculate component in uvvis
     import matplotlib
     import matplotlib.pyplot as plt
     matplotlib.rcParams['axes.linewidth'] = 2
@@ -1065,7 +1074,67 @@ def plot_spectra(spectra=None, linespectra=None,
             spectra[ispec].x += delta
             if linespectra is not None:
                 linespectra[ispec-1].x += delta
-    
+
+    if analyze_component:
+        print_peaks = True
+        state_multiplicity = {
+            1: "S",
+            2: "D",
+            3: "T",
+            4: "Q"
+            }
+    def print_peaks_func(spec, max_print, contribution_threshold, molecule:data.molecule=None):
+        from scipy.signal import find_peaks
+        from typing import OrderedDict
+        import pandas as pd
+        from IPython.display import display, Markdown
+        peaks, _ = find_peaks(spec.y)
+        # corresponding_wavelengths = sorted([round(float(spectra[0].x[peak]), 2) for peak in peaks])
+        corresponding_wavelengths = sorted([round(float(spec.x[peak]), 2) for peak in peaks])
+        print(f"  Absorption peaks (nm): {corresponding_wavelengths}")
+        if analyze_component:
+            component_dict = dict()
+            for peak in peaks:
+                contributions = OrderedDict()
+                total_component = sum([spec.y_components[iexcitation][peak] for iexcitation in range(len(spec.y_components))])
+                for iexcitation in range(len(spec.y_components)):
+                    contributions[f"{iexcitation+1}"] = spec.y_components[iexcitation][peak] / total_component
+                selected_contributions = contributions
+                selected_contributions = dict(sorted(contributions.items(), key=lambda x: x[1], reverse=True))
+                if contribution_threshold:
+                    selected_contributions = {k: v for k, v in selected_contributions.items() if v > contribution_threshold}
+                else:
+                    if max_print == None: max_print = 3
+                    from itertools import islice
+                    selected_contributions = dict(islice(selected_contributions.items(), max_print))
+                selected_contributions = {k: f'{v:.5f}' for k, v in selected_contributions.items()}
+                
+                df = pd.DataFrame(list(selected_contributions.items()), columns=['Excitation No.', 'Contribution'])
+                components = df.to_string(index=False, header=True, justify="center", col_space=15).replace(" ", "   ")
+                wavelength = round(float(spec.x[peak]), ndigits=1)
+                print(f"\nContributions at wavelength: {wavelength} nm")
+                display(Markdown(df.to_markdown(index=False)))
+                single_component = {f"{state_multiplicity[molecule.electronic_states[int(excitation)].multiplicity] if hasattr(molecule.electronic_states[int(excitation)], 'multiplicity') and molecule.electronic_states[int(excitation)].multiplicity < 5 else 'Excitation '}{excitation}": round(float(contribution), ndigits=4) 
+                                       for excitation, contribution in zip(df["Excitation No."], df["Contribution"])}
+                component_dict.update({f"{wavelength} nm": single_component})
+            return component_dict
+
+    if molecule and not molecular_database:
+        molecular_database = data.molecular_database(molecules=[molecule])
+
+    if print_peaks:
+        if len(spectra) == 1:
+            if molecular_database:
+                components = print_peaks_func(spectra[0], max_print, contribution_threshold, molecule=molecular_database[0])
+                molecular_database[0].uvvis_peaks = components
+        else:
+            # for ispec, spec in enumerate(spectra[(len(spectra) - len(molecular_database)):]):
+            for ispec, spec in enumerate(spectra[(len(spectra) - len(molecular_database)):]):
+                # print(f'Analysis of peaks in spectrum {len(molecular_database) + ispec + 1}')
+                print(f'Analysis of peaks in spectrum {len(spectra) - len(molecular_database) + ispec + 1}')
+                components = print_peaks_func(spec, max_print, contribution_threshold, molecule=molecular_database[ispec])
+                molecular_database[ispec].uvvis_peaks = components
+
     for ii in range(len(spectra)):
         if ii < len(labels): label=labels[ii]
         else: label=None
@@ -1126,7 +1195,11 @@ def plot_uvvis( spectra=None,
                 colors=[],
                 normalize=False,
                 shift=False, shiftby=None,
-                plotstart=None, plotend=None,):
+                plotstart=None, plotend=None,
+                print_peaks:bool=True,
+                analyze_component:bool=False,
+                contribution_threshold:float=None,
+                max_print:int=None):
     if spectra is None:
         spectra = []
     else:
@@ -1181,8 +1254,13 @@ def plot_uvvis( spectra=None,
                     labels=labels,
                     colors=colors,
                     normalize=normalize,
+                    band_width=band_width,
                     shift=shift, shiftby=shiftby,
-                    plotstart=plotstart, plotend=plotend,)
+                    plotstart=plotstart, plotend=plotend,
+                    print_peaks=print_peaks,
+                    analyze_component=analyze_component,
+                    contribution_threshold=contribution_threshold, max_print=max_print,
+                    molecule=molecule, molecular_database=molDB)
     if spc and band_width_slider:
         import ipywidgets
         _ = ipywidgets.interact(spc_broaden,

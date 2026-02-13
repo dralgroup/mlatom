@@ -25,7 +25,6 @@ from typing import List
 _find_pysisyphus = importlib.util.find_spec('pysisyphus')
 if _find_pysisyphus is None:
     raise ValueError('pysisphus installation not found. Please install pysisphus via https://github.com/eljost/pysisyphus')
-sys.path.insert(0, "/home/chenyxx/project/MLATOM/mlatom_mep/soft/pysisyphus-master")
 from pysisyphus.calculators.Calculator import Calculator
 from pysisyphus.Geometry import Geometry
 from pysisyphus.run import IRC_DICT
