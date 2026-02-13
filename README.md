@@ -3,7 +3,33 @@
 [![Downloads](https://static.pepy.tech/badge/mlatom)
 ](https://pepy.tech/project/mlatom)  [![Downloads](https://static.pepy.tech/badge/mlatom/month)](https://pepy.tech/project/mlatom)  [![Downloads](https://static.pepy.tech/badge/mlatom/week)](https://pepy.tech/project/mlatom)
 
-# Updates
+# MLatom
+
+MLatom is a package for atomistic simulations with machine learning and quantum chemical methods such as DFT, wavefunction based, and semi-empirical approximations. You can use it as a Python library, via input files or command line. It is an open-source software under the MIT license (modified to request proper citations).
+
+Official website: [MLatom.com](http://mlatom.com) with manuals and tutorials.
+
+MLatom is supported by [Aitomistic](https://aitomistic.com), which enables simulations with MLatom online on the [Aitomistic Hub](https://aitomistic.xyz) (registration free), with [AI assistant Aitomia](http://mlatom.com/aitomia/) helping with autonomous atomistic simulations. Aitomistic also distributes [add-ons](https://aitomistic.com/en/product/aitomic) to MLatom, which supercharge MLatom with the most advanced features and ML models, often before they are published.
+
+The package was founded by [Pavlo O. Dral](http://dr-dral.com) on 10 September 2013. Pavlo continues to develop and supervise the development of the package.
+
+## Subscribe for updates
+Do not miss MLatom updates – [subscribe to us](https://aitomistic.com/en/contact) on the Aitomistic channels, including email newsletter and your favorite social media platform.
+
+## Local installation
+
+Quick installation:
+
+`python3 -m pip install -U mlatom`
+
+See detailed [installation instructions](http://mlatom.com/docs/installation.html) on recommended dependences and other tips.
+
+## Brief overview of features
+
+<p align="center"><img src="http://mlatom.com/docs/_images/image1.png"/></p>
+
+## Releases
+Full [release notes](http://mlatom.com/docs/releases.html).
 
 - MLatom 3.18.0 - FSSH, KRR in Julia, MDtrajNet-1 - universal model for directly predicting MD trajectories, ECTS - a diffusion model for generating TSs.
 - MLatom 3.17.1-3.17.2 (26.03-21.05.2025) - + QST2 and QST3, NEB, more options for RMSD calculations and UV/vis plots, code refactoring for higher efficiency, major bug fixes, etc.
@@ -29,22 +55,6 @@
 - MLatom 3.2.0 (19.03.2024) - [diffusion Monte Carlo and energy-weighted training](http://mlatom.com/docs/releases.html#mlatom-3-2-0)
 - MLatom 3.1.0 (12.29.2023) - [MACE interface](http://mlatom.com/releases/#Version_31)
 - MLatom 3.0.0 (12.09.2023)
-
-# MLatom
-
-MLatom is a package for atomistic simulations with machine learning.
-See official website [MLatom.com](http://mlatom.com) for more information, manuals and tutorials.
-
-It is an open-source software under the MIT license (modified to request proper citations).
-MLatom is a part of [XACS](http://XACScloud.com/) (Xiamen Atomistic Computing Suite) since 2022 and you can use MLatom @ XACS cloud computing service for using the package online via web browser.
-
-The MLatom can be also conveniently installed via pip:
-
-`python3 -m pip install -U MLatom`
-
-Dependences may need to be also installed as described on the official website.
-
-<p align="center"><img src="http://mlatom.com/docs/_images/image1.png"/></p>
 
 ## Contributions and derivatives
 
