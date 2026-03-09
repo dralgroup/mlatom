@@ -1,7 +1,7 @@
 import sys
 from . import data, stats, models, simulations, optimize_geometry, freq, md, md_parallel, generate_initial_conditions
 from .simulations import run_in_parallel 
-from .al_utils import Sampler, ml_model_trainer, ml_model, ml_model_msani, stopper
+from .al_utils import Sampler, ml_model_trainer, ml_model, ml_model_msani, stopper, ml_model_delta_msani
 import numpy as np 
 import os 
 import random
@@ -63,6 +63,10 @@ class al():
             self.reference_method = kwargs['reference_method']
         else:
             stopper("Reference method is needed")
+        if 'baseline_method' in kwargs:
+            self.baseline_method = kwargs['baseline_method']
+        else:
+            self.baseline_method = None
 
         if 'molecule' in kwargs:
             self.molecule = kwargs['molecule']
@@ -91,6 +95,11 @@ class al():
                 'initial_temperature':300,
             }
             # stopper('Initial points sampler kwargs not provided')
+        # ..initial_dataset: Pre-built molecular_database to use as initial data (skips sampling)
+        if 'initial_dataset' in kwargs:
+            self.initial_dataset = kwargs['initial_dataset']
+        else:
+            self.initial_dataset = None
         # ..initial_points_refinement: Initial points refinement method, a string which specifies the method.
         #   ...Options:
         #       "cross-validation": Check the cross validation error and fit the learning curve. Keep adding points until doubling Ntr improves accuracy by less than 10%.
@@ -146,17 +155,26 @@ class al():
             self.model_predict_kwargs = kwargs['refmethod_kwargs']
         else:
             self.model_predict_kwargs = {}
+        if 'baseline_method_kwargs' in kwargs:
+            self.baseline_method_kwargs = kwargs['baseline_method_kwargs']
+        else:
+            self.baseline_method_kwargs = {}
+
+        self.calculate_reference_gradients = self.model_predict_kwargs.pop('calculate_energy_gradients', True)
 
         # .ML models
         # ..ml_model: ML model class
         if 'ml_model' in kwargs:
             self.ml_model = kwargs['ml_model']
             if isinstance(self.ml_model,str):
-                if self.ml_model.casefold() == 'msani':                   
-                    self.ml_model_type = 'msani' 
+                if self.ml_model.casefold() in ('msani', 'vecmsani'):
+                    self.ml_model_type = self.ml_model.casefold()
                     self.ml_model = ml_model_msani
+                elif self.ml_model.casefold() in ('delta_msani', 'delta_vecmsani'):
+                    self.ml_model_type = self.ml_model.casefold().replace('delta_', '')
+                    self.ml_model = ml_model_delta_msani
                 else:
-                    self.ml_model_type = self.ml_model 
+                    self.ml_model_type = self.ml_model
                     self.ml_model = ml_model
             else:
                 self.ml_model_type = None
@@ -169,7 +187,11 @@ class al():
         else:
             self.ml_model_kwargs = {}
 
-        # ..ml_model_trainer: ML model trainer 
+        self.use_gradients_in_training = self.ml_model_kwargs.get('use_gradients_in_training', True)
+        if not self.use_gradients_in_training:
+            self.init_train_energies_only = True
+
+        # ..ml_model_trainer: ML model trainer
         if 'ml_model_trainer' in kwargs:
             self.ml_model_trainer = kwargs['ml_model_trainer']
             if isinstance(self.ml_model_trainer,str):
@@ -299,9 +321,10 @@ class al():
             self.iteration = self.al_info['iteration']
         else:
             self.iteration = 0
-            self.al_info['iteration'] = self.iteration 
+            self.al_info['iteration'] = self.iteration
+
         # Dump AL info
-        self.dump() 
+        self.dump()
 
 
         # self.iteration = -1 
@@ -412,8 +435,12 @@ class al():
         return optmol
         
     def get_initial_data_pool(self):
-        # Sample initial points if previous sampling is not found
-        if not os.path.exists('init_cond_db.json'):
+        if self.initial_dataset is not None:
+            print("Using provided initial dataset")
+            self.init_cond_db = self.initial_dataset
+            self.init_cond_db.dump(filename='init_cond_db.json', format='json')
+            self.molecular_pool_to_label = self.init_cond_db
+        elif not os.path.exists('init_cond_db.json'):
             # Get initial data pool (eqmol is not included)
             if self.initial_points_refinement.casefold() == 'cross-validation'.casefold():
                 print(" Initial points sampling: Use cross validation")
@@ -455,14 +482,17 @@ class al():
 
         while sample_initial_conditions:
             init_cond_db = sampler.sample(al_object=self,**sampler_kwargs)
-            self.label_points_moldb(method=self.reference_method,model_predict_kwargs=self.model_predict_kwargs,moldb=init_cond_db,nthreads=self.label_nthreads)
+            self.label_points_moldb(method=self.reference_method,model_predict_kwargs=self.model_predict_kwargs,moldb=init_cond_db,nthreads=self.label_nthreads,calculate_energy_gradients=self.calculate_reference_gradients)
             fail_count = 0
             for init_mol in init_cond_db:
-                if (not 'failed' in init_mol.__dict__ and 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__) or ('failed' in init_mol.__dict__ and not init_mol.failed):
-                # if 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__:
+                if self.calculate_reference_gradients is True or (isinstance(self.calculate_reference_gradients, (list, tuple)) and all(self.calculate_reference_gradients)):
+                    success = ('energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__)
+                else:
+                    success = ('energy' in init_mol.__dict__)
+                if success:
                     self.init_cond_db += init_mol
                 else:
-                    fail_count += 1 
+                    fail_count += 1
             if fail_count != 0:
                 print(f"{fail_count} molecules are abandoned due to failed calculation")
 
@@ -536,7 +566,7 @@ class al():
                                                                 xyz_derivative_property_to_learn='energy_gradients',
                                                                 device=self.device)
             mlmodel.predict(molecular_database=validation_molDB, property_to_predict='estimated_energy',xyz_derivative_property_to_predict='estimated_energy_gradients')
-            moldb += validation_molDB 
+            moldb += validation_molDB
         energies = moldb.get_properties('energy')
         estimated_energies = moldb.get_properties('estimated_energy')
         eRMSE = stats.rmse(energies,estimated_energies)
@@ -570,11 +600,14 @@ class al():
     def get_initial_data_pool_one_shot(self,sampler,sampler_kwargs):
         self.init_cond_db = data.molecular_database()
         init_cond_db = sampler.sample(al_object=self,**sampler_kwargs)
-        self.label_points_moldb(method=self.reference_method,model_predict_kwargs=self.model_predict_kwargs,moldb=init_cond_db,nthreads=self.label_nthreads)
+        self.label_points_moldb(method=self.reference_method,model_predict_kwargs=self.model_predict_kwargs,moldb=init_cond_db,nthreads=self.label_nthreads,calculate_energy_gradients=self.calculate_reference_gradients)
         fail_count = 0
-        init_cond_db.dump('debug.json',format='json')
         for init_mol in init_cond_db:
-            if (not 'failed' in init_mol.__dict__ and 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__) or ('failed' in init_mol.__dict__ and not init_mol.failed):
+            if self.calculate_reference_gradients is True or (isinstance(self.calculate_reference_gradients, (list, tuple)) and all(self.calculate_reference_gradients)):
+                success = ('energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__)
+            else:
+                success = ('energy' in init_mol.__dict__)
+            if (not 'failed' in init_mol.__dict__ and success) or ('failed' in init_mol.__dict__ and not init_mol.failed):
             #if not 'failed' in init_mol.__dict__ or not init_mol.failed:
             # if 'energy' in init_mol.__dict__ and 'energy_gradients' in init_mol.atoms[0].__dict__:
                 self.init_cond_db += init_mol
@@ -598,9 +631,13 @@ class al():
         # print(nmols)
         labeled_database_iteration = data.molecular_database() 
         if nmols > 0:
-            self.label_points_moldb(method=self.reference_method,model_predict_kwargs=self.model_predict_kwargs,moldb=self.molecular_pool_to_label,nthreads=self.label_nthreads)
+            self.label_points_moldb(method=self.reference_method,model_predict_kwargs=self.model_predict_kwargs,moldb=self.molecular_pool_to_label,nthreads=self.label_nthreads,calculate_energy_gradients=self.calculate_reference_gradients)
             for mol in self.molecular_pool_to_label:
-                if (not 'failed' in mol.__dict__ and 'energy' in mol.__dict__ and 'energy_gradients' in mol.atoms[0].__dict__) or ('failed' in mol.__dict__ and not mol.failed):
+                if self.calculate_reference_gradients is True or (isinstance(self.calculate_reference_gradients, (list, tuple)) and all(self.calculate_reference_gradients)):
+                    success = ('energy' in mol.__dict__ and 'energy_gradients' in mol.atoms[0].__dict__)
+                else:
+                    success = ('energy' in mol.__dict__)
+                if (not 'failed' in mol.__dict__ and success) or ('failed' in mol.__dict__ and not mol.failed):
                 #if not 'failed' in mol.__dict__ or not mol.failed:
                 # if 'energy' in mol.__dict__ and 'energy_gradients' in mol.atoms[0].__dict__:
                     self.labeled_database.molecules.append(mol)
@@ -619,18 +656,19 @@ class al():
             if os.path.exists('labeled_db.json'): self.labeled_database.load(filename='labeled_db.json', format='json')
         if len(self.labeled_database.molecules) == 0: return
 
+        model_kwargs = {**self.ml_model_kwargs}
         if self.ml_model_type is None:
             self.model = self.ml_model(
                 al_info=self.al_info,
                 device=self.device,
-                **self.ml_model_kwargs,
+                **model_kwargs,
             )
         else:
             self.model = self.ml_model(
                 al_info=self.al_info,
                 device=self.device,
                 ml_model_type=self.ml_model_type,
-                **self.ml_model_kwargs
+                **model_kwargs
             )
         # Make a copy of the labeled database in case that it is polluted
         labeled_db_copy = self.labeled_database.copy()
@@ -640,7 +678,9 @@ class al():
         )
 
     def use_ml_model(self):
-        # For parallel execution 
+        if not hasattr(self, 'model'):
+            raise RuntimeError("No ML model available. Labeled database may be empty — check if reference calculations succeeded during initial sampling.")
+        # For parallel execution
         self.model.nthreads = 1
 
         # Grab points to label from trajectories 
@@ -693,37 +733,66 @@ class al():
             nthreads (int): number of threads
         '''
         if 'nstates' in model_predict_kwargs:
-            calculate_energy_gradients = [True] * model_predict_kwargs['nstates']
-        def label(imol):
-            mol2label = moldb[imol]
-            if not ('energy' in mol2label.__dict__ and 'energy_gradients' in mol2label[0].__dict__):
-                try:
-                    method.predict(molecule=mol2label,calculate_energy=calculate_energy,calculate_energy_gradients=calculate_energy_gradients,calculate_hessian=calculate_hessian,**model_predict_kwargs)
-                except:
-                    print('labeling failed!')
-            return mol2label
-        def sptask(molecule=None, model=None, refmethod_kwargs={}):
-            model.predict(molecule=molecule, **refmethod_kwargs)
+            if isinstance(calculate_energy_gradients, bool):
+                if calculate_energy_gradients:
+                    calculate_energy_gradients = [calculate_energy_gradients] * model_predict_kwargs['nstates']
+            elif not any(calculate_energy_gradients):
+                calculate_energy_gradients = False
+        def sptask(molecule=None, model=None, refmethod_kwargs={}, ):
+            try:
+                if self.baseline_method is not None:
+                    auxmol = data.molecule()
+                    auxmol.atoms = molecule.atoms
+                    self.baseline_method.predict(molecule=auxmol, **self.baseline_method_kwargs)
+                model.predict(molecule=molecule, **refmethod_kwargs)
+                if self.baseline_method is not None:
+                    try:
+                        nstates = refmethod_kwargs['nstates']
+                    except:
+                        nstates = 1
+                    if nstates > 1:
+                        for i in range(nstates):
+                            molecule.electronic_states[i].delta_energy = molecule.electronic_states[i].energy - auxmol.electronic_states[i].energy
+                            if hasattr(molecule.electronic_states[i].atoms[0], 'energy_gradients'):
+                                molecule.electronic_states[i].delta_energy_gradients = molecule.electronic_states[i].energy_gradients - auxmol.electronic_states[i].energy_gradients
+                    molecule.delta_energy = molecule.energy - auxmol.energy
+            except Exception as e:
+                print(f"Labeling calculation failed: reason {e}")
             return molecule
-        nmols = len(moldb)
+        def _needs_label(mol, check_gradients):
+            if check_gradients:
+                return not ('energy' in mol.__dict__ and 'energy_gradients' in mol[0].__dict__)
+            else:
+                return not ('energy' in mol.__dict__)
+
+        # Determine whether gradient check is needed (handle both bool and list)
+        _check_grads = calculate_energy_gradients if isinstance(calculate_energy_gradients, bool) else any(calculate_energy_gradients)
+
         if nthreads > 1:
-            newmols = run_in_parallel(molecular_database=moldb,
-                task=sptask,
-                task_kwargs={'model': method, 'refmethod_kwargs': {'calculate_energy': calculate_energy, 'calculate_energy_gradients':calculate_energy_gradients, 'calculate_hessian':calculate_hessian, **model_predict_kwargs}},
-                nthreads=nthreads,
-                create_temp_directories=True)
-            for imol in range(len(moldb)):
-                moldb.molecules[imol] = newmols[imol]
-            
-            # from multiprocessing.pool import ThreadPool as Pool
-            #pool = Pool(processes=nthreads)
-            #mols = pool.map(label,list(range(nmols)))
-            # from joblib import Parallel, delayed 
-            # mols = Parallel(n_jobs=nthreads)(delayed(label)(i) for i in range(nmols))
+            moldb2label = data.molecular_database()
+            for mol2label in moldb:
+                if _needs_label(mol2label, _check_grads):
+                    moldb2label += mol2label
+
+            if len(moldb2label) > 0:
+                newmols = run_in_parallel(molecular_database=moldb2label,
+                    task=sptask,
+                    task_kwargs={'model': method, 'refmethod_kwargs': {'calculate_energy': calculate_energy, 'calculate_energy_gradients':calculate_energy_gradients, 'calculate_hessian':calculate_hessian, **model_predict_kwargs}},
+                    nthreads=nthreads,
+                    create_temp_directories=True)
+
+                result_index = 0
+                for i, mol in enumerate(moldb.molecules):
+                    if _needs_label(mol, _check_grads):
+                        if result_index < len(newmols):
+                            moldb.molecules[i] = newmols[result_index]
+                            result_index += 1
+            else:
+                print("All molecules already have labels, skipping parallel computation.")
         else:
             moldb2label = data.molecular_database()
             for mol2label in moldb:
-                if not ('energy' in mol2label.__dict__ and 'energy_gradients' in mol2label[0].__dict__):
+                if _needs_label(mol2label, _check_grads):
                     moldb2label += mol2label
             method.predict(molecular_database=moldb2label,calculate_energy=calculate_energy,calculate_energy_gradients=calculate_energy_gradients,calculate_hessian=calculate_hessian,**model_predict_kwargs)
 

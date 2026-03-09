@@ -14,7 +14,7 @@ from . import constants, data, models
 from .md import md as md
 from .irc import irc
 from .md_parallel import md_parallel as md_parallel
-from .initial_conditions import generate_initial_conditions
+from .initial_conditions import generate_initial_conditions, filter_by_excitation_energy_window
 from .md2vibr import vibrational_spectrum
 import os, sys, math, shutil
 import numpy as np

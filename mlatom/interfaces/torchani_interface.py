@@ -1003,7 +1003,7 @@ class msani(ml_model, torchani_model):
             print('network parameters not found')
         
         from .torchani_heavy_parts import StateInputNet
-        self.model = torch.nn.DataParallel(StateInputNet(self.aev_computer, self.nn)).to(self.device)
+        self.model = StateInputNet(self.aev_computer, self.nn).to(self.device)
         self.model.eval()
         if self.verbose: print(f'model loaded from {model_file}')
 
@@ -1035,7 +1035,7 @@ class msani(ml_model, torchani_model):
         self.optimizer_setup(**self.hyperparameters)
         self.energy_shifter = model.energy_shifter
         from .torchani_heavy_parts import StateInputNet
-        self.model = torch.nn.DataParallel(StateInputNet(self.aev_computer, self.nn)).to(self.device).float()
+        self.model = StateInputNet(self.aev_computer, self.nn).to(self.device).float()
         if self.verbose: print(f'loaded {method} model')
     
     @doc_inherit

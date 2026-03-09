@@ -1485,31 +1485,43 @@ class properties_tree_node():
         for property_name in properties:
             property_values_list = []
             for child in self.children:
+                if property_name not in child.__dict__:
+                    break
                 property_values_list.append(child.__dict__[property_name])
-            self.__dict__[property_name] = np.sum(property_values_list, axis=0)
+            else:
+                self.__dict__[property_name] = np.sum(property_values_list, axis=0)
 
     def weighted_sum(self, properties):
         for property_name in properties:
             property_values_list = []
             for child in self.children:
+                if property_name not in child.__dict__:
+                    break
                 if 'weight' not in child.__dict__.keys():
                     child.weight = 1
                 property_values_list.append(child.__dict__[property_name]*child.weight)
-            self.__dict__[property_name] = np.sum(property_values_list, axis=0)
-    
+            else:
+                self.__dict__[property_name] = np.sum(property_values_list, axis=0)
+
     def average(self, properties):
         for property_name in properties:
             property_values_list = []
             for child in self.children:
+                if property_name not in child.__dict__:
+                    break
                 property_values_list.append(child.__dict__[property_name])
-            self.__dict__[property_name] = np.mean(property_values_list, axis=0)
-    
+            else:
+                self.__dict__[property_name] = np.mean(property_values_list, axis=0)
+
     def standard_deviation(self, properties):
         for property_name in properties:
             property_values_list = []
             for child in self.children:
+                if property_name not in child.__dict__:
+                    break
                 property_values_list.append(child.__dict__[property_name])
-            self.__dict__[property_name + '_standard_deviation'] = np.std(property_values_list, axis=0)
+            else:
+                self.__dict__[property_name + '_standard_deviation'] = np.std(property_values_list, axis=0)
             
 class molecular_database:
     '''
@@ -2776,11 +2788,12 @@ class molecular_trajectory():
             data['need_to_be_labeled'] = []
             if 'current_state' in self.steps[0].__dict__: data['current_state'] = []
             if 'uncertain' in self.steps[0].molecule.__dict__: data['uncertain'] = []
+            if 'uncertain' in self.steps[0].molecule.__dict__: data['state_uncertain'] = []
 
             #'state_gradients'
             dp_flag = True
             for istep in self.steps:
-                if not 'dipole_moment' in istep.molecule.__dict__.keys():
+                if 'dipole_moment' not in istep.molecule.__dict__.keys():
                     dp_flag = False 
             if dp_flag:
                 data['dipole_moment'] = []
@@ -2793,7 +2806,7 @@ class molecular_trajectory():
                 data['velocities'].append(istep.molecule.get_xyz_vectorial_properties('xyz_velocities'))
                 data['gradients'].append(istep.molecule.get_energy_gradients())
                 if 'uncertain' in data.keys():
-                    if istep.molecule.uncertain == True:
+                    if istep.molecule.uncertain:
                         data['uncertain'].append(1)
                     else:
                         data['uncertain'].append(0)
@@ -2804,13 +2817,21 @@ class molecular_trajectory():
                         if 'energy_gradients' in istep.molecule.electronic_states[i].atoms[0].__dict__:
                             state_gradients.append(istep.molecule.electronic_states[i].get_energy_gradients())
                         else:
-                            state_gradients.append(None)
+                            state_gradients.append(np.full_like(istep.molecule.xyz_coordinates, np.nan))
                     data['state_gradients'].append(np.array(state_gradients))
                     if 'aux_energy' in istep.molecule.electronic_states[0].__dict__.keys():
                         aux_state_energies = []
                         for i in range(0, len(istep.molecule.electronic_states)):
                             aux_state_energies.append(istep.molecule.electronic_states[i].aux_energy)
                         data['aux_state_energies'].append(np.array(aux_state_energies))
+                    if 'state_uncertain' in data.keys():
+                        state_uncertain = []
+                        for i in range(len(istep.molecule.electronic_states)):
+                            if getattr(istep.molecule.electronic_states[i], 'uncertain', False):
+                                state_uncertain.append(1)
+                            else:
+                                state_uncertain.append(0)
+                        data['state_uncertain'].append(state_uncertain)
                 if 'nacv' in data.keys(): data['nacv'].append(istep.molecule.nacv)
                 
                 data['kinetic_energy'].append(istep.molecule.kinetic_energy)
@@ -2980,6 +3001,14 @@ class molecular_trajectory():
                         molecule_istep.electronic_states[i].energy = data['state_energies'][istep][i]
                         if 'aux_state_energies' in data.keys():
                             molecule_istep.electronic_states[i].aux_energy = data['aux_state_energies'][istep][i]
+                    if 'state_uncertain' in data.keys():
+                        molecule_istep.uncertain_states = []
+                        for i in range(len(data['state_uncertain'][istep])):
+                            if int(data['state_uncertain'][istep][i]) == 1:
+                                molecule_istep.electronic_states[i].uncertain = True
+                                molecule_istep.uncertain_states.append(i)
+                            else:
+                                molecule_istep.electronic_states[i].uncertain = False
                 if 'state_gradients' in data.keys():
                     if not molecule_istep.electronic_states:
                         molecule_istep.electronic_states=[]

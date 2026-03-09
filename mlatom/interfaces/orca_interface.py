@@ -498,6 +498,12 @@ class orca_methods(method_model):
                         gs_energy = float(line.split()[-1])
                         energy_from_prop_file = True
                         break
+                # A quick fix for coupled cluster calcultions
+                for line in f:
+                    if "Total MDCI Energy:" in line:
+                        gs_energy = float(line.split()[-1])
+                        energy_from_prop_file = True
+                        break
         elif os.path.exists(prop_file):
             with open(prop_file, 'r') as f:
                 in_scf_block = False

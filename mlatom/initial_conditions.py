@@ -25,9 +25,6 @@ def excitation_energy_window_filter(molecular_database=None,
     molDB = molecular_database
     if not random_seed is None:
         np.random.seed(random_seed)
-        random_number = np.random.random()
-    else:
-        random_number = np.random.random()
     init_cond_db = data.molecular_database()
 
     check_os=True
@@ -55,9 +52,9 @@ def excitation_energy_window_filter(molecular_database=None,
                 continue
             if abs(excitation_energy - target_excitation_energy) <= window_half_width:
                 if check_os:
-                    if mol.oscillator_strengths[i-1]/f_max >= random_number:
+                    if mol.oscillator_strengths[i-1]/f_max >= np.random.random():
                         mol.current_state = i
-                        mol.energy == mol.electronic_states[i].energy
+                        mol.energy = mol.electronic_states[i].energy
                         init_cond_db.molecules.append(mol)
                 else:
                     mol.current_state = i
@@ -66,6 +63,44 @@ def excitation_energy_window_filter(molecular_database=None,
         return check_os, f_max, init_cond_db
     else:
         return check_os, init_cond_db
+
+def filter_by_excitation_energy_window(molecular_database,
+                                       target_excitation_energy=1,
+                                       window_half_width=0.1,
+                                       f_max=None,
+                                       random_seed=None):
+    molDB = molecular_database
+    if random_seed is not None:
+        np.random.seed(random_seed)
+    init_cond_db = data.molecular_database()
+
+    check_os = True
+    if check_os and f_max is None:
+        f_list = []
+        for mol in molDB.molecules:
+            for i in range(1, len(mol.electronic_states)):
+                f_list.append(mol.oscillator_strengths[i-1])
+        if len(f_list) > 0:
+            f_max = np.max(np.array(f_list))
+        else:
+            check_os = False
+
+    for mol in molDB.molecules:
+        for i in range(1, len(mol.electronic_states)):
+            try:
+                excitation_energy = (mol.electronic_states[i].energy - mol.electronic_states[0].energy) * constants.hartree2eV
+            except:
+                continue
+            if abs(excitation_energy - target_excitation_energy) <= window_half_width:
+                if check_os:
+                    if mol.oscillator_strengths[i-1]/f_max >= np.random.random():
+                        mol.current_state = i
+                        mol.energy = mol.electronic_states[i].energy
+                        init_cond_db.molecules.append(mol)
+                else:
+                    mol.current_state = i
+                    init_cond_db.molecules.append(mol)
+    return init_cond_db
 
 def generate_initial_conditions(
         molecule:Optional[data.molecule]=None, 

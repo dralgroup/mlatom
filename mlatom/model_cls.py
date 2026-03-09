@@ -1013,12 +1013,11 @@ class model_tree_node(model):
         if calculate_hessian: properties.append('hessian')
 
         for mol in molDB.molecules:
-            if nstates:
+            if nstates and nstates > 1:
                 mol_copy = mol.copy()
                 mol_copy.electronic_states = []
-                if nstates >1:
-                    for _ in range(nstates - len(mol.electronic_states)):
-                        mol.electronic_states.append(mol_copy.copy())
+                for _ in range(nstates - len(mol.electronic_states)):
+                    mol.electronic_states.append(mol_copy.copy())
 
                 for mol_el_st in mol.electronic_states:
                     if not self.name in mol_el_st.__dict__:
@@ -1033,7 +1032,7 @@ class model_tree_node(model):
                                     if children == None: children = []
                                     children.append(mol_el_st.__dict__[child.name])
                         mol_el_st.__dict__[self.name] = data.properties_tree_node(name=self.name, parent=parent, children=children)
-                
+
             if not self.name in mol.__dict__:
                 parent = None
                 if self.parent != None:
@@ -1050,11 +1049,11 @@ class model_tree_node(model):
         if self.children == None and self.operator == 'predict':
             self.model.predict(**kwargs)
             for mol in molDB.molecules:
-                if not mol.electronic_states:
+                if nstates and nstates > 1:
+                    for mol_el_st in mol.electronic_states:
+                        self.get_properties_from_molecule(mol_el_st, properties, atomic_properties)
+                else:
                     self.get_properties_from_molecule(mol, properties, atomic_properties)
-                for mol_el_st in mol.electronic_states:
-                    # mol_el_st.__dict__[self.name] = data.properties_tree_node(name=self.name, parent=parent, children=children)
-                    self.get_properties_from_molecule(mol_el_st, properties, atomic_properties)
         else:
             for child in self.children:
                 child.predict(**kwargs)
@@ -1063,25 +1062,25 @@ class model_tree_node(model):
 
             if self.operator == 'sum':
                 for mol in molDB.molecules:
-                    if not mol.electronic_states:
-                        mol.__dict__[self.name].sum(properties+atomic_properties)
-                    for mol_el_st in mol.electronic_states:
-                        mol_el_st.__dict__[self.name].sum(properties+atomic_properties)
+                    mol.__dict__[self.name].sum(properties+atomic_properties)
+                    if nstates and nstates > 1:
+                        for mol_el_st in mol.electronic_states:
+                            mol_el_st.__dict__[self.name].sum(properties+atomic_properties)
             if self.operator == 'weighted_sum':
                 for mol in molDB.molecules:
-                    if not mol.electronic_states:
-                        mol.__dict__[self.name].weighted_sum(properties+atomic_properties)
-                    for mol_el_st in mol.electronic_states:
-                        mol_el_st.__dict__[self.name].weighted_sum(properties+atomic_properties)
+                    mol.__dict__[self.name].weighted_sum(properties+atomic_properties)
+                    if nstates and nstates > 1:
+                        for mol_el_st in mol.electronic_states:
+                            mol_el_st.__dict__[self.name].weighted_sum(properties+atomic_properties)
             if self.operator == 'average':
                 for mol in molDB.molecules:
-                    if not mol.electronic_states:
-                        mol.__dict__[self.name].average(properties+atomic_properties)
-                    for mol_el_st in mol.electronic_states:
-                        mol_el_st.__dict__[self.name].average(properties+atomic_properties)
+                    mol.__dict__[self.name].average(properties+atomic_properties)
+                    if nstates and nstates > 1:
+                        for mol_el_st in mol.electronic_states:
+                            mol_el_st.__dict__[self.name].average(properties+atomic_properties)
                     
         if self.parent == None:
-            self.update_molecular_properties(molecular_database=molDB, properties=properties, atomic_properties=atomic_properties, current_state=current_state)
+            self.update_molecular_properties(molecular_database=molDB, properties=properties, atomic_properties=atomic_properties, current_state=current_state, nstates=nstates)
         
     def get_properties_from_molecule(self, molecule, properties=[], atomic_properties=[]):
         property_values = molecule.__dict__[self.name].__dict__
@@ -1093,7 +1092,7 @@ class model_tree_node(model):
                 property_values[property_name].append(atom.__dict__.pop(property_name))
             property_values[property_name] = np.array(property_values[property_name]).astype(float)
     
-    def update_molecular_properties(self, molecular_database=None, molecule=None, properties=[], atomic_properties=[], current_state=0):
+    def update_molecular_properties(self, molecular_database=None, molecule=None, properties=[], atomic_properties=[], current_state=0, nstates=1):
         molDB = molecular_database
         if molecule != None:
             molDB = data.molecular_database()
@@ -1101,22 +1100,22 @@ class model_tree_node(model):
 
         for mol in molDB.molecules:
             for property_name in properties:
-                for mol_el_st in mol.electronic_states:
-                    mol_el_st.__dict__[property_name] = mol_el_st.__dict__[self.name].__dict__[property_name]
-                if not mol.electronic_states:
-                    mol.__dict__[property_name] = mol.__dict__[self.name].__dict__[property_name]
-                else:
+                if nstates and nstates > 1:
+                    for mol_el_st in mol.electronic_states:
+                        mol_el_st.__dict__[property_name] = mol_el_st.__dict__[self.name].__dict__[property_name]
                     mol.__dict__[property_name] = mol.electronic_states[current_state].__dict__[property_name]
-            for property_name in atomic_properties:
-                for mol_el_st in mol.electronic_states:
-                    for iatom in range(len(mol_el_st.atoms)):
-                        mol_el_st.atoms[iatom].__dict__[property_name] = mol_el_st.__dict__[self.name].__dict__[property_name][iatom]
-                if not mol.electronic_states:
-                    for iatom in range(len(mol.atoms)):
-                        mol.atoms[iatom].__dict__[property_name] = mol.__dict__[self.name].__dict__[property_name][iatom]
                 else:
+                    mol.__dict__[property_name] = mol.__dict__[self.name].__dict__[property_name]
+            for property_name in atomic_properties:
+                if nstates and nstates > 1:
+                    for mol_el_st in mol.electronic_states:
+                        for iatom in range(len(mol_el_st.atoms)):
+                            mol_el_st.atoms[iatom].__dict__[property_name] = mol_el_st.__dict__[self.name].__dict__[property_name][iatom]
                     for iatom in range(len(mol.atoms)):
                         mol.atoms[iatom].__dict__[property_name] = mol.electronic_states[current_state].atoms[iatom].__dict__[property_name]
+                else:
+                    for iatom in range(len(mol.atoms)):
+                        mol.atoms[iatom].__dict__[property_name] = mol.__dict__[self.name].__dict__[property_name][iatom]
 
     def dump(self, filename=None, format='json'):
         '''
