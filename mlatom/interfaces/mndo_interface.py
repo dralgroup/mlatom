@@ -52,7 +52,7 @@ class mndo_methods(method_model):
                         'MINDO/3', 'CNDO/2', 'SCC-DFTB', 'SCC-DFTB-heats',
                         'MNDO/H', 'MNDO/dH']]
     
-    def __init__(self, method='ODM2*', read_keywords_from_file='', save_files_in_current_directory=True, working_directory=None):
+    def __init__(self, method='ODM2*', read_keywords_from_file='', save_files_in_current_directory=True, working_directory=None, param_file = None):
         self.method = method
         self.read_keywords_from_file = read_keywords_from_file
         if self.read_keywords_from_file != '':
@@ -60,6 +60,7 @@ class mndo_methods(method_model):
         self.save_files_in_current_directory = save_files_in_current_directory
         self.working_directory = working_directory
         self.mndobin = self.get_bin_env_var()
+        self.param_file = param_file
         if self.mndobin is None:
             raise ValueError('Cannot find the MNDO program, please set the environment variable: export mndobin=...')
 
@@ -126,6 +127,8 @@ class mndo_methods(method_model):
                                       calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian,
                                       calculate_dipole_derivatives=calculate_dipole_derivatives, calculate_nacv=calculate_nacv,
                                       read_density_matrix=read_density_matrix)
+                if self.param_file:
+                    os.system(f'cp {self.param_file} {tmpdirname}/.')
                 mndooutfilename = f'{tmpdirname}/mndo{ii}.out'
                 mndoargs = [self.mndobin, '<', mndoinpfilename, '>', mndooutfilename, '2>&1']
                 cmd = ' '.join(mndoargs)
@@ -254,15 +257,13 @@ def parse_mndo_output(filename=None, molecule=None):
     output_charges_index = -1
     state_dipole_flag = 'State dipole moments'
     found_state_dipole_flag = False
-    
+    output_ens_index = []
+
     for i, line in enumerate(outputs):
         line = line.rstrip('\n')
         if output_multi_ens_flag in line:
-            found_output_multi_ens_flag = True    
-            try:
-                output_ens_index.append(i)
-            except NameError:
-                output_ens_index = [i]
+            found_output_multi_ens_flag = True
+            output_ens_index.append(i)
             continue
         if output_os_flag in line:
             found_output_os_flag = True

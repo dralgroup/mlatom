@@ -1128,12 +1128,13 @@ def plot_spectra(spectra=None, linespectra=None,
                 components = print_peaks_func(spectra[0], max_print, contribution_threshold, molecule=molecular_database[0])
                 molecular_database[0].uvvis_peaks = components
         else:
-            # for ispec, spec in enumerate(spectra[(len(spectra) - len(molecular_database)):]):
-            for ispec, spec in enumerate(spectra[(len(spectra) - len(molecular_database)):]):
-                # print(f'Analysis of peaks in spectrum {len(molecular_database) + ispec + 1}')
-                print(f'Analysis of peaks in spectrum {len(spectra) - len(molecular_database) + ispec + 1}')
-                components = print_peaks_func(spec, max_print, contribution_threshold, molecule=molecular_database[ispec])
-                molecular_database[ispec].uvvis_peaks = components
+            if molecular_database:
+                # for ispec, spec in enumerate(spectra[(len(spectra) - len(molecular_database)):]):
+                for ispec, spec in enumerate(spectra[(len(spectra) - len(molecular_database)):]):
+                    # print(f'Analysis of peaks in spectrum {len(molecular_database) + ispec + 1}')
+                    print(f'Analysis of peaks in spectrum {len(spectra) - len(molecular_database) + ispec + 1}')
+                    components = print_peaks_func(spec, max_print, contribution_threshold, molecule=molecular_database[ispec])
+                    molecular_database[ispec].uvvis_peaks = components
 
     for ii in range(len(spectra)):
         if ii < len(labels): label=labels[ii]
@@ -1196,7 +1197,7 @@ def plot_uvvis( spectra=None,
                 normalize=False,
                 shift=False, shiftby=None,
                 plotstart=None, plotend=None,
-                print_peaks:bool=True,
+                print_peaks:bool=False,
                 analyze_component:bool=False,
                 contribution_threshold:float=None,
                 max_print:int=None):

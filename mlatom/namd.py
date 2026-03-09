@@ -288,17 +288,19 @@ class surface_hopping_md():
         #                                'calculate_energy':True,
         #                                'calculate_energy_gradients':calculate_energy_gradients}
         if self.model_predict_kwargs == {}:
+            calculate_energy_gradients = [False] * self.nstates
+            calculate_energy_gradients[self.current_state] = True
             if self.hopping_algorithm == 'FSSH':
-                self.model_predict_kwargs={'nstates':self.nstates, 
+                self.model_predict_kwargs={'nstates':self.nstates,
                                            'current_state':self.current_state,
                                            'calculate_energy':True,
-                                           'calculate_energy_gradients':[True] * self.nstates,
+                                           'calculate_energy_gradients':calculate_energy_gradients,
                                            'calculate_nacv':True}
             else:
-                self.model_predict_kwargs={'nstates':self.nstates, 
+                self.model_predict_kwargs={'nstates':self.nstates,
                                            'current_state':self.current_state,
                                            'calculate_energy':True,
-                                           'calculate_energy_gradients':[True] * self.nstates}
+                                           'calculate_energy_gradients':calculate_energy_gradients}
         else:
             self.model_predict_kwargs['nstates'] = self.nstates
             self.model_predict_kwargs['current_state'] = self.current_state
@@ -309,12 +311,8 @@ class surface_hopping_md():
                         self.model_predict_kwargs['calculate_energy_gradients'] = [False] * self.nstates
                     self.model_predict_kwargs['calculate_energy_gradients'][self.current_state] = True
             else:
-                if self.hopping_algorithm == 'FSSH' or self.hopping_algorithm == 'TDBA':
-                    # All gradients might be needed in some cases like rescaling velocities along the gradient difference or when the gradient difference is needed for as descriptor for ML-NAC model
-                    self.model_predict_kwargs['calculate_energy_gradients'] = [True] * self.nstates
-                else:
-                    self.model_predict_kwargs['calculate_energy_gradients'] = [False] * self.nstates
-                    self.model_predict_kwargs['calculate_energy_gradients'][self.current_state] = True
+                self.model_predict_kwargs['calculate_energy_gradients'] = [False] * self.nstates
+                self.model_predict_kwargs['calculate_energy_gradients'][self.current_state] = True
             if self.hopping_algorithm == 'FSSH':
                 self.model_predict_kwargs['calculate_nacv'] = True
 
@@ -366,6 +364,17 @@ class surface_hopping_md():
 
                 # fssh/lzsh/znsh: rescale_velocity; change en grad in molecular_trajectory; change ekin etot
                 mol_istep_plus1 = self.molecular_trajectory.steps[-2].molecule
+                # Ensure the new state's gradient is available (may be missing if only active state gradient was computed)
+                new_state_grad = mol_istep_plus1.electronic_states[self.current_state].get_energy_gradients()
+                if np.any(np.isnan(new_state_grad)):
+                    tempmol = mol_istep_plus1.copy(atomic_labels=['xyz_coordinates'], molecular_labels=[])
+                    temp_predict_kwargs = dict(self.model_predict_kwargs)
+                    temp_grad_flags = [False] * self.nstates
+                    temp_grad_flags[self.current_state] = True
+                    temp_predict_kwargs['calculate_energy_gradients'] = temp_grad_flags
+                    temp_predict_kwargs['current_state'] = self.current_state
+                    self.model.predict(molecule=tempmol, **temp_predict_kwargs)
+                    mol_istep_plus1.electronic_states[self.current_state].energy_gradients = tempmol.electronic_states[self.current_state].get_energy_gradients()
                 kinetic_energy_change = mol_istep_plus1.electronic_states[self.current_state].energy - mol_istep_plus1.electronic_states[self.initial_state].energy
                 vector = None
                 if self.rescale_velocity_direction.casefold() in ['nacv', 'nacs']:
@@ -373,7 +382,17 @@ class surface_hopping_md():
                 elif self.rescale_velocity_direction.casefold() in ['momentum', 'along velocities']:
                     vector = 'velocities'
                 elif self.rescale_velocity_direction == 'gradient difference':
-                    vector = np.array(mol_istep_plus1.electronic_states[self.initial_state].get_energy_gradients() - mol_istep_plus1.electronic_states[self.current_state].get_energy_gradients()) / constants.Angstrom2Bohr
+                    initial_state_grad = mol_istep_plus1.electronic_states[self.initial_state].get_energy_gradients()
+                    if np.any(np.isnan(initial_state_grad)):
+                        tempmol = mol_istep_plus1.copy(atomic_labels=['xyz_coordinates'], molecular_labels=[])
+                        temp_predict_kwargs = dict(self.model_predict_kwargs)
+                        temp_grad_flags = [False] * self.nstates
+                        temp_grad_flags[self.initial_state] = True
+                        temp_predict_kwargs['calculate_energy_gradients'] = temp_grad_flags
+                        temp_predict_kwargs['current_state'] = self.current_state
+                        self.model.predict(molecule=tempmol, **temp_predict_kwargs)
+                        initial_state_grad = tempmol.electronic_states[self.initial_state].get_energy_gradients()
+                    vector = np.array(initial_state_grad - mol_istep_plus1.electronic_states[self.current_state].get_energy_gradients()) / constants.Angstrom2Bohr
                 mol_istep_plus1.rescale_velocities(
                     kinetic_energy_change=kinetic_energy_change,
                     vector=vector,
