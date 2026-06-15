@@ -194,6 +194,8 @@ class optimize_geometry():
         self.products = products
         if program != None:
             self.program = program
+        elif isinstance(model, models.gaussian_methods):
+            self.program = 'Gaussian'
         else:
             import importlib
             if importlib.util.find_spec('geometric') is not None: self.program = 'geometric'
@@ -226,6 +228,7 @@ class optimize_geometry():
             self.working_directory = working_directory
         else:
             self.working_directory = '.'
+        os.makedirs(self.working_directory, exist_ok=True)
         
         self.dump_trajectory_interval = dump_trajectory_interval
         if self.program.casefold() == 'Gaussian'.casefold(): self.dump_trajectory_interval = 1 # Gaussian optimizer needs traj file to get the optimization trajectory
@@ -285,14 +288,18 @@ class optimize_geometry():
             suffix = ''
         #print('debug', suffix, self.initial_molecule.number)
         filename = os.path.join(self.working_directory,f'gaussian{suffix}')
-        self.model.dump(filename=os.path.join(self.working_directory,'model.json'), format='json')
+
+        native_gaussian_model = isinstance(self.model, models.gaussian_methods)
+        if not native_gaussian_model:
+            self.model.dump(filename=os.path.join(self.working_directory,'model.json'), format='json')
         
         # Run Gaussian
         if self.print_properties is not None:
             print(f' Optimization with Gaussian started.\n Check Gaussian output file "gaussian{suffix}.log" for the progress of optimization.\n')
-            filename_json = self.model_predict_kwargs['filename']
-            if os.path.exists(f'{filename_json}_tmp_out.out'): os.remove(f'{filename_json}_tmp_out.out')
-            self.model_predict_kwargs['return_string'] = True
+            if not native_gaussian_model:
+                filename_json = self.model_predict_kwargs['filename']
+                if os.path.exists(f'{filename_json}_tmp_out.out'): os.remove(f'{filename_json}_tmp_out.out')
+                self.model_predict_kwargs['return_string'] = True
         if self.ts:
             self.program_kwargs['external_task'] = 'ts'
         else:
@@ -308,6 +315,7 @@ class optimize_geometry():
         else:
             self.program_kwargs['molecule'] = self.initial_molecule
         self.program_kwargs['working_directory'] = self.working_directory
+        self.program_kwargs['model'] = self.model
         self.program_kwargs['model_predict_kwargs'] = self.model_predict_kwargs
         gaussian_interface.run_gaussian_job(**self.program_kwargs)
         # Get results
@@ -325,7 +333,7 @@ class optimize_geometry():
             self.optimized_molecule = self.initial_molecule.copy() 
             for atom in self.optimized_molecule.atoms:
                 atom.xyz_coordinates = np.array([None,None,None])                
-        if self.print_properties is not None:
+        if self.print_properties is not None and not native_gaussian_model:
             if os.path.exists(f'{filename_json}_tmp_out.out'):
                 printstrs = open(f'{filename_json}_tmp_out.out', 'r').readlines()
                 for line in printstrs:
@@ -519,6 +527,8 @@ class freq():
                 self.model_predict_kwargs['calculate_polarizability_derivatives'] = True
         if program != None:
             self.program = program
+        elif isinstance(model, models.gaussian_methods):
+            self.program = 'Gaussian'
         else:
             import importlib
             if importlib.util.find_spec('pyscf') is not None: self.program = 'PySCF'
@@ -530,12 +540,18 @@ class freq():
             self.working_directory = working_directory
         else:
             self.working_directory = '.'
-        if self.program.casefold() == 'Gaussian'.casefold(): self.freq_gaussian(anharmonic)
-        elif self.program.casefold() == 'pyscf'.casefold(): self.freq_pyscf()
-        else:
+        os.makedirs(self.working_directory, exist_ok=True)
+        if self.program.casefold() == 'Gaussian'.casefold():
+            self.freq_gaussian(anharmonic)
+        elif self.program.casefold() == 'pyscf'.casefold():
+            self.freq_pyscf()
+        elif self.program.casefold() == 'ase'.casefold():
             if not 'shape' in self.molecule.__dict__:
-                self.molecule.shape = 'nonlinear'
+              self.molecule.shape = 'nonlinear'
             self.freq_modified_from_TorchANI(molecule=self.molecule,normal_mode_normalization=self.normal_mode_normalization,model=self.model, model_predict_kwargs=self.model_predict_kwargs)
+        else:
+            raise ValueError(f"program {self.program} is not supported for frequency calculation")
+
 
         if 'dipole_derivatives' in self.molecule.__dict__:
             if self.program.casefold() != 'Gaussian'.casefold():
@@ -551,22 +567,35 @@ class freq():
         if 'number' in self.molecule.__dict__.keys(): suffix = f'_{self.molecule.number}'
         else: suffix = ''
         filename = os.path.join(self.working_directory,f'gaussian{suffix}')
-        self.model.dump(filename=os.path.join(self.working_directory,'model.json'), format='json')
+
+        native_gaussian_model = isinstance(self.model, models.gaussian_methods)
+        if not native_gaussian_model:
+            self.model.dump(filename=os.path.join(self.working_directory,'model.json'), format='json')
         self.molecule.dump(filename=os.path.join(self.working_directory,'gaussian_freq_mol.json'), format='json')
         
         # Run Gaussian
+        run_kwargs = {
+            'filename': f'gaussian{suffix}.com',
+            'molecule': self.molecule,
+            'external_task': 'freq(anharmonic)' if anharmonic else 'freq',
+            'working_directory': self.working_directory,
+            'model': self.model,
+            'model_predict_kwargs': self.model_predict_kwargs,
+        }
         if anharmonic:
-            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq(anharmonic)',working_directory=self.working_directory,freq_keywords=self.anharmonic_kwargs, model_predict_kwargs=self.model_predict_kwargs,**self.program_kwargs)
-        else:
-            gaussian_interface.run_gaussian_job(filename=f'gaussian{suffix}.com', molecule=self.molecule, external_task='freq',working_directory=self.working_directory, model_predict_kwargs=self.model_predict_kwargs,**self.program_kwargs)
+            run_kwargs['freq_keywords'] = self.anharmonic_kwargs
+        run_kwargs.update(self.program_kwargs)
+        gaussian_interface.run_gaussian_job(**run_kwargs)
         
-        # Get results
+        # Get results (results are already extracted in run_gaussian_job)
         outputfile = f'{filename}.log'
-        if os.path.exists('gaussian_freq_mol.json'):
-            self.molecule.load(filename='gaussian_freq_mol.json', format='json')
-        if not os.path.exists(outputfile): outputfile = f'{filename}.out'
+        freq_mol_filename = os.path.join(self.working_directory,'gaussian_freq_mol.json')
+        if os.path.exists(freq_mol_filename):
+            self.molecule.load(filename=freq_mol_filename, format='json')
+        # if not os.path.exists(outputfile): outputfile = f'{filename}.out'
         gaussian_interface.parse_gaussian_output(filename=outputfile, molecule=self.molecule)
-        if os.path.exists(os.path.join(self.working_directory,'gaussian_freq_mol.json')): os.remove(os.path.join(self.working_directory,'gaussian_freq_mol.json'))
+        if os.path.exists(freq_mol_filename): os.remove(freq_mol_filename)
+        self.successful = True
 
     def freq_pyscf(self):
         self.successful = False
@@ -683,7 +712,7 @@ class freq():
             model_predict_kwargs = {}
 
         if not model is None:
-            model.predict(molecule=molecule, calculate_energy=True, calculate_energy_gradients=True, calculate_hessian=True, **model_predict_kwargs)
+            model.predict(molecule=molecule, calculate_energy=True, calculate_energy_gradients=False, calculate_hessian=True, **model_predict_kwargs)
         
         mhessian2fconst = 4.359744650780506
         unit_converter = 17091.7006789297
@@ -817,6 +846,8 @@ class thermochemistry():
         self.molecule = molecule
         if program != None:
             self.program = program # todo : problem with ase
+        elif isinstance(model, models.gaussian_methods):
+            self.program = 'Gaussian'
         else:
             import importlib
             if importlib.util.find_spec('pyscf') is not None: self.program = 'PySCF'

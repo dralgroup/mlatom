@@ -712,11 +712,12 @@ class al():
                     self.molecular_pool_to_label.molecules = random.sample(self.molecular_pool_to_label.molecules, self.new_points)
                 self.original_number_of_molecules_to_label = len(self.molecular_pool_to_label.molecules)
 
+        # Clean up the moldb2label
+        self.molecular_pool_to_label = self.molecular_pool_to_label.copy(atomic_labels=['xyz_coordinates'],molecular_labels=['sampling'])
+        
         # Dump the moldb2label with all the information of sampling
         self.molecular_pool_to_label.dump(filename=os.path.join(self.al_info['working_directory'],'db_to_label.json'), format='json')
         
-        # Clean up the moldb2label
-        self.molecular_pool_to_label = self.molecular_pool_to_label.copy(atomic_labels=['xyz_coordinates'],molecular_labels=['sampling'])
         sys.stdout.flush()
 
     # Label points
@@ -794,6 +795,7 @@ class al():
             for mol2label in moldb:
                 if _needs_label(mol2label, _check_grads):
                     moldb2label += mol2label
+            print(f'{len(moldb2label)} molecules need to be labeled out of {len(moldb)} molecules')
             method.predict(molecular_database=moldb2label,calculate_energy=calculate_energy,calculate_energy_gradients=calculate_energy_gradients,calculate_hessian=calculate_hessian,**model_predict_kwargs)
 
 

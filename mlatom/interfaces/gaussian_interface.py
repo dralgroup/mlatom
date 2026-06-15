@@ -8,13 +8,103 @@
   !---------------------------------------------------------------------------! 
 '''
 
-import os, sys, subprocess
+import os, re, sys, subprocess
 import numpy as np
 
 from .. import constants, data
 from ..utils import wait_for_file_stable
 from ..model_cls import method_model
 from ..decorators import doc_inherit
+
+
+def _has_density_keyword(text):
+    return bool(text) and re.search(r'(^|[\s,(])density\s*=', text, flags=re.IGNORECASE) is not None
+
+
+def _has_td_keyword(text):
+    return bool(text) and re.search(r'(^|[\s,(])td(\(|$|[\s,])', text, flags=re.IGNORECASE) is not None
+
+
+def _normalize_td_method(method, gaussian_keywords='', nstates=1, current_state=0):
+    if method is None:
+        return method, gaussian_keywords
+
+    stripped_method = method.strip()
+    if re.match(r'td-', stripped_method, flags=re.IGNORECASE) is None:
+        return method, gaussian_keywords
+
+    try:
+        nstates = int(nstates)
+    except (TypeError, ValueError):
+        return method, gaussian_keywords
+    if nstates <= 1:
+        return method, gaussian_keywords
+
+    try:
+        current_state = int(current_state)
+    except (TypeError, ValueError):
+        current_state = 0
+
+    normalized_method = re.sub(r'^td-', '', stripped_method, flags=re.IGNORECASE)
+    if not _has_td_keyword(normalized_method) and not _has_td_keyword(gaussian_keywords):
+        root = 1 if current_state == 0 else current_state
+        normalized_method += f' TD(NStates={nstates-1},Root={root})'
+
+    if not _has_density_keyword(normalized_method) and not _has_density_keyword(gaussian_keywords):
+        gaussian_keywords = f'{gaussian_keywords}\ndensity=current'.strip()
+
+    return normalized_method, gaussian_keywords
+
+
+def _rotate_dipole_to_input_orientation(dipole_moment, standard_orientation, input_orientation):
+    if dipole_moment is None:
+        return dipole_moment
+    if standard_orientation is None or input_orientation is None:
+        return dipole_moment
+
+    standard_orientation = np.asarray(standard_orientation, dtype=float)
+    input_orientation = np.asarray(input_orientation, dtype=float)
+    if standard_orientation.shape != input_orientation.shape:
+        return dipole_moment
+    if standard_orientation.ndim != 2 or standard_orientation.shape[1] != 3:
+        return dipole_moment
+
+    from .. import xyz as xyz_utils
+
+    centered_standard = standard_orientation - xyz_utils.get_center_of_mass(standard_orientation)
+    centered_input = input_orientation - xyz_utils.get_center_of_mass(input_orientation)
+    if np.allclose(centered_standard, 0.0) or np.allclose(centered_input, 0.0):
+        return dipole_moment
+
+    rotation_matrix = xyz_utils.rotation_matrix(centered_standard, centered_input)
+    rotated_components = np.asarray(dipole_moment[:3], dtype=float).dot(rotation_matrix)
+
+    if len(dipole_moment) > 3:
+        return data.array([rotated_components[0], rotated_components[1], rotated_components[2], dipole_moment[3]])
+    return data.array(rotated_components)
+
+def _rotate_nm_to_input_orientation(normal_modes, standard_orientation, input_orientation):
+    if normal_modes is None:
+        return normal_modes
+    if standard_orientation is None or input_orientation is None:
+        return normal_modes
+    standard_orientation = np.asarray(standard_orientation, dtype=float)
+    input_orientation = np.asarray(input_orientation, dtype=float)
+    if standard_orientation.shape != input_orientation.shape:
+        return normal_modes
+    if standard_orientation.ndim != 2 or standard_orientation.shape[1] != 3:
+        return normal_modes
+    
+    from .. import xyz as xyz_utils
+    centered_standard = standard_orientation - xyz_utils.get_center_of_mass(standard_orientation)
+    centered_input = input_orientation - xyz_utils.get_center_of_mass(input_orientation)
+    if np.allclose(centered_standard, 0.0) or np.allclose(centered_input, 0.0):
+        return normal_modes
+    
+    rotation_matrix = xyz_utils.rotation_matrix(centered_standard, centered_input)
+    
+    nm = np.asarray(normal_modes, dtype=float)
+    return np.matmul(nm, rotation_matrix)
 
 class gaussian_methods(method_model):
     '''
@@ -89,15 +179,11 @@ class gaussian_methods(method_model):
         self.calculate_energy = calculate_energy
         self.calculate_hessian = calculate_hessian
         self.calculate_dipole_derivatives = calculate_dipole_derivatives
+        method, gaussian_keywords = _normalize_td_method(method,
+                                                         gaussian_keywords,
+                                                         nstates=nstates,
+                                                         current_state=current_state)
         self.gaussian_keywords = gaussian_keywords
-        if nstates > 1:
-            if 'TD-'.casefold() in method.casefold():
-                import re
-                method = re.sub('td-', '', method, flags=re.IGNORECASE)
-                if current_state == 0: current_state = 1 # default in Gaussian
-                method += f' TD(NStates={nstates-1},Root={current_state})'
-                # we usually want to use density=current to request the population analysis for the state of interest
-                method += f'\ndensity=current'
         if calculate_energy_gradients:
             if not calculate_hessian:
                 if 'force'.casefold() in method.casefold():
@@ -145,26 +231,61 @@ class gaussian_methods(method_model):
                 if not stable:
                     print(f'! Warning, the file {filename_wo_extension}.log is still changing its size, its parsing might be incomplete')
                 parse_gaussian_output(filename=os.path.join(tmpdirname,f'{filename_wo_extension}.log'),molecule=imolecule)
-            
 def run_gaussian_job(filename=None,
                      molecule=None, reactants=None, products=None,
+                     model=None,
                      gaussian_keywords='',
-                     nthreads=1, memory=None,
+                     nthreads=None, memory=None,
                      working_directory='.',
                      # The block below is for using Gaussian for SP calculations
                      method=None,
                      chkfilename=None,
                      # The block below is for using Gaussian as engine for jobs with external potential
                      external_task=None,
-                     model_predict_kwargs={},
+                     model_predict_kwargs=None,
                      extra_keywords='', # string with extra keywords
                      additional_input='',
-                     opt_keywords = ['nomicro'],
+                     opt_keywords=None,
                      freq_keywords=[], # list with additional arguments such as ['NoRaman',] etc.
                      irc_keywords=['CalcFC']
                      ):
-        
-    if external_task is not None:
+    model_is_gaussian = isinstance(model, gaussian_methods)
+    if method is None and model_is_gaussian:
+        method = model.method
+
+    if model_is_gaussian:
+        if gaussian_keywords in [None, ''] and model.gaussian_keywords is not None:
+            gaussian_keywords = model.gaussian_keywords
+        if additional_input == '' and model.additional_input is not None:
+            additional_input = model.additional_input
+        if chkfilename is None:
+            if model.chkfilename is True and filename is not None:
+                chkfilename = os.path.splitext(os.path.basename(filename))[0] + '.chk'
+            elif isinstance(model.chkfilename, str):
+                chkfilename = model.chkfilename
+        if memory is None:
+            memory = model.memory
+        if nthreads is None and model.nthreads not in [None, 0]:
+            nthreads = model.nthreads
+        td_kwargs = {} if model_predict_kwargs is None else model_predict_kwargs
+        method, gaussian_keywords = _normalize_td_method(method,
+                                                         gaussian_keywords,
+                                                         nstates=td_kwargs.get('nstates', 1),
+                                                         current_state=td_kwargs.get('current_state', 0))
+    if nthreads is None:
+        if external_task is None:
+            from multiprocessing import cpu_count
+            nthreads = cpu_count()
+        elif external_task is not None and not model_is_gaussian:
+            nthreads = 1
+        elif external_task is not None and model_is_gaussian:
+            from multiprocessing import cpu_count
+            nthreads = cpu_count()
+
+    task = external_task
+    external_command = None
+    wrapper_task = external_task is not None and model_predict_kwargs is not None and not model_is_gaussian
+    if wrapper_task:
         pythonbin = sys.executable
         path_to_this_file=os.path.abspath(__file__)
         path_to_gaussian_external = os.path.join(os.path.dirname(path_to_this_file), 'gaussian_external.py')
@@ -174,59 +295,65 @@ def run_gaussian_job(filename=None,
         with open(os.path.join(working_directory, model_predict_kwargs_str_file), 'w') as f:
             f.write(model_predict_kwargs_str)
         external_command = f"external='{pythonbin} {path_to_gaussian_external} {model_predict_kwargs_str_file}'"
-        if external_task.casefold() == 'opt':
+    keyword_parts = []
+    if gaussian_keywords:
+        keyword_parts.append(gaussian_keywords.strip())
+    if method:
+        keyword_parts.append(method.strip())
+    if task is not None:
+        task_lower = task.casefold()
+        opt_keywords = [] if opt_keywords is None else list(opt_keywords)
+        freq_keywords = [] if freq_keywords is None else list(freq_keywords)
+        irc_keywords = ['CalcFC'] if irc_keywords is None else list(irc_keywords)
+        if task_lower == 'opt':
+            if wrapper_task and 'nomicro' not in [kwd.casefold() for kwd in opt_keywords]:
+                opt_keywords.append('nomicro')
             if len(opt_keywords) > 0:
-                opt_str = ','.join(opt_keywords)
-                if not 'nomicro' in opt_str.casefold():
-                    print("Warning: please specify opt_keywords=['nomicro'] unless you know what you are doing.")
-                gaussian_keywords = f"opt({opt_str})"
+                keyword_parts.append(f"opt({','.join(opt_keywords)})")
             else:
-                gaussian_keywords = "opt"
-        elif 'freq' in external_task.casefold():
+                keyword_parts.append('opt')
+        elif 'freq' in task_lower:
             if len(freq_keywords) != 0:
                 freq_str = ','.join(freq_keywords)
-                if external_task.casefold() == 'freq(anharmonic)':
-                    freq_str = f',{freq_str}'
-                    gaussian_keywords = f"freq(anharmonic{freq_str})"
-                elif external_task.casefold() == 'freq':
-                    gaussian_keywords = f"freq({freq_str})"
-            else:
-                if external_task.casefold() == 'freq(anharmonic)':
-                    gaussian_keywords = f"Freq(anharmonic)"
-                elif external_task.casefold() == 'freq':
-                    gaussian_keywords = f"Freq"
+                if task_lower == 'freq(anharmonic)':
+                    keyword_parts.append(f'freq(anharmonic,{freq_str})')
+                elif task_lower == 'freq':
+                    keyword_parts.append(f'freq({freq_str})')
                 else:
-                    gaussian_keywords = f"{external_task}"
-        elif external_task.casefold() in ['ts', 'qst2', 'qst3']:
-            if len(opt_keywords) > 0:
-                if not 'nomicro' in [kwd.casefold() for kwd in opt_keywords]:
-                    print("Warning: please specify opt_keywords=['nomicro'] unless you know what you are doing.")
-                if len(opt_keywords) == 1 and opt_keywords[0].casefold() == 'nomicro':
-                    if external_task.casefold() == 'ts':
-                        opt_keywords = ['CalcFC', 'noeigen', 'nomicro']
-                    else:
-                        opt_keywords = ['CalcFC', 'nomicro']
-                if not external_task.casefold() in [kwd.casefold() for kwd in opt_keywords]:
-                    opt_keywords = [external_task] + opt_keywords
+                    keyword_parts.append(task)
             else:
-                opt_keywords = ['TS', 'CalcFC', 'noeigen', 'nomicro']
-            opt_str = ','.join(opt_keywords)
-            gaussian_keywords = f"Opt({opt_str})"
-        elif external_task.casefold() == 'irc':
+                if task_lower == 'freq(anharmonic)':
+                    keyword_parts.append('Freq(anharmonic)')
+                elif task_lower == 'freq':
+                    keyword_parts.append('Freq')
+                else:
+                    keyword_parts.append(task)
+        elif task_lower in ['ts', 'qst2', 'qst3']:
+            if len(opt_keywords) == 0:
+                if task_lower == 'ts':
+                    opt_keywords = ['CalcFC', 'noeigen']
+                else:
+                    opt_keywords = ['CalcFC']
+            if wrapper_task and 'nomicro' not in [kwd.casefold() for kwd in opt_keywords]:
+                opt_keywords.append('nomicro')
+            if task_lower not in [kwd.casefold() for kwd in opt_keywords]:
+                opt_keywords = [task.upper()] + opt_keywords
+            keyword_parts.append(f"Opt({','.join(opt_keywords)})")
+        elif task_lower == 'irc':
             if len(irc_keywords) > 0:
-                irc_str = ','.join(irc_keywords)
-                gaussian_keywords = f"irc({irc_str})"
+                keyword_parts.append(f"irc({','.join(irc_keywords)})")
             else:
-                gaussian_keywords = "irc"
-        if len(extra_keywords) > 0:
-            gaussian_keywords += f' {extra_keywords}'
-        gaussian_keywords += f'\n{external_command}'
-    else:
-        if method is not None:
-            gaussian_keywords += f'{method}'
+                keyword_parts.append('irc')
+        else:
+            keyword_parts.append(task)
+    if extra_keywords:
+        keyword_parts.append(extra_keywords)
+    gaussian_keywords = ' '.join(part for part in keyword_parts if part)
+    if external_command:
+        gaussian_keywords = f'{gaussian_keywords}\n{external_command}' if gaussian_keywords else external_command
      
     if not gaussian_keywords.strip()[:1] == '#':
-        if external_task is not None or 'freq' in gaussian_keywords:
+        if task is not None or 'freq' in gaussian_keywords.casefold():
             gaussian_keywords = f'#p {gaussian_keywords}'
         else:
                 gaussian_keywords = f'# {gaussian_keywords}'
@@ -243,6 +370,36 @@ def run_gaussian_job(filename=None,
     Gaussianbin, _ = check_gaussian()
     proc = subprocess.Popen([Gaussianbin, filename], stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=working_directory, universal_newlines=True)
     proc.communicate()
+
+    if not model_is_gaussian or filename is None:
+        return
+
+    output_path = os.path.join(working_directory, os.path.splitext(filename)[0] + '.log')
+    if not os.path.exists(output_path):
+        output_path = os.path.join(working_directory, os.path.splitext(filename)[0] + '.out')
+    if not os.path.exists(output_path):
+        return
+
+    task_lower = task.casefold() if isinstance(task, str) else ''
+    if task_lower in ['opt', 'ts', 'qst2', 'qst3']:
+        parsed_molecule = parse_gaussian_output(filename=output_path)
+        optimization_trajectory = parsed_molecule.optimization_trajectory if 'optimization_trajectory' in parsed_molecule.__dict__ else data.molecular_trajectory()
+        if len(optimization_trajectory.steps) == 0:
+            optimization_trajectory.steps.append(data.molecular_trajectory_step(step=0, molecule=parsed_molecule))
+        if model_predict_kwargs is not None and model_predict_kwargs.get('filename') is not None:
+            trajectory_filename = os.path.join(working_directory, model_predict_kwargs['filename'])
+            trajectory_format = model_predict_kwargs.get('format', 'json')
+            optimization_trajectory.dump(filename=trajectory_filename, format=trajectory_format)
+            if model_predict_kwargs.get('dump_trajectory_interval') is not None:
+                molecular_database = data.molecular_database()
+                molecular_database.molecules = [step.molecule for step in optimization_trajectory.steps]
+                xyzfilename = os.path.splitext(trajectory_filename)[0] + '.xyz'
+                molecular_database.write_file_with_xyz_coordinates(xyzfilename)
+    elif 'freq' in task_lower and molecule is not None:
+        parse_gaussian_output(filename=output_path, molecule=molecule)
+        freq_mol_filename = os.path.join(working_directory, 'gaussian_freq_mol.json')
+        if os.path.exists(freq_mol_filename):
+            molecule.dump(filename=freq_mol_filename, format='json')
     
 def check_gaussian():
     status = os.popen('echo $GAUSS_EXEDIR').read().strip()
@@ -373,6 +530,13 @@ def parse_chunk(mol, chunk):
     CombinationBandsIRError = False
     # end anharmonic properties
     input_orientation_read = False
+    input_orientation = None
+    standard_orientation = None
+    
+    # Remove duplicate normal modes 
+    for atom in mol.atoms:
+        if 'normal_modes' in atom.__dict__:
+            del atom.__dict__['normal_modes']
 
     for line in chunk:
         if 'Input orientation:' in line:
@@ -385,14 +549,17 @@ def parse_chunk(mol, chunk):
                 if '-------------------------' in line:
                     i_read_input_orientation = -1
                     input_orientation_read = True
+                    if len(xyz_input_orientation) > 0 and len(xyz_input_orientation[-1]) > 0:
+                        input_orientation = np.array(xyz_input_orientation[-1], dtype=float)
                     continue
                 xyz_coords = [float(xx) for xx in line.split()[-3:]]
+                xyz_input_orientation[-1].append(xyz_coords)
                 if len(mol.atoms) < i_read_input_orientation-5 + 1:
                     mol.atoms.append(data.atom(atomic_number=int(line.split()[1]), xyz_coordinates=xyz_coords))
                 else:
                     mol.atoms[i_read_input_orientation-5].xyz_coordinates = xyz_coords
                 continue
-        if 'Standard orientation:' in line and not input_orientation_read:
+        if 'Standard orientation:' in line:
             i_read_standard_orientation = 0
             xyz_standard_orientation.append([])
             continue
@@ -401,12 +568,16 @@ def parse_chunk(mol, chunk):
             if i_read_standard_orientation >= 5:
                 if '-------------------------' in line:
                     i_read_standard_orientation = -1
+                    if len(xyz_standard_orientation) > 0 and len(xyz_standard_orientation[-1]) > 0:
+                        standard_orientation = np.array(xyz_standard_orientation[-1], dtype=float)
                     continue
                 xyz_coords = [float(xx) for xx in line.split()[-3:]]
-                if len(mol.atoms) < i_read_standard_orientation + 1:
-                    mol.atoms.append(data.atom(atomic_number=int(line.split()[1]), xyz_coordinates=xyz_coords))
-                else:
-                    mol.atoms[i_read_standard_orientation-5].xyz_coordinates = xyz_coords
+                xyz_standard_orientation[-1].append(xyz_coords)
+                if not input_orientation_read:
+                    if len(mol.atoms) < i_read_standard_orientation + 1:
+                        mol.atoms.append(data.atom(atomic_number=int(line.split()[1]), xyz_coordinates=xyz_coords))
+                    else:
+                        mol.atoms[i_read_standard_orientation-5].xyz_coordinates = xyz_coords
                 continue
         if 'SCF Done:' in line:
             mol.scf_energy = float(line.split()[4])
@@ -847,6 +1018,10 @@ def parse_chunk(mol, chunk):
 
     if nOMOs['all'] > 0:
         mol.n_occ_mos = nOMOs['all']
+    if 'dipole_moment' in mol.__dict__.keys():
+        mol.dipole_moment = _rotate_dipole_to_input_orientation(mol.dipole_moment,
+                                                                standard_orientation,
+                                                                input_orientation)
     if len(mol.excitation_energies) > 0:
         mol.excitation_energies = data.array(mol.excitation_energies)
         mol.electronic_states = [mol.copy(atomic_labels=[], molecular_labels=[]) for ii in range(mol.nstates)]
@@ -925,6 +1100,12 @@ def parse_chunk(mol, chunk):
     for atom in mol.atoms:
         if 'normal_modes' in atom.__dict__.keys():
             atom.normal_modes = data.array(atom.normal_modes)
+    # IMPORTANT: the normal modes read from Gaussian output are in the standard orientation, we need to rotate them back to the input orientation
+    if 'normal_modes' in mol.atoms[0].__dict__.keys():
+        nm = mol.get_xyz_vectorial_properties('normal_modes')
+        nm = _rotate_nm_to_input_orientation(nm, standard_orientation, input_orientation)
+        for iatom in range(len(mol.atoms)):
+            mol.atoms[iatom].normal_modes = nm[iatom]
     if 'infrared_intensities' in mol.__dict__.keys():
         if np.all(mol.infrared_intensities == 0):
             del mol.__dict__['infrared_intensities']

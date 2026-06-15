@@ -531,16 +531,19 @@ class orca_methods(method_model):
             raise ValueError("Could not parse ground state energy")
 
         # Parse dispersion correction from .out file if energy came from property.txt
-        # (FINAL SINGLE POINT ENERGY already includes dispersion, but SCF Energy does not)
+        # (FINAL SINGLE POINT ENERGY already includes dispersion, but SCF Energy does not).
+        # ORCA 6 emits a "Dispersion correction   ... done ( 0.0 sec)" progress line
+        # before the numeric "Dispersion correction   -0.003110772" line, so we anchor
+        # the match to a float immediately following the label rather than taking the
+        # first 'Dispersion correction' line (which dropped the D3 term on ORCA 6).
         dispersion_correction = 0.0
         if energy_from_prop_file and os.path.exists(out_file):
+            disp_re = re.compile(r'Dispersion correction\s+(-?\d+\.\d+(?:[eE][+-]?\d+)?)')
             with open(out_file, 'r') as f:
                 for line in f:
-                    if 'Dispersion correction' in line:
-                        try:
-                            dispersion_correction = float(line.split()[-1])
-                        except ValueError:
-                            pass
+                    m = disp_re.search(line)
+                    if m:
+                        dispersion_correction = float(m.group(1))
                         break
             gs_energy += dispersion_correction
 
@@ -864,6 +867,13 @@ def parse_orca_output(filename, molecule=None):
     # Parse geometry from output
     _parse_geometry_from_content(mol, lines)
 
+    # Detect ORCA major version (the TD-DFT spectrum table layout changed in v6)
+    orca_version = None
+    version_match = re.search(r'Program Version (\d+)\.(\d+)\.(\d+)', content)
+    if version_match:
+        orca_version = int(version_match.group(1))
+    mol.orca_version = orca_version
+
     # Auto-detect calculation type
     is_qd_nevpt2 = 'QD-NEVPT2 Results' in content
     is_tddft = 'TD-DFT/TDA EXCITED STATES' in content or 'ABSORPTION SPECTRUM VIA TRANSITION ELECTRIC DIPOLE MOMENTS' in content
@@ -882,7 +892,7 @@ def parse_orca_output(filename, molecule=None):
     if is_qd_nevpt2:
         _parse_qd_nevpt2_from_content(mol, lines, current_state)
     elif is_tddft:
-        _parse_tddft_from_content(mol, lines, current_state)
+        _parse_tddft_from_content(mol, lines, current_state, orca_version)
     else:
         _parse_ground_state_from_content(mol, lines)
 
@@ -935,19 +945,31 @@ def _parse_geometry_from_content(mol, lines):
         atom.xyz_coordinates = np.array([x, y, z])
         mol.atoms.append(atom)
 
-    # Parse charge and multiplicity from input section
+    # Parse charge and multiplicity. ORCA prints these unambiguously in the SCF
+    # settings block, prefix-free and version-stable across ORCA 4/5/6:
+    #   Total Charge           Charge          ....   -1
+    #   Multiplicity           Mult            ....    1
+    # (The input echo "* xyz <c> <m>" line is prefixed with "| <n>>" in real
+    # ORCA output, which is why an echo-based parse silently failed.)
+    charge = None
+    mult = None
     for line in lines:
-        if '* xyz' in line.lower() or '*xyz' in line.lower():
-            parts = line.replace('*', '').split()
-            if 'xyz' in parts[0].lower():
-                parts = parts[1:]
-            if len(parts) >= 2:
-                try:
-                    mol.charge = int(parts[0])
-                    mol.multiplicity = int(parts[1])
-                except ValueError:
-                    pass
+        if charge is None and 'Total Charge' in line:
+            try:
+                charge = int(line.split()[-1])
+            except ValueError:
+                pass
+        elif mult is None and 'Multiplicity' in line and 'Mult' in line:
+            try:
+                mult = int(line.split()[-1])
+            except ValueError:
+                pass
+        if charge is not None and mult is not None:
             break
+    if charge is not None:
+        mol.charge = charge
+    if mult is not None:
+        mol.multiplicity = mult
 
 
 def _parse_qd_nevpt2_from_content(mol, lines, current_state):
@@ -1016,14 +1038,34 @@ def _parse_qd_nevpt2_from_content(mol, lines, current_state):
     _parse_absorption_spectrum(mol, lines, is_qd_nevpt2=True)
 
 
-def _parse_tddft_from_content(mol, lines,  current_state):
+def _parse_tddft_from_content(mol, lines,  current_state, orca_version=None):
     """Parse TD-DFT energies from output content."""
-    # Get ground state energy
+    # Get the GROUND-STATE (S0) energy. NOTE: 'FINAL SINGLE POINT ENERGY' is the
+    # energy of ORCA's "state of interest", which for an excited-state gradient
+    # run is an EXCITED state, not S0. So we reconstruct S0 from the SCF total
+    # energy plus the dispersion correction (mirroring the predict-path
+    # _parse_tddft_output) rather than trusting FINAL SINGLE POINT ENERGY.
     gs_energy = None
+    scf_re = re.compile(r'Total Energy\s*:\s*(-?\d+\.\d+(?:[eE][+-]?\d+)?)\s*Eh')
     for line in lines:
-        if 'FINAL SINGLE POINT ENERGY' in line:
-            gs_energy = float(line.split()[-1])
+        m = scf_re.search(line)
+        if m:
+            gs_energy = float(m.group(1))
             break
+    if gs_energy is not None:
+        # SCF total energy excludes dispersion; add it back if present.
+        disp_re = re.compile(r'Dispersion correction\s+(-?\d+\.\d+(?:[eE][+-]?\d+)?)')
+        for line in lines:
+            m = disp_re.search(line)
+            if m:
+                gs_energy += float(m.group(1))
+                break
+    else:
+        # Fallback for outputs without a TOTAL SCF ENERGY block.
+        for line in lines:
+            if 'FINAL SINGLE POINT ENERGY' in line:
+                gs_energy = float(line.split()[-1])
+                break
 
     if gs_energy is None:
         raise ValueError("Could not parse ground state energy")
@@ -1040,7 +1082,7 @@ def _parse_tddft_from_content(mol, lines,  current_state):
     mol.electronic_states.append(gs_mol)
 
     # Parse excited states
-    excitation_energies, oscillator_strengths = _parse_tddft_spectrum_from_lines(lines)
+    excitation_energies, oscillator_strengths = _parse_tddft_spectrum_from_lines(lines, orca_version)
 
     for exc_e in excitation_energies:
         state_mol = data.molecule()
@@ -1081,7 +1123,7 @@ def _parse_ground_state_from_content(mol, lines):
     mol.electronic_states.append(gs_mol)
 
 
-def _parse_tddft_spectrum_from_lines(lines):
+def _parse_tddft_spectrum_from_lines(lines, orca_version=None):
     """Parse TD-DFT absorption spectrum from output lines."""
     last_idx = None
     for i, line in enumerate(lines):
@@ -1097,10 +1139,20 @@ def _parse_tddft_spectrum_from_lines(lines):
                 break
             parts = line.split()
             if len(parts) >= 4:
-                exc_energy_cm = float(parts[1])
+                # ORCA 6 reformatted this table: each row now starts with a
+                # "<i>-<mult>  ->  <j>-<mult>" transition label and reports the
+                # energy in both eV and cm^-1, shifting the columns. The cm^-1
+                # energy is parts[4] and fosc is parts[6] (vs parts[1]/parts[3]
+                # in ORCA <= 5). Without this, parts[1] == '->' and float() crashes.
+                if orca_version == 6:
+                    exc_energy_cm = float(parts[4])
+                    osc = float(parts[6])
+                else:
+                    exc_energy_cm = float(parts[1])
+                    osc = float(parts[3])
                 exc_energy_hartree = exc_energy_cm * 4.556335e-6
                 excitation_energies.append(exc_energy_hartree)
-                oscillator_strengths.append(float(parts[3]))
+                oscillator_strengths.append(osc)
 
     return excitation_energies, oscillator_strengths
 

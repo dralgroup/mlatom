@@ -4,7 +4,7 @@
   !---------------------------------------------------------------------------!
   !                                                                           !
   !     MLatom: a Package for Atomistic Simulations with Machine Learning     !
-  !                             MLatom 3.22.0                                 !
+  !                             MLatom 3.23.0                                 !
   !                                                                           !
   !                           http://mlatom.com/                              !
   !                                                                           !
@@ -30,13 +30,13 @@
   ! Shuang Zhang, Arif Ullah, Quanhao Zhang, Yanchi Ou.                       !
   ! J. Chem. Theory Comput. 2024, 20, 1193-1213.                              !
   !                                                                           !
-  ! Pavlo O. Dral, Fuchun Ge, Yi-Fan Hou, Yuxinxin Chen, Peikun Zheng,        !
-  ! Bao-Xin Xue, Mikolaj Martyka, Lina Zhang, Jakub Martinka, Quanhao Zhang,  !
-  ! Xin-Yu Tong, Arif Ullah, Sebastian V. Pios, Vignesh B. Kumar, Yanchi Ou,  !
-  ! Max Pinheiro Jr, Yuming Su, Yiheng Dai, Yangtao Chen, Shuang Zhang,       !
-  ! Jinming Hu, Matheus O. Bispo                                              !
+  ! Pavlo O. Dral, Fuchun Ge, Yi-Fan Hou, Yuxinxin Chen, Mikolaj Martyka,     !
+  ! Jakub Martinka, Peikun Zheng, Lina Zhang, Xin-Yu Tong, Bao-Xin Xue,       !
+  ! Quanhao Zhang,  Arif Ullah, Sebastian V. Pios, Vignesh B. Kumar,          !
+  ! Yanchi Ou, Max Pinheiro Jr, Yuming Su, Yiheng Dai, Yangtao Chen,          !
+  ! Shuang Zhang, Jinming Hu, Matheus O. Bispo                                !
   ! MLatom: A Package for Atomistic Simulations with Machine Learning,        !
-  ! version 3.22.0, Xiamen University, Xiamen, China, 2013-2025.              !
+  ! version 3.23.0, Xiamen University, Xiamen, China, 2013-2026.              !
   !                                                                           !
   ! The citations for MLatom's interfaces and features shall be eventually    !
   ! included too. See header.py, ref.json and http://mlatom.com.              !
@@ -82,17 +82,21 @@ def run(argv = []):
         if arg in ['-v', '--version']: 
             version = mlatom_with_this_file.__version__
             print(f'Current mlatom version: {version}')
-            if 'xx.x' not in version: 
-                # get latest version from pypi
-                import requests 
-                url = f"https://pypi.org/pypi/mlatom/json"
-                response = requests.get(url)
-                if response.status_code == 200:
-                    latest_version = response.json()["info"]['version']
-                    if latest_version != version:
-                        print(f'The latest mlatom version is {latest_version}, please upgrade your mlatom with `pip install --upgrade mlatom`')
-                else:
-                    print('Fail to get the latest mlatom version from pypi')
+            if 'unknown' not in version:
+                # best-effort check for a newer release; never block or crash
+                # the command if offline / behind a firewall / requests missing
+                try:
+                    import requests
+                    url = f"https://pypi.org/pypi/mlatom/json"
+                    response = requests.get(url, timeout=3)
+                    if response.status_code == 200:
+                        latest_version = response.json()["info"]['version']
+                        if latest_version != version:
+                            print(f'The latest mlatom version is {latest_version}, please upgrade your mlatom with `pip install --upgrade mlatom`')
+                    else:
+                        print('Fail to get the latest mlatom version from pypi')
+                except Exception:
+                    pass
             return
         elif arg in ['-l', '--list']:
             # get all installed packages in site packages
@@ -133,7 +137,7 @@ def run(argv = []):
                     get_version_from_init(path2init, os.path.join(sp, 'mlatom'))
             return  
     
-    print(__doc__)
+    print(_render_banner())
     
     print(' %s ' % ('='*78))
     print(time.strftime(" MLatom started on %d.%m.%Y at %H:%M:%S", time.localtime()))
@@ -169,6 +173,34 @@ def run(argv = []):
     print(' %s ' % ('='*78), flush=True)
     
     return result
+
+
+def _render_banner():
+    '''The startup banner: this module's docstring (the program/license block,
+    which mlatom/LICENSE is generated from by stamp_version.py) with the live
+    commit + build date, and an Aitomic Add-Ons line when present, inserted in
+    the box under the version. The banner differs from LICENSE only by those
+    run-time lines.'''
+    import re
+    from . import _version
+    commit, build_date = _version.commit_and_date()
+    addons = _version.aitomic_addons_version()
+
+    lines = (__doc__ or '').split('\n')
+    width = max((len(l) for l in lines), default=79)
+
+    def box(text):
+        return '  !' + text.center(width - 4) + '!'  # '  !' prefix + '!' suffix
+
+    rendered = []
+    for ln in lines:
+        rendered.append(ln)
+        if ln.startswith('  !') and re.search(r'MLatom [0-9]', ln):
+            rendered.append(box('commit %s, built %s' % (commit, build_date)))
+            if addons:
+                rendered.append(box('with Aitomic Add-Ons %s' % addons))
+    return '\n'.join(rendered)
+
 
 if __name__ == '__main__':
     run()

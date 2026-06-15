@@ -119,7 +119,7 @@ class model():
 
         for key in self.__dict__:
             tt = type(self.__dict__[key])
-            if tt in [str, dict]:
+            if tt in [str, dict, bool]:
                 model_dict[key] = self.__dict__[key]
             model_dict['nthreads'] = self.nthreads
 

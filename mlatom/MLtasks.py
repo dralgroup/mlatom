@@ -517,7 +517,7 @@ def freq(args, molDB=None):
             print('   Mode     Frequencies     Reduced masses     Force Constants     Raman intensities')
             print('              (cm^-1)            (AMU)           (mDyne/A)            (A^4/AMU)')
             for i in range(len(mol.frequencies)):
-                print('%6d %15.4f %15.4f %18.4f     %18.4f     %18.4f' % (i+1, mol.frequencies[i], mol.reduced_masses[i], mol.force_constants[i], mol.raman_intensities[i]))
+                print('%6d %15.4f %15.4f %18.4f     %18.4f' % (i+1, mol.frequencies[i], mol.reduced_masses[i], mol.force_constants[i], mol.raman_intensities[i]))
         else:
             print('   Mode     Frequencies     Reduced masses     Force Constants')
             print('              (cm^-1)            (AMU)           (mDyne/A)')

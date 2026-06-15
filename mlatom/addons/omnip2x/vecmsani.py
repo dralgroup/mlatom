@@ -431,6 +431,9 @@ class vecmsani(ml_model, torchani_model):
                     else:
                         gap_loss = 0
                     # true_forces[true_forces.isnan()]=forces[true_forces.isnan()]
+                    nan_mask = torch.isnan(true_forces)
+                    true_forces[nan_mask] = 0
+                    forces[nan_mask] = 0
                     force_loss = (loss_function(true_forces, forces, weightings_f).sum(dim=(1, 2)) / num_atoms).nanmean()
                     loss = energy_loss + self.hyperparameters.force_coefficient * force_loss + self.hyperparameters.gap_coefficient * gap_loss
                     total_mse += loss.item()
@@ -535,6 +538,9 @@ class vecmsani(ml_model, torchani_model):
                     else:
                         gap_loss = 0
                     # true_forces[true_forces.isnan()]=forces[true_forces.isnan()]
+                    nan_mask = torch.isnan(true_forces)
+                    true_forces[nan_mask] = 0
+                    forces[nan_mask] = 0
                     force_loss = (loss_function(true_forces, forces, weightings_f).sum(dim=(1, 2)) / num_atoms).nanmean()
                     loss = energy_loss + self.hyperparameters.force_coefficient * force_loss + self.hyperparameters.gap_coefficient * gap_loss
                 else:

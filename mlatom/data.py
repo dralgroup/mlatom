@@ -1006,43 +1006,44 @@ class molecule:
         if degrees:
             ang *= (180.0 / math.pi)
         return ang
-    def dihedral_angle(self, a1, a2, a3, a4, degrees=True) -> float:
-        """Return the dihedral angle a1-a2-a3-a4.
-    
+    def dihedral_angle(self, a1, a2, a3, a4, degrees=True, unsigned=False) -> float:
+        """Return the signed dihedral angle a1-a2-a3-a4.
+
         The angle is defined between the planes a1-a2-a3 and a2-a3-a4.
         Atoms are numbered from zero.
-        based on Tom Keal MNDOtools.py, October 2007
-    
+
+        Positive angle corresponds to a counter-clockwise rotation from
+        the a1-a2-bond projection to the a3-a4-bond projection when looking
+        along the a2->a3 direction.
+
         degrees - if true, return angle in degrees, else radians.
-    
+
         """
-        # Based on the dihedral routine from geoman.f90 by Eduardo Fabiano
-        # vector 1 = 1->2
-        v1 = self.atoms[a2].xyz_coordinates - self.atoms[a1].xyz_coordinates
-        v1 = v1/np.linalg.norm(v1)
-    
-        # vector 2 = 2->3
-        v2 = self.atoms[a3].xyz_coordinates - self.atoms[a2].xyz_coordinates
-        v2 = v2/np.linalg.norm(v2)
-    
-        # vector 3 = 3->4
-        v3 = self.atoms[a4].xyz_coordinates - self.atoms[a3].xyz_coordinates
-        v3 = v3/np.linalg.norm(v3)
-    
-        # vector product 1 = v1^v2
-        w1 = np.cross(v1,v2)
-        w1 = w1/np.linalg.norm(w1)
-    
-        # vector product 2 = v3^v2
-        w2 = np.cross(v3,v2)
-        w2 = w2/np.linalg.norm(w2)
-    
-        # dot product
-        dotp = np.dot(w1,w2)
-        # angle in radians
-        ang = math.pi - math.acos(dotp)
+        b0 = self.atoms[a1].xyz_coordinates - self.atoms[a2].xyz_coordinates
+        b1 = self.atoms[a3].xyz_coordinates - self.atoms[a2].xyz_coordinates
+        b2 = self.atoms[a4].xyz_coordinates - self.atoms[a3].xyz_coordinates
+
+        b1_norm = np.linalg.norm(b1)
+        if b1_norm < 1e-15:
+            return 0.0 if degrees else 0.0
+        b1 = b1 / b1_norm
+
+        v = b0 - np.dot(b0, b1) * b1
+        w = b2 - np.dot(b2, b1) * b1
+
+        v_norm = np.linalg.norm(v)
+        w_norm = np.linalg.norm(w)
+        if v_norm < 1e-15 or w_norm < 1e-15:
+            return 0.0 if degrees else 0.0
+
+        x = np.dot(v, w)
+        y = np.dot(np.cross(b1, v), w)
+
+        ang = math.atan2(y, x)
         if degrees:
             ang *= (180.0 / math.pi)
+        if unsigned:
+            ang = abs(ang)
         return ang    
     def proliferate(
             self, 

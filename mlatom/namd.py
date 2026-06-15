@@ -280,13 +280,16 @@ class surface_hopping_md():
         else:
             np.random.seed(self.random_seed)
         self.current_state = self.initial_state
-        # if self.model_predict_kwargs == {}:
-        #     calculate_energy_gradients = [False] * self.nstates
-        #     calculate_energy_gradients[self.current_state] = True
-        #     self.model_predict_kwargs={'nstates':self.nstates, 
-        #                                'current_state':self.current_state,
-        #                                'calculate_energy':True,
-        #                                'calculate_energy_gradients':calculate_energy_gradients}
+        # Preserve the gradient mask across steps when the user passed True (interface
+        # expands per-step from current_state, matching legacy behavior) or a list
+        # (explicit per-state mask). Otherwise the propagator auto-manages it to the
+        # active state and re-applies on hops.
+        manage_grad_mask = True
+        if 'calculate_energy_gradients' in self.model_predict_kwargs:
+            _val = self.model_predict_kwargs['calculate_energy_gradients']
+            if _val is True or isinstance(_val, list):
+                manage_grad_mask = False
+
         if self.model_predict_kwargs == {}:
             calculate_energy_gradients = [False] * self.nstates
             calculate_energy_gradients[self.current_state] = True
@@ -305,12 +308,7 @@ class surface_hopping_md():
             self.model_predict_kwargs['nstates'] = self.nstates
             self.model_predict_kwargs['current_state'] = self.current_state
             self.model_predict_kwargs['calculate_energy'] = True
-            if 'calculate_energy_gradients' in self.model_predict_kwargs:
-                if self.model_predict_kwargs['calculate_energy_gradients'] is not True:
-                    if not isinstance(self.model_predict_kwargs['calculate_energy_gradients'], list):
-                        self.model_predict_kwargs['calculate_energy_gradients'] = [False] * self.nstates
-                    self.model_predict_kwargs['calculate_energy_gradients'][self.current_state] = True
-            else:
+            if manage_grad_mask:
                 self.model_predict_kwargs['calculate_energy_gradients'] = [False] * self.nstates
                 self.model_predict_kwargs['calculate_energy_gradients'][self.current_state] = True
             if self.hopping_algorithm == 'FSSH':
@@ -323,10 +321,11 @@ class surface_hopping_md():
                 molecule = self.molecule_with_initial_conditions.copy(atomic_labels=['xyz_coordinates','xyz_velocities'], molecular_labels=[])
             else:
                 molecule = self.molecular_trajectory.steps[-1].molecule.copy(atomic_labels=['xyz_coordinates','xyz_velocities'], molecular_labels=[])
-            
+
             self.model_predict_kwargs['current_state'] = self.current_state
-            # self.model_predict_kwargs['calculate_energy_gradients'][self.initial_state] = self.model_predict_kwargs['calculate_energy_gradients'][self.current_state]
-            # self.model_predict_kwargs['calculate_energy_gradients'][self.current_state] = True
+            if manage_grad_mask:
+                self.model_predict_kwargs['calculate_energy_gradients'] = [False] * self.nstates
+                self.model_predict_kwargs['calculate_energy_gradients'][self.current_state] = True
 
             if one_step_propagation:
                 dyn = md(model=self.model,
@@ -578,7 +577,7 @@ class surface_hopping_md():
                     # Phase alignment within trajectory based on the dot product of NAC(t-dt), NAC(t) and NAC(t+dt)
                     elif istep > 1:
                         h_extr = 2 * nac_initial[iState][jState] - nac_initial0[iState][jState]
-                        if np.vdot(h_extr, nac_final[iState][jState])/(np.linalg.norm(h_extr[iState][jState])*np.linalg.norm(nac_final[iState][jState])) < 0:
+                        if np.vdot(h_extr, nac_final[iState][jState])/(np.linalg.norm(h_extr)*np.linalg.norm(nac_final[iState][jState])) < 0:
                             self.molecular_trajectory.steps[-2].molecule.nacv[iState][jState] *= -1
                             self.molecular_trajectory.steps[-2].molecule.nacv[jState][iState] *= -1
                             nac_final[iState][jState] *= -1
@@ -1237,7 +1236,7 @@ def plot_dist(traj, ax=None, geom_params=[[0, 1]], left_axis=False):
     for i, d in enumerate(geom_params):
         if len(d) == 2: axes["r"].plot(time, [s.molecule.bond_length(*d) for s in traj.steps], c=colors[i], label=fr"$r({d[0]},{d[1]})$")
         elif len(d) == 3: axes["a"].plot(time, [s.molecule.bond_angle(*d, degrees=True) for s in traj.steps], c=colors[i], label=fr"$\alpha({d[0]},{d[1]},{d[2]})$")
-        elif len(d) == 4: axes["d"].plot(time, [s.molecule.dihedral_angle(*d, degrees=True) for s in traj.steps], c=colors[i], label=fr"$\delta({d[0]},{d[1]},{d[2]},{d[3]})$")
+        elif len(d) == 4: axes["d"].plot(time, [s.molecule.dihedral_angle(*d, degrees=True,unsigned=True) for s in traj.steps], c=colors[i], label=fr"$\delta({d[0]},{d[1]},{d[2]},{d[3]})$")
     handles, labels = [], []
     for p in plot_types:
         h, l = axes[p].get_legend_handles_labels()

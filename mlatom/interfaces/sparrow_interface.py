@@ -54,7 +54,7 @@ class sparrow_methods(OMP_model, method_model):
         self.sparrowbin = self.get_bin_env_var()
         if self.sparrowbin is None:
             raise ValueError('Cannot find the Sparrow program, please set the environment variable: export sparrowbin=...')
-        if method.casefold() == 'odm2*': print(' !WARNING! ODM2* calculations will be performed with Sparrow which has no implementation of analytical gradients and excited-state property calculations with this Hamiltonian. If you have the MNDO program you might want to use it for such calculations. Alternatively, choose a newer AIQM-series methods such as AIQM2 that is not based on ODM2* but on GFN2-xTB. MNDO is not available on the XACS cloud.')
+        if method.casefold() == 'odm2*': print(' !WARNING! ODM2* calculations will be performed with Sparrow which has no implementation of analytical gradients and excited-state property calculations with this Hamiltonian. If you have the MNDO program you might want to use it for such calculations. Alternatively, choose a newer AIQM-series methods such as AIQM2 that is not based on ODM2* but on GFN2-xTB. MNDO is not available on the cloud computing platforms.')
     
     @doc_inherit
     def predict(self, molecular_database=None, molecule=None,
