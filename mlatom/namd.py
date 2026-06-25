@@ -320,7 +320,13 @@ class surface_hopping_md():
             if istep == 0:
                 molecule = self.molecule_with_initial_conditions.copy(atomic_labels=['xyz_coordinates','xyz_velocities'], molecular_labels=[])
             else:
-                molecule = self.molecular_trajectory.steps[-1].molecule.copy(atomic_labels=['xyz_coordinates','xyz_velocities'], molecular_labels=[])
+                # Carry ONLY the previous (computed) step's atom-level energy_gradients + energy so
+                # the md.py:168 guard reuses that force instead of recomputing it. Do NOT carry
+                # electronic_states: interfaces (e.g. mndo_interface.py:372/415) reuse a populated
+                # electronic_states list and leave non-current-state gradients stale -> wrong results.
+                molecule = self.molecular_trajectory.steps[-1].molecule.copy(
+                    atomic_labels=['xyz_coordinates', 'xyz_velocities', 'energy_gradients'],
+                    molecular_labels=['energy'])
 
             self.model_predict_kwargs['current_state'] = self.current_state
             if manage_grad_mask:
@@ -485,7 +491,12 @@ class surface_hopping_md():
         self.model_predict_kwargs['current_state'] = self.current_state
         dyn = md(model=self.model,
                 model_predict_kwargs=self.model_predict_kwargs,
-                molecule_with_initial_conditions=self.molecular_trajectory.steps[-1].molecule.copy(atomic_labels=['xyz_coordinates','xyz_velocities'], molecular_labels=[]),
+                # Carry ONLY atom-level energy_gradients + energy (md.py:168 reuses the force); NOT
+                # electronic_states -- interfaces reuse a populated list and leave non-current-state
+                # gradients stale (mndo_interface.py:372/415).
+                molecule_with_initial_conditions=self.molecular_trajectory.steps[-1].molecule.copy(
+                    atomic_labels=['xyz_coordinates', 'xyz_velocities', 'energy_gradients'],
+                    molecular_labels=['energy']),
                 ensemble='NVE',
                 thermostat=None,
                 time_step=self.time_step,
@@ -533,7 +544,12 @@ class surface_hopping_md():
         self.model_predict_kwargs['current_state'] = self.current_state
         dyn = md(model=self.model,
                 model_predict_kwargs=self.model_predict_kwargs,
-                molecule_with_initial_conditions=self.molecular_trajectory.steps[-1].molecule.copy(atomic_labels=['xyz_coordinates','xyz_velocities'], molecular_labels=[]),
+                # Carry ONLY atom-level energy_gradients + energy (md.py:168 reuses the force); NOT
+                # electronic_states -- interfaces reuse a populated list and leave non-current-state
+                # gradients stale (mndo_interface.py:372/415).
+                molecule_with_initial_conditions=self.molecular_trajectory.steps[-1].molecule.copy(
+                    atomic_labels=['xyz_coordinates', 'xyz_velocities', 'energy_gradients'],
+                    molecular_labels=['energy']),
                 ensemble='NVE',
                 thermostat=None,
                 time_step=self.time_step,

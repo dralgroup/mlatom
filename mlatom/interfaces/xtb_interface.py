@@ -339,7 +339,7 @@ class xtb_methods(OMP_model, method_model):
         other_error = None
         stderr = []; stdout = []
         try:
-            proc = subprocess.run(xtbargs, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=tmpdirname, universal_newlines=True, check=True)
+            proc = subprocess.run(xtbargs, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=tmpdirname, universal_newlines=True, check=True, encoding='utf-8')
             stdout = proc.stdout.split('\n')
             stderr = proc.stderr.split('\n')
         except subprocess.CalledProcessError as e:
