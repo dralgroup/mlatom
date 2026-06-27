@@ -149,6 +149,11 @@ class pyscf_methods(OMP_pyscf):
             pyscf_method_tda = tddft.TDA(pyscf_method.run()).run(nstates=nstates)
             if not molecule.electronic_states:
                  molecule.electronic_states.extend([molecule.copy() for _ in range(nstates)])
+            # Per-state gradients honesty: seed every state with NaN gradients so that any state
+            # whose gradient is not freshly computed below stays NaN rather than inheriting the
+            # molecule's stale (carried) atom-level energy_gradients.
+            for _es in molecule.electronic_states:
+                _es.add_xyz_derivative_property(np.full((len(_es.atoms), 3), np.nan), 'energy', 'energy_gradients')
             molecule.electronic_states[0].energy = pyscf_method.e_tot
             for ii in range(1,nstates):
                molecule.electronic_states[ii].energy = molecule.electronic_states[0].energy + pyscf_method_tda.e[ii-1]
@@ -181,6 +186,11 @@ class pyscf_methods(OMP_pyscf):
             pyscf_method_tddft = tddft.TDDFT(pyscf_method.run()).run(nstates=nstates)
             if not molecule.electronic_states:
                  molecule.electronic_states.extend([molecule.copy() for _ in range(nstates)])
+            # Per-state gradients honesty: seed every state with NaN gradients so that any state
+            # whose gradient is not freshly computed below stays NaN rather than inheriting the
+            # molecule's stale (carried) atom-level energy_gradients.
+            for _es in molecule.electronic_states:
+                _es.add_xyz_derivative_property(np.full((len(_es.atoms), 3), np.nan), 'energy', 'energy_gradients')
             molecule.electronic_states[0].energy = pyscf_method.e_tot
             for ii in range(1,nstates):
                molecule.electronic_states[ii].energy = molecule.electronic_states[0].energy + pyscf_method_tddft.e[ii-1]

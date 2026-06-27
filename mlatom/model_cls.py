@@ -1016,8 +1016,24 @@ class model_tree_node(model):
             if nstates and nstates > 1:
                 mol_copy = mol.copy()
                 mol_copy.electronic_states = []
+                # Per-state gradient honesty: the seed template (and thus every appended
+                # state) is a copy of the input molecule and would otherwise inherit the
+                # molecule-level (atom-level) energy_gradients, i.e. a stale/carried force
+                # from a previous step. Seed the template with NaN gradients so that only
+                # states whose gradient is freshly computed in this predict get overwritten;
+                # any non-computed state stays all-NaN instead of holding an inherited value.
+                if mol_copy.atoms:
+                    mol_copy.add_xyz_derivative_property(np.full((len(mol_copy.atoms), 3), np.nan), 'energy', 'energy_gradients')
                 for _ in range(nstates - len(mol.electronic_states)):
                     mol.electronic_states.append(mol_copy.copy())
+
+                # Reuse case: pre-existing electronic_states from a previous step still hold
+                # their previous atom-level energy_gradients. Reset every per-state gradient
+                # to NaN here too, so a state not recomputed this call cannot read as a stale
+                # force. Freshly computed states are overwritten below by the storage loop.
+                for mol_el_st in mol.electronic_states:
+                    if mol_el_st.atoms:
+                        mol_el_st.add_xyz_derivative_property(np.full((len(mol_el_st.atoms), 3), np.nan), 'energy', 'energy_gradients')
 
                 for mol_el_st in mol.electronic_states:
                     if not self.name in mol_el_st.__dict__:

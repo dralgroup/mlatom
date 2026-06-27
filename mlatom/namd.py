@@ -320,7 +320,10 @@ class surface_hopping_md():
             if istep == 0:
                 molecule = self.molecule_with_initial_conditions.copy(atomic_labels=['xyz_coordinates','xyz_velocities'], molecular_labels=[])
             else:
-                molecule = self.molecular_trajectory.steps[-1].molecule.copy(atomic_labels=['xyz_coordinates','xyz_velocities'], molecular_labels=[])
+                #energy_gradients is copied, to not make md.py run predict again.
+                molecule = self.molecular_trajectory.steps[-1].molecule.copy(
+                    atomic_labels=['xyz_coordinates', 'xyz_velocities', 'energy_gradients'],
+                    molecular_labels=['energy'])
 
             self.model_predict_kwargs['current_state'] = self.current_state
             if manage_grad_mask:
@@ -485,7 +488,10 @@ class surface_hopping_md():
         self.model_predict_kwargs['current_state'] = self.current_state
         dyn = md(model=self.model,
                 model_predict_kwargs=self.model_predict_kwargs,
-                molecule_with_initial_conditions=self.molecular_trajectory.steps[-1].molecule.copy(atomic_labels=['xyz_coordinates','xyz_velocities'], molecular_labels=[]),
+                #energy_gradients is copied, to not make md.py run predict again.
+                molecule_with_initial_conditions=self.molecular_trajectory.steps[-1].molecule.copy(
+                    atomic_labels=['xyz_coordinates', 'xyz_velocities', 'energy_gradients'],
+                    molecular_labels=['energy']),
                 ensemble='NVE',
                 thermostat=None,
                 time_step=self.time_step,
@@ -533,7 +539,10 @@ class surface_hopping_md():
         self.model_predict_kwargs['current_state'] = self.current_state
         dyn = md(model=self.model,
                 model_predict_kwargs=self.model_predict_kwargs,
-                molecule_with_initial_conditions=self.molecular_trajectory.steps[-1].molecule.copy(atomic_labels=['xyz_coordinates','xyz_velocities'], molecular_labels=[]),
+                #energy_gradients is copied, to not make md.py run predict again.
+                molecule_with_initial_conditions=self.molecular_trajectory.steps[-1].molecule.copy(
+                    atomic_labels=['xyz_coordinates', 'xyz_velocities', 'energy_gradients'],
+                    molecular_labels=['energy']),
                 ensemble='NVE',
                 thermostat=None,
                 time_step=self.time_step,

@@ -1386,10 +1386,17 @@ class msani(ml_model, torchani_model):
                         state_hessians.append(ANI_NN_hessians.detach().cpu().numpy())
                         batch.add_scalar_properties(ANI_NN_hessians.detach().cpu().numpy(), hessian_to_predict)
             for idx, mol in enumerate(batch):
+                # Seed every per-state gradient with NaN so a state not freshly computed below does
+                # not inherit a stale (carried) gradient. Do NOT clear/recreate mol.electronic_states:
+                # a composite-model parent (model_tree_node) may pre-seed the states and attach its
+                # properties_tree_node, so we extend/fill in place and only reset gradients.
                 mol_copy = mol.copy()
                 mol_copy.electronic_states = []
+                mol_copy.add_xyz_derivative_property(np.full((len(mol_copy.atoms), 3), np.nan), 'energy', 'energy_gradients')
                 for _ in range(nstates - len(mol.electronic_states)):
                     mol.electronic_states.append(mol_copy.copy())
+                for es in mol.electronic_states[:nstates]:
+                    es.add_xyz_derivative_property(np.full((len(es.atoms), 3), np.nan), 'energy', 'energy_gradients')
                 if calculate_energy:
                     for i in range(nstates):
                         mol.electronic_states[i].energy = state_energies[i][idx]

@@ -124,10 +124,17 @@ class turbomole_methods(method_model):
                     if calculate_energy:
                         state_energies = ricc2_energy(f'{tmpdirname}/{outfilename}', gs_model)
 
+                        # Seed every per-state gradient with NaN so a state not freshly computed below
+                        # does not inherit a stale (carried) gradient. Do NOT clear/recreate
+                        # mol.electronic_states: a composite-model parent (model_tree_node) may pre-seed
+                        # the states and attach its properties_tree_node, so we extend/fill in place.
                         mol_copy = mol.copy()
                         mol_copy.electronic_states = []
+                        mol_copy.add_xyz_derivative_property(np.full((len(mol_copy.atoms), 3), np.nan), 'energy', 'energy_gradients')
                         for _ in range(nstates - len(mol.electronic_states)):
                             mol.electronic_states.append(mol_copy.copy())
+                        for es in mol.electronic_states[:nstates]:
+                            es.add_xyz_derivative_property(np.full((len(es.atoms), 3), np.nan), 'energy', 'energy_gradients')
                         for i in range(nstates):
                             mol.electronic_states[i].energy = state_energies[i]
                         mol.energy = mol.electronic_states[current_state].energy
@@ -136,11 +143,19 @@ class turbomole_methods(method_model):
                     if any(calculate_energy_gradients):
                         state_gradients = ricc2_gradient(fname=f'{tmpdirname}/{outfilename}')
 
-                        if not mol.electronic_states:
-                            mol.electronic_states.extend([mol.copy() for _ in range(nstates)])
+                        if len(mol.electronic_states) < nstates:
+                            nan_template = mol.copy()
+                            # Seed with NaN gradients so non-computed states do not inherit a
+                            # stale atom-level gradient carried over from the input molecule.
+                            nan_template.add_xyz_derivative_property(np.full((len(nan_template.atoms), 3), np.nan), 'energy', 'energy_gradients')
+                            mol.electronic_states.extend([nan_template.copy() for _ in range(nstates - len(mol.electronic_states))])
                         for index, value in enumerate(calculate_energy_gradients):
                             if value:
                                 mol.electronic_states[index].add_xyz_derivative_property(np.array(state_gradients[index+1]).astype(float), 'energy', 'energy_gradients')
+                            else:
+                                # Non-computed state: store NaN so it never reports a stale
+                                # (carried/inherited) gradient from a previous step or another state.
+                                mol.electronic_states[index].add_xyz_derivative_property(np.full((len(mol.atoms), 3), np.nan), 'energy', 'energy_gradients')
                         mol.add_xyz_derivative_property(np.array(state_gradients[current_state+1]).astype(float), 'energy', 'energy_gradients')
                 else:
                     print('Calculation failed!') 

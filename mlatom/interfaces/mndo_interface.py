@@ -368,10 +368,18 @@ def parse_mndo_output(filename=None, molecule=None):
                 ee = parts[1].split()[1]
                 state_energies.append(float(ee)/27.21+state_energies[0])
         
+        # Per-state gradients honesty: seed every per-state gradient with NaN so any state not
+        # freshly overwritten by the gradient-storage loop reads as NaN instead of an inherited/stale
+        # (carried) force. Do NOT clear/recreate mol.electronic_states: when this interface is a leaf
+        # of a composite model (model_tree_node) the parent pre-seeds the states and attaches its
+        # properties_tree_node, so we must extend/fill in place and only reset the gradients.
         mol_copy = mol.copy()
         mol_copy.electronic_states = []
+        mol_copy.add_xyz_derivative_property(np.full((len(mol_copy.atoms), 3), np.nan), 'energy', 'energy_gradients')
         for _ in range(nstates - len(mol.electronic_states)):
             mol.electronic_states.append(mol_copy.copy())
+        for es in mol.electronic_states[:nstates]:
+            es.add_xyz_derivative_property(np.full((len(es.atoms), 3), np.nan), 'energy', 'energy_gradients')
         for i in range(nstates):
             mol.electronic_states[i].energy = state_energies[i]
         if current_state: mol.energy = mol.electronic_states[current_state].energy
@@ -413,7 +421,11 @@ def parse_mndo_output(filename=None, molecule=None):
                 energy_gradient.append(energy_gradient_per_atom)
             state_gradients[int(ffort15_lines[idx-1].split()[4])-1] = energy_gradient
         if not mol.electronic_states:
-            mol.electronic_states.extend([mol.copy() for _ in range(nstates)])
+            for _ in range(nstates):
+                state_seed = mol.copy()
+                # NaN seed so only freshly-computed states below carry a gradient.
+                state_seed.add_xyz_derivative_property(np.full((len(state_seed.atoms), 3), np.nan), 'energy', 'energy_gradients')
+                mol.electronic_states.append(state_seed)
         for istate in state_gradients.keys():
             mol.electronic_states[istate].add_xyz_derivative_property(np.array(state_gradients[istate]).astype(float), 'energy', 'energy_gradients')
         if current_state: mol.add_xyz_derivative_property(np.array(state_gradients[current_state]).astype(float), 'energy', 'energy_gradients')     

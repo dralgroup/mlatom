@@ -158,10 +158,18 @@ class columbus_methods(method_model):
                                 else:
                                     print('There is no MRCI triplet energy file. (LISTINGS/ciudgsm.drt2.sp)')
 
+                        # Seed every per-state gradient with NaN so any state not freshly computed
+                        # below reads as NaN instead of an inherited/stale (carried) gradient. Do NOT
+                        # clear/recreate mol.electronic_states: when this interface is a leaf of a
+                        # composite model (model_tree_node) the parent pre-seeds the states and attaches
+                        # its properties_tree_node, so we extend/fill in place and only reset gradients.
                         mol_copy = mol.copy()
                         mol_copy.electronic_states = []
+                        mol_copy.add_xyz_derivative_property(np.full((len(mol_copy.atoms), 3), np.nan), 'energy', 'energy_gradients')
                         for _ in range(nstates - len(mol.electronic_states)):
                             mol.electronic_states.append(mol_copy.copy())
+                        for es in mol.electronic_states[:nstates]:
+                            es.add_xyz_derivative_property(np.full((len(es.atoms), 3), np.nan), 'energy', 'energy_gradients')
                         for i in range(nsinglets):
                             mol.electronic_states[i].energy = state_energies_singlets[i]
                         for i in range(ntriplets):
@@ -203,6 +211,10 @@ class columbus_methods(method_model):
                                 triplet_state_gradients[istate] = energy_gradient
                             if not mol.electronic_states:
                                     mol.electronic_states.extend([mol.copy() for _ in range(nstates)])
+                                    # Seed freshly created states with NaN gradients so that
+                                    # non-computed states do not inherit a stale gradient.
+                                    for es in mol.electronic_states[:nstates]:
+                                        es.add_xyz_derivative_property(np.full((len(es.atoms), 3), np.nan), 'energy', 'energy_gradients')
                             for index, value in enumerate(calculate_energy_gradients):
                                 if value and index < nsinglets:
                                     mol.electronic_states[index].add_xyz_derivative_property(np.array(singlet_state_gradients[index]).astype(float), 'energy', 'energy_gradients')
