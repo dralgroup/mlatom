@@ -1,0 +1,49 @@
+# Public smoke test for MLatom — "does it install and import".
+#
+# STATUS: staged as manual-only. It runs ONLY via the "Run workflow" button
+# (workflow_dispatch), so it cannot post a red/green status on a commit or PR
+# yet. Once a manual run is confirmed green (and the dependency list trimmed to
+# the true eager-import set), enable the automatic triggers by uncommenting the
+# `push`/`pull_request` lines below — that turns it into a per-PR gate.
+#
+# Scope is deliberately minimal and license-free: it installs the lightweight
+# runtime dependencies and imports MLatom on Linux and macOS across several
+# Python versions. Heavy backends that need commercial programs (Gaussian, ORCA,
+# Turbomole, Columbus) or GPUs are validated separately, not here.
+
+name: CI
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+  # pull_request:
+
+env:
+  # Do not phone home to PyPI during CI.
+  MLATOM_NO_VERSION_CHECK: "1"
+
+jobs:
+  import-smoke:
+    name: import (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.9", "3.10", "3.11"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      # Eager `import mlatom` needs numpy, scipy, joblib, h5py; the rest cover
+      # modules pulled in at import time (plotting, ASE, torch stack). This list
+      # is generous pending a validated run — trim it to what import truly needs.
+      - name: Install runtime dependencies
+        run: >-
+          python -m pip install --upgrade pip
+          "numpy<2" scipy joblib h5py matplotlib ase pandas requests tqdm
+          torch torchani
+      - name: Import MLatom
+        run: python -c "import mlatom; print('MLatom', mlatom.__version__)"
