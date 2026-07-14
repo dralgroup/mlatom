@@ -1,0 +1,63 @@
+# Packaging for installing MLatom directly from a source checkout / clone
+# (`pip install .` or `pip install git+https://github.com/dralgroup/mlatom`).
+#
+# This targets the FLAT layout used by the repository and the public GitHub
+# mirror, where the `mlatom/` package sits at the repo root. The separate
+# `pypi-upload/setup.py` (src/ layout) still drives the PyPI release build; keep
+# the metadata below (deps, entry points, package data) in sync with it.
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mlatom"
+dynamic = ["version"]
+description = "A Package for AI-enhanced computational chemistry"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Pavlo O. Dral", email = "admin@mlatom.com" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Fortran",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Environment :: Console",
+]
+dependencies = [
+    "numpy<2",
+    "scipy",
+    "h5py",
+    "pyh5md",
+    "torch==2.1.2",
+    "torchani==2.2.3",
+    "setuptools<81",
+    "matplotlib",
+    "statsmodels",
+    "tqdm",
+    "joblib",
+    "requests",
+    "psutil",
+]
+
+[project.urls]
+Homepage = "http://mlatom.com"
+Documentation = "http://mlatom.com/docs"
+Repository = "https://github.com/dralgroup/mlatom"
+
+[project.scripts]
+mlatom = "mlatom.shell_cmd:mlatom_cmd_run"
+MLatomF = "mlatom.shell_cmd:MLatomF"
+mlatom-gui = "mlatom.mlatom_gui:main"
+mlatom_gui = "mlatom.mlatom_gui:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "mlatom._version_static.version" }
+
+[tool.setuptools.packages.find]
+include = ["mlatom", "mlatom.*"]
+
+[tool.setuptools.package-data]
+"*" = ["MLatomF", "xtb", "README", "*.json", "*.so", "*.cpp", "*.pt", "*.dat", "*.txt", "*.pkl", "*.inp", "*.f90", "Makefile", "Makefile.intel", "*.saved", "*.sh", "*.jl"]
