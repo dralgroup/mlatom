@@ -25,16 +25,10 @@ Run MLatom in your browser on either online platform — both powered by [Protom
 
 ## Local installation
 
-The easiest way to run MLatom is [online](http://mlatom.com/docs/cloud.html) — no installation. To install locally:
+The easiest way to run MLatom is [online](http://mlatom.com/docs/cloud.html) — no installation. To run the **AIQM2** quick start below locally, install MLatom together with the specific PyTorch/TorchANI versions it needs, a geometry-optimization backend, and the DFT-D4 program (via conda):
 
 ```bash
-python3 -m pip install -U mlatom
-```
-
-Methods pull in their own backends. The **AIQM2** quick start below needs PyTorch, TorchANI, a geometry-optimization backend, and the DFT-D4 program (installed via conda, as recommended):
-
-```bash
-pip install -U torch torchani geometric
+pip install -U "numpy<2" "torch==2.1.2" "torchani==2.2.3" "setuptools<81" mlatom joblib requests psutil pyscf geometric
 conda install -c conda-forge dftd4
 export dftd4bin=$(which dftd4)   # point MLatom at the dftd4 executable
 ```
