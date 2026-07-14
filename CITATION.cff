@@ -1,0 +1,120 @@
+cff-version: 1.2.0
+message: >-
+  If you use MLatom in scientific work, please cite the software (this file)
+  and the preferred-citation article below. Additional feature-specific
+  references are listed in the program output and at https://mlatom.com.
+title: "MLatom: A Package for Atomistic Simulations with Machine Learning"
+abstract: >-
+  MLatom is an open-source package for atomistic simulations with machine
+  learning and quantum chemical methods (DFT, wavefunction-based, and
+  semi-empirical approximations). It can be used as a Python library, via
+  input files, or from the command line.
+type: software
+authors:
+  - family-names: Dral
+    given-names: "Pavlo O."
+  - family-names: Ge
+    given-names: Fuchun
+  - family-names: Hou
+    given-names: Yi-Fan
+  - family-names: Chen
+    given-names: Yuxinxin
+  - family-names: Martyka
+    given-names: Mikołaj
+  - family-names: Martinka
+    given-names: Jakub
+  - family-names: Zheng
+    given-names: Peikun
+  - family-names: Zhang
+    given-names: Lina
+  - family-names: Tong
+    given-names: Xin-Yu
+  - family-names: Xue
+    given-names: Bao-Xin
+  - family-names: Zhang
+    given-names: Quanhao
+  - family-names: Ullah
+    given-names: Arif
+  - family-names: Pios
+    given-names: "Sebastian V."
+  - family-names: Kumar
+    given-names: "Vignesh B."
+  - family-names: Ou
+    given-names: Yanchi
+  - family-names: Pinheiro
+    name-suffix: Jr
+    given-names: Max
+  - family-names: Su
+    given-names: Yuming
+  - family-names: Dai
+    given-names: Yiheng
+  - family-names: Chen
+    given-names: Yangtao
+  - family-names: Zhang
+    given-names: Shuang
+  - family-names: Hu
+    given-names: Jinming
+  - family-names: Bispo
+    given-names: "Matheus O."
+version: 3.23.3
+date-released: "2026-06-27"
+license: MIT
+repository-code: "https://github.com/dralgroup/mlatom"
+url: "https://mlatom.com"
+keywords:
+  - machine learning
+  - computational chemistry
+  - quantum chemistry
+  - atomistic simulations
+  - molecular dynamics
+  - machine learning potentials
+preferred-citation:
+  type: article
+  title: >-
+    MLatom 3: A Platform for Machine Learning-Enhanced Computational
+    Chemistry Simulations and Workflows
+  authors:
+    - family-names: Dral
+      given-names: "Pavlo O."
+    - family-names: Ge
+      given-names: Fuchun
+    - family-names: Hou
+      given-names: Yi-Fan
+    - family-names: Zheng
+      given-names: Peikun
+    - family-names: Chen
+      given-names: Yuxinxin
+    - family-names: Barbatti
+      given-names: Mario
+    - family-names: Isayev
+      given-names: Olexandr
+    - family-names: Wang
+      given-names: Cheng
+    - family-names: Xue
+      given-names: Bao-Xin
+    - family-names: Pinheiro
+      name-suffix: Jr
+      given-names: Max
+    - family-names: Su
+      given-names: Yuming
+    - family-names: Dai
+      given-names: Yiheng
+    - family-names: Chen
+      given-names: Yangtao
+    - family-names: Zhang
+      given-names: Shuang
+    - family-names: Zhang
+      given-names: Lina
+    - family-names: Ullah
+      given-names: Arif
+    - family-names: Zhang
+      given-names: Quanhao
+    - family-names: Ou
+      given-names: Yanchi
+  journal: "Journal of Chemical Theory and Computation"
+  year: 2024
+  volume: 20
+  issue: 3
+  start: 1193
+  end: 1213
+  doi: "10.1021/acs.jctc.3c01203"
