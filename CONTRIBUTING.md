@@ -37,7 +37,7 @@ license requirements.
 
 ## Citing MLatom
 
-MLatom is released under the MIT license, modified to request proper citation.
+MLatom is released under the Apache License 2.0.
 When MLatom or its derivatives are used in scientific publications, please cite
 it as described in [`CITATION.cff`](CITATION.cff) and on
 [MLatom.com](http://mlatom.com).

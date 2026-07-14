@@ -8,21 +8,17 @@
   !                                                                           !
   !                           http://mlatom.com/                              !
   !                                                                           !
-  !            MIT License (modified to request proper citations)             !
-  !                   Copyright (c) 2013- Pavlo O. Dral                       !
+  !               Licensed under the Apache License, Version 2.0              !
+  !                     Copyright 2013-2026 Pavlo O. Dral                     !
   !                           http://dr-dral.com/                             !
   !                                                                           !
-  ! Permission is hereby granted, free of charge, to any person obtaining a   !
-  ! copy of this software and associated documentation files (the "Software"),!
-  ! to deal in the Software without restriction, including without limitation !
-  ! the rights to use, copy, modify, merge, publish, distribute, sublicense,  !
-  ! and/or sell copies of the Software, and to permit persons to whom the     !
-  ! Software is furnished to do so, subject to the following conditions:      !
+  ! Licensed under the Apache License, Version 2.0 (the "License"); you may   !
+  ! not use this software except in compliance with the License. You may      !
+  ! obtain a copy of the License at                                           !
+  !                 http://www.apache.org/licenses/LICENSE-2.0                !
   !                                                                           !
-  ! The above copyright notice and this permission notice shall be included   !
-  ! in all copies or substantial portions of the Software.                    !
-  ! When this Software or its derivatives are used                            !
-  ! in scientific publications, it shall be cited as:                         !
+  ! When using MLatom or its derivatives in scientific publications,          !
+  ! please cite it as:                                                        !
   !                                                                           !
   ! Pavlo O. Dral, Fuchun Ge, Yi-Fan Hou, Peikun Zheng, Yuxinxin Chen,        !
   ! Mario Barbatti, Olexandr Isayev, Cheng Wang, Bao-Xin Xue,                 !
@@ -38,16 +34,12 @@
   ! MLatom: A Package for Atomistic Simulations with Machine Learning,        !
   ! version 3.23.3, Xiamen University, Xiamen, China, 2013-2026.              !
   !                                                                           !
-  ! The citations for MLatom's interfaces and features shall be eventually    !
-  ! included too. See header.py, ref.json and http://mlatom.com.              !
+  ! The citations for MLatom's interfaces and features should also be         !
+  ! included. See header.py, ref.json and http://mlatom.com.                  !
   !                                                                           !
-  ! THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS   !
-  ! OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF                !
-  ! MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN !
-  ! NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,  !
-  ! DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR     !
-  ! OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE !
-  ! USE OR OTHER DEALINGS IN THE SOFTWARE.                                    !
+  ! Unless required by applicable law or agreed to in writing, software       !
+  ! distributed under the License is distributed on an "AS IS" BASIS,         !
+  ! WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  !
   !                                                                           !
   !---------------------------------------------------------------------------!
 

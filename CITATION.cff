@@ -58,7 +58,7 @@ authors:
     given-names: "Matheus O."
 version: 3.23.3
 date-released: "2026-06-27"
-license: MIT
+license: Apache-2.0
 repository-code: "https://github.com/dralgroup/mlatom"
 url: "http://mlatom.com"
 keywords:

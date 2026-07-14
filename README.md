@@ -6,7 +6,7 @@
   <a href="https://pypi.org/project/mlatom/"><img src="https://img.shields.io/pypi/v/mlatom.svg" alt="PyPI version"></a>
   <a href="https://pepy.tech/project/mlatom"><img src="https://static.pepy.tech/badge/mlatom" alt="Downloads"></a>
   <a href="https://pepy.tech/project/mlatom"><img src="https://static.pepy.tech/badge/mlatom/month" alt="Downloads per month"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
   <a href="http://mlatom.com/docs"><img src="https://img.shields.io/badge/docs-mlatom.com-brightgreen.svg" alt="Documentation"></a>
 </p>
 
@@ -116,4 +116,4 @@ Don't miss MLatom updates — [subscribe](https://aitomistic.com/en/contact) to 
 
 ## About
 
-MLatom was founded by [Pavlo O. Dral](http://dr-dral.com) on 10 September 2013, who continues to lead its development. It is open-source under the MIT license (modified to request proper citation) and supported by [Aitomistic](https://aitomistic.com).
+MLatom was founded by [Pavlo O. Dral](http://dr-dral.com) on 10 September 2013, who continues to lead its development. It is open-source under the Apache License 2.0 and supported by [Aitomistic](https://aitomistic.com).
