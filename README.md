@@ -95,10 +95,10 @@ Feature-specific references appear in the program output and in [`CITATION.cff`]
 
 Full [release notes](http://mlatom.com/docs/releases.html) · [`CHANGELOG.md`](CHANGELOG.md)
 
-- **3.23** — AIQM3 public add-on (`pip install aitomic-addons`); direct Gaussian workflows; version/commit/build-date banner with a daily update check.
-- **3.22** — OMNI-P2x model; faster nonadiabatic dynamics.
-- **3.21** — refactored ORCA interface supporting many more excited-state methods.
-- **3.18** — FSSH; MDtrajNet-1 (directly predicting MD trajectories); KRR in Julia; ECTS diffusion model for transition states.
+- **3.23** — **[AIQM3](http://mlatom.com/docs/tutorial_aiqm2.html)**, the latest AI-enhanced quantum-mechanical method — coupled-cluster accuracy at semi-empirical cost across seven main-group elements ([paper](https://doi.org/10.1021/acs.jctc.5c01794)) — as a public add-on (`pip install aitomic-addons`); direct Gaussian workflows (geometry optimization, frequencies, IRC, TD); version/commit/build-date startup banner.
+- **3.22** — **[OMNI-P2x](http://mlatom.com/docs/tutorial_omnip2x.html)**, the first universal neural-network potential for excited states ([paper](https://doi.org/10.26434/chemrxiv-2025-j207x)); faster [nonadiabatic dynamics](http://mlatom.com/docs/tutorial_namd.html).
+- **3.21** — refactored [ORCA interface](http://mlatom.com/docs/tutorial_es_methods.html) supporting many more excited-state methods.
+- **3.18** — **[FSSH](http://mlatom.com/docs/tutorial_namd.html)** (fewest-switches surface hopping for nonadiabatic dynamics); **[MDtrajNet-1](http://mlatom.com/docs/tutorial_mdtrajnet.html)**, a foundational model that generates molecular-dynamics trajectories directly across chemical space; **[KRR in Julia](http://mlatom.com/docs/tutorial_krr_julia.html)**; and **ECTS**, an ultra-fast diffusion model for exploring reactions and generating transition states ([paper](https://doi.org/10.26434/chemrxiv-2025-f9vdp)).
 
 ## Contributing
 
