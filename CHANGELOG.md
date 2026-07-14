@@ -1,7 +1,7 @@
 # Changelog
 
 All notable changes to MLatom are summarized here. For the complete, detailed
-release notes see the [official release notes](https://mlatom.com/docs/releases.html).
+release notes see the [official release notes](http://mlatom.com/docs/releases.html).
 
 Dates are given as DD.MM.YYYY. Versions are available on
 [PyPI](https://pypi.org/project/mlatom/) and
@@ -45,7 +45,7 @@ Dates are given as DD.MM.YYYY. Versions are available on
 
 ## Earlier releases
 For 3.0.0 through 3.17.x and detailed per-version notes, see the
-[official release notes](https://mlatom.com/docs/releases.html).
+[official release notes](http://mlatom.com/docs/releases.html).
 
 [3.23.3]: https://pypi.org/project/mlatom/3.23.3/
 [3.23.2]: https://pypi.org/project/mlatom/3.23.2/

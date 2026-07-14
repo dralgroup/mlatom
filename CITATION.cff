@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: >-
   If you use MLatom in scientific work, please cite the software (this file)
   and the preferred-citation article below. Additional feature-specific
-  references are listed in the program output and at https://mlatom.com.
+  references are listed in the program output and at http://mlatom.com.
 title: "MLatom: A Package for Atomistic Simulations with Machine Learning"
 abstract: >-
   MLatom is an open-source package for atomistic simulations with machine
@@ -60,7 +60,7 @@ version: 3.23.3
 date-released: "2026-06-27"
 license: MIT
 repository-code: "https://github.com/dralgroup/mlatom"
-url: "https://mlatom.com"
+url: "http://mlatom.com"
 keywords:
   - machine learning
   - computational chemistry

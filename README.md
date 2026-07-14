@@ -1,63 +1,119 @@
-![MLatom-banner](https://github.com/user-attachments/assets/9433ac9a-bcc9-4dd4-9128-d834c85603b0)
+<p align="center">
+  <a href="http://mlatom.com"><img src="assets/img/banner.png" alt="MLatom" width="720"></a>
+</p>
 
-[![Downloads](https://static.pepy.tech/badge/mlatom)
-](https://pepy.tech/project/mlatom)  [![Downloads](https://static.pepy.tech/badge/mlatom/month)](https://pepy.tech/project/mlatom)  [![Downloads](https://static.pepy.tech/badge/mlatom/week)](https://pepy.tech/project/mlatom)
+<p align="center">
+  <a href="https://pypi.org/project/mlatom/"><img src="https://img.shields.io/pypi/v/mlatom.svg" alt="PyPI version"></a>
+  <a href="https://pepy.tech/project/mlatom"><img src="https://static.pepy.tech/badge/mlatom" alt="Downloads"></a>
+  <a href="https://pepy.tech/project/mlatom"><img src="https://static.pepy.tech/badge/mlatom/month" alt="Downloads per month"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="http://mlatom.com/docs"><img src="https://img.shields.io/badge/docs-mlatom.com-brightgreen.svg" alt="Documentation"></a>
+</p>
 
 # MLatom
 
-MLatom is a package for atomistic simulations with machine learning and quantum chemical methods such as DFT, wavefunction based, and semi-empirical approximations. You can use it as a Python library, via input files or command line. It is an open-source software under the MIT license (modified to request proper citations).
+MLatom is an open-source package for **atomistic simulations with machine learning and quantum chemical methods** — DFT, wavefunction-based, and semi-empirical approximations. Use it as a Python library, through input files, or from the command line — run it locally, or online with no installation.
 
-Official website: [MLatom.com](http://mlatom.com) with manuals and tutorials.
+**[Website](http://mlatom.com)** · **[Documentation](http://mlatom.com/docs)** · **[Protomia](https://aitomistic.com/protomia)** · **[Aitomistic Hub](https://aitomistic.xyz)** · **[Aitomistic Lab@XMU](https://atom.xmu.edu.cn)** · **[Releases](http://mlatom.com/docs/releases.html)**
 
-MLatom is supported by [Aitomistic](https://aitomistic.com), which enables simulations with MLatom online on the [Aitomistic Hub](https://aitomistic.xyz) (registration free), with [AI assistant Aitomia](http://mlatom.com/aitomia/) helping with autonomous atomistic simulations. Aitomistic also distributes [add-ons](https://aitomistic.com/en/product/aitomic) to MLatom, which supercharge MLatom with the most advanced features and ML models, often before they are published.
+## Run online — no installation
 
-The package was founded by [Pavlo O. Dral](http://dr-dral.com) on 10 September 2013. Pavlo continues to develop and supervise the development of the package.
+Run MLatom in your browser on either online platform — both powered by [Protomia](https://aitomistic.com/protomia), with an AI assistant for autonomous atomistic simulations:
 
-## Subscribe for updates
-Do not miss MLatom updates – [subscribe to us](https://aitomistic.com/en/contact) on the Aitomistic channels, including email newsletter and your favorite social media platform.
+- **[Aitomistic Hub](https://aitomistic.xyz)** — registration-free.
+- **[Aitomistic Lab@XMU](https://atom.xmu.edu.cn)** — free for academic users (registration with an academic email).
 
 ## Local installation
 
-Quick installation:
+The easiest way to run MLatom is [online](http://mlatom.com/docs/cloud.html) — no installation. To install locally:
 
-`python3 -m pip install -U mlatom`
+```bash
+python3 -m pip install -U mlatom
+```
 
-See detailed [installation instructions](http://mlatom.com/docs/installation.html) on recommended dependences and other tips.
+Methods pull in their own backends. The **AIQM2** quick start below needs PyTorch, TorchANI, a geometry-optimization backend, and the DFT-D4 program (installed via conda, as recommended):
 
-## Brief overview of features
+```bash
+pip install -U torch torchani geometric
+conda install -c conda-forge dftd4
+export dftd4bin=$(which dftd4)   # point MLatom at the dftd4 executable
+```
 
-<p align="center"><img src="http://mlatom.com/docs/_images/image1.png"/></p>
+See the [installation guide](http://mlatom.com/docs/installation.html) for the full dependency list and other methods.
 
-## Releases
-Full [release notes](http://mlatom.com/docs/releases.html).
+## Quick start
 
-- MLatom 3.18.0 - FSSH, KRR in Julia, MDtrajNet-1 - universal model for directly predicting MD trajectories, ECTS - a diffusion model for generating TSs.
-- MLatom 3.17.1-3.17.2 (26.03-21.05.2025) - + QST2 and QST3, NEB, more options for RMSD calculations and UV/vis plots, code refactoring for higher efficiency, major bug fixes, etc.
-- MLatom 3.16.2 (18.12.2024) - bug fixes, quality of life improvements (calculation of bond lengths, angles, RMSD, geometry optimization followed by frequency calculations in the same file, etc.).
-- MLatom 3.16.1 (11.12.2024) - DFTB and TD-DFTB via interface to DFTB+.
-- MLatom 3.16.0 (04.12.2024) - TDDFT and TDA calculations via PySCF interface, TDDFT via Gaussian, and parsing of Gaussian output files into MLatom data format ([overview](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-16-0))
-- MLatom 3.15.0 (27.11.2024) - [fine-tuning](https://xacs.xmu.edu.cn/docs/mlatom/tutorial_tl.html#transfer-learning-from-the-universal-models) of the foundational ANI potentials ANI-1x, ANI-1ccx, ANI-1ccx-gelu, and ANI-2x.
-- MLatom 3.14.0 (20.11.2024) - [UV/vis spectra](https://xacs.xmu.edu.cn/docs/mlatom/tutorial_uvvis.html) from single-point convolution and nuclear-ensemble approach. Updated interface to MACE to support its latest 0.3.8 version.
-- MLatom 3.13.0 (06.11.2024) - [IR spectra](https://xacs.xmu.edu.cn/docs/mlatom/tutorial_ir.html) calculations with AIQM1, AIQM2, UAIQM with semi-empirical baseline, and a range of QM methods (DFT, semi-empirical, ab initio wavefunction), with empirical scaling for better accuracy, special spectra module with plotting routines in Python. 
-- MLatom 3.12.0 (08.10.2024) - [AIQM2](https://doi.org/10.26434/chemrxiv-2024-j8pxp), [ANI-1ccx-gelu](https://doi.org/10.26434/chemrxiv-2024-c8s16).
-- MLatom 3.11.0 (23.09.2024) - DENS24 functionals, simpler choice of methods, IR spectra, important bug fixes (particularly for active learning) ([overview](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-11-0)).
-- MLatom 3.10.0-1 (21-22.08.2024) - active learning for surface hopping MD, multi-state ANI for excited states, gapMD for efficient exploration of the conical intersection regions, quality of life improvements such as viewing molecules, databases, and trajectories in Jupyter, easier load of molecules ([overview](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-10-0)).
-- [A-MLatom/MLatom\@XACS](https://xacs.xmu.edu.cn/docs/mlatom/a-mlatom-xacs.html) update (24.07.2024) - [Raman spectra](https://xacs.xmu.edu.cn/docs/mlatom/tutorial_raman.html)
-- MLatom 3.9.0 (23.07.2024) - [periodic boundary conditions](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-9-0)
-- MLatom 3.8.0 (17.07.2024) - [directly learning dynamics](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-8-0)
-- MLatom 3.7.0-1 (03-04.07.2024) - [active learning & batch parallelization of MD](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-7-0-3-7-1)
-- [A-MLatom/MLatom\@XACS](https://xacs.xmu.edu.cn/docs/mlatom/a-mlatom-xacs.html) update (27.06.2024) - [universal and updatable AI-enhanced QM methods (UAIQM)](https://xacs.xmu.edu.cn/docs/mlatom/tutorial_uaiqm.html)
-- [A-MLatom/MLatom\@XACS](https://xacs.xmu.edu.cn/docs/mlatom/a-mlatom-xacs.html) update (20.06.2024) - [IR spectra](https://xacs.xmu.edu.cn/docs/mlatom/tutorial_ir.html)
-- MLatom 3.6.0 (15.05.2024) - [+ new universal ML models (ANI-1xnr, AIMnet2, DM21)](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-6-0)
-- MLatom 3.5.0 (08.05.2024) - [quasi-classical trajectory/molecular dynamics](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-5-0)
-- MLatom 3.4.0 (29.04.2024) - [usability improvements with focus on geometry optimizations](https://xacs.xmu.edu.cn/docs/mlatom/releases.html#mlatom-3-4-0)
-- MLatom 3.3.0 (03.04.2024) - [surface-hopping dynamics](https://mlatom.com/docs/releases.html#mlatom-3-3-0)
-- MLatom 3.2.0 (19.03.2024) - [diffusion Monte Carlo and energy-weighted training](http://mlatom.com/docs/releases.html#mlatom-3-2-0)
-- MLatom 3.1.0 (12.29.2023) - [MACE interface](http://mlatom.com/releases/#Version_31)
-- MLatom 3.0.0 (12.09.2023)
+Optimize the geometry of a water molecule with **AIQM2** — an AI-enhanced quantum-mechanical method (native to MLatom, CHNO elements) that reaches beyond-DFT accuracy at semi-empirical cost:
 
-## Contributions and derivatives
+```python
+import mlatom as ml
 
-We highly welcome the contributions to the MLatom project. You may also create your own private derivatives of the project by following the license requirements.
+mol = ml.data.molecule.from_xyz_string('''3
 
-If you want to contribute to the main MLatom repository, the easiest way is to create a fork and then send a pull request. Alternatively, you can ask us to create a branch for you. After we receive a pull request, we will review the submitted modifications to the code and may clean up of the code and do other changes to it and eventually include your modifications in the main repository and the official release.
+O    0.00000    0.00000    0.11779
+H    0.00000    0.75545   -0.47116
+H    0.00000   -0.75545   -0.47116
+''')
+aiqm2 = ml.methods(method='AIQM2')
+opt = ml.optimize_geometry(model=aiqm2, initial_molecule=mol).optimized_molecule
+print(opt.energy)          # optimized energy in hartree (≈ -76.3838)
+```
+
+The same calculation as an input file (`geomopt.inp`, with `init.xyz` holding the geometry):
+
+```
+AIQM2               # method
+geomopt             # task: geometry optimization
+xyzfile=init.xyz    # input geometry
+optxyz=opt.xyz      # output geometry
+```
+
+```bash
+mlatom geomopt.inp
+```
+
+Prefer zero setup? Run these online on the [Aitomistic Hub](https://aitomistic.xyz) or [Aitomistic Lab@XMU](https://atom.xmu.edu.cn) (both powered by [Protomia](https://aitomistic.com/protomia)) — no installation needed.
+
+## Features & documentation
+
+Full manuals and tutorials are at **[mlatom.com/docs](http://mlatom.com/docs)** — begin with [installation](http://mlatom.com/docs/installation.html) and [get started](http://mlatom.com/docs/get_started.html).
+
+- **Methods** — universal ML potentials (ANI, AIMNet2); AI-enhanced QM methods ([UAIQM](http://mlatom.com/docs/tutorial_uaiqm.html), [AIQM1](http://mlatom.com/docs/tutorial_aiqm1.html), [AIQM2](http://mlatom.com/docs/tutorial_aiqm2.html)) approaching coupled-cluster accuracy at semi-empirical cost; and DFT, semi-empirical, and wavefunction methods via interfaces (PySCF, Gaussian, ORCA, xtb, MNDO, Turbomole, DFTB+, Sparrow, Columbus).
+- **ML models** — [train and use ML potentials](http://mlatom.com/docs/tutorial_mlp.html) (KREG, GAP-SOAP, ANI, MACE, and more) with [active learning](http://mlatom.com/docs/tutorial_al.html), Δ-learning, [transfer learning](http://mlatom.com/docs/tutorial_tl.html), and self-correction.
+- **Simulations** — [geometry optimization](http://mlatom.com/docs/tutorial_geomopt.html), [transition-state search](http://mlatom.com/docs/tutorial_ts.html), [IRC](http://mlatom.com/docs/tutorial_irc.html), [frequencies & thermochemistry](http://mlatom.com/docs/tutorial_freq.html), [molecular dynamics](http://mlatom.com/docs/tutorial_md.html), [nonadiabatic dynamics](http://mlatom.com/docs/tutorial_namd.html), [IR](http://mlatom.com/docs/tutorial_ir.html)/[Raman](http://mlatom.com/docs/tutorial_raman.html)/[UV–vis](http://mlatom.com/docs/tutorial_uvvis.html) spectra, and [periodic boundary conditions](http://mlatom.com/docs/tutorial_pbc.html).
+- **Workflows** — compose methods and tasks into complex pipelines from Python, input files, or the command line.
+
+## How to cite
+
+If you use MLatom in scientific work, please cite:
+
+> Pavlo O. Dral et al. *MLatom 3: A Platform for Machine Learning-Enhanced Computational Chemistry Simulations and Workflows.* **J. Chem. Theory Comput.** 2024, *20*, 1193–1213. [DOI: 10.1021/acs.jctc.3c01203](https://doi.org/10.1021/acs.jctc.3c01203)
+
+Feature-specific references appear in the program output and in [`CITATION.cff`](CITATION.cff). The full list with BibTeX is on the [License and citations](http://mlatom.com/docs/license.html) page.
+
+## Ecosystem
+
+- **[MLatom Skills](https://github.com/dralgroup/mlatom-skills)** — agent skills for MLatom (new and growing rapidly).
+- **[Aitomic add-ons](http://mlatom.com/docs/addons.html)** — cutting-edge methods (e.g. AIQM3), free for academic, non-commercial use.
+- **[Aitomia](https://github.com/dralgroup/aitomia)** — an AI assistant for autonomous atomistic simulations with MLatom.
+
+## Recent releases
+
+Full [release notes](http://mlatom.com/docs/releases.html) · [`CHANGELOG.md`](CHANGELOG.md)
+
+- **3.23** — AIQM3 public add-on (`pip install aitomic-addons`); direct Gaussian workflows; version/commit/build-date banner with a daily update check.
+- **3.22** — OMNI-P2x model; faster nonadiabatic dynamics.
+- **3.21** — refactored ORCA interface supporting many more excited-state methods.
+- **3.18** — FSSH; MDtrajNet-1 (directly predicting MD trajectories); KRR in Julia; ECTS diffusion model for transition states.
+
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Report bugs and request features via [GitHub issues](https://github.com/dralgroup/mlatom/issues). You may also create your own private derivatives by following the license requirements.
+
+## Stay updated
+
+Don't miss MLatom updates — [subscribe](https://aitomistic.com/en/contact) to the Aitomistic email newsletter and social channels.
+
+## About
+
+MLatom was founded by [Pavlo O. Dral](http://dr-dral.com) on 10 September 2013, who continues to lead its development. It is open-source under the MIT license (modified to request proper citation) and supported by [Aitomistic](https://aitomistic.com).

@@ -40,7 +40,7 @@ license requirements.
 MLatom is released under the MIT license, modified to request proper citation.
 When MLatom or its derivatives are used in scientific publications, please cite
 it as described in [`CITATION.cff`](CITATION.cff) and on
-[MLatom.com](https://mlatom.com).
+[MLatom.com](http://mlatom.com).
 
 ## Code of conduct
 

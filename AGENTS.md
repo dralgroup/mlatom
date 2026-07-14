@@ -7,7 +7,7 @@ Guidance for AI coding agents (and humans) working with MLatom.
 MLatom is an open-source package for **atomistic simulations with machine learning
 and quantum-chemical methods** (DFT, wavefunction-based, and semi-empirical). It is
 used as a Python library (`import mlatom as ml`), through input files, or from the
-command line (`mlatom input.inp`). Full manuals and tutorials: <https://mlatom.com/docs>.
+command line (`mlatom input.inp`). Full manuals and tutorials: <http://mlatom.com/docs>.
 
 ## This repository
 
@@ -24,10 +24,10 @@ python3 -m pip install -U mlatom
 
 - Runs on **Linux**; requires **Python ≥ 3.9**.
 - Optional third-party interfaces (Gaussian, ORCA, PySCF, MNDO, …) are set up
-  separately — see the [installation guide](https://mlatom.com/docs/installation.html).
+  separately — see the [installation guide](http://mlatom.com/docs/installation.html).
 - **AIQM3** and other advanced Aitomistic methods are an add-on:
   `pip install aitomic-addons` (Linux, Python **3.9–3.11**). See the
-  [add-ons guide](https://mlatom.com/docs/addons.html).
+  [add-ons guide](http://mlatom.com/docs/addons.html).
 
 No installation needed for a quick try: MLatom runs online, registration-free, on the
 [Aitomistic Hub](https://aitomistic.xyz).
@@ -43,7 +43,7 @@ ml.optimize_geometry(model=model, initial_molecule=mol)
 ```
 
 More single-point, optimization, dynamics, and spectra examples are in the README
-"Quick start" and throughout the [documentation](https://mlatom.com/docs).
+"Quick start" and throughout the [documentation](http://mlatom.com/docs).
 
 ## Task workflows — skills
 
@@ -69,4 +69,4 @@ skills are welcome — contributions are open.
 
 If work uses MLatom, cite it — use **"Cite this repository"** (generated from
 [`CITATION.cff`](CITATION.cff)); the full list with BibTeX is on the
-[License and citations](https://mlatom.com/docs/license.html) page.
+[License and citations](http://mlatom.com/docs/license.html) page.
