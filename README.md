@@ -3,6 +3,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/dralgroup/mlatom/actions/workflows/ci.yml"><img src="https://github.com/dralgroup/mlatom/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://pypi.org/project/mlatom/"><img src="https://img.shields.io/pypi/v/mlatom.svg" alt="PyPI version"></a>
   <a href="https://pepy.tech/project/mlatom"><img src="https://static.pepy.tech/badge/mlatom" alt="Downloads"></a>
   <a href="https://pepy.tech/project/mlatom"><img src="https://static.pepy.tech/badge/mlatom/month" alt="Downloads per month"></a>
