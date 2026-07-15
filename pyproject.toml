@@ -40,6 +40,7 @@ dependencies = [
     "joblib",
     "requests",
     "psutil",
+    "geometric",
 ]
 
 [project.urls]

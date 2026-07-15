@@ -7,6 +7,18 @@ Dates are given as DD.MM.YYYY. Versions are available on
 [PyPI](https://pypi.org/project/mlatom/) and
 [GitHub](https://github.com/dralgroup/mlatom).
 
+## [3.23.4] – 15.07.2026
+- MLatom is now released under the Apache License 2.0.
+- Improved initial-conditions sampling: unified `random` and `Maxwell-Boltzmann`
+  velocity generators, with correct angular-momentum removal and linearity-aware
+  degrees of freedom for linear molecules and reproducible sampling.
+- Retuned and hardened the state-gap loss used in OMNI-P2x fine-tuning and
+  multi-state active learning.
+- `pip install mlatom` now installs all required dependencies automatically — no
+  manual dependency list needed.
+- Fixed a crash when a method was queried while PySCF was not installed.
+- The package can now be installed directly from a source clone (`pyproject.toml`).
+
 ## [3.23.3] – 27.06.2026
 ## [3.23.2] – 26.06.2026
 ## [3.23.1] – 25.06.2026

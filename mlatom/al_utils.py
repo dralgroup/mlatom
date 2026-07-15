@@ -1679,9 +1679,9 @@ class ml_model_msani(models.ml_model):
             self.hyperparameters = kwargs['hyperparameters']
         else:
             self.hyperparameters = {}
-            self.hyperparameters["gap coefficient"] = 1.0
+            self.hyperparameters["gap_coefficient"] = 0.01
         if 'gap_weight' in kwargs:
-            self.hyperparameters["gap coefficient"] = kwargs['gap_weight']
+            self.hyperparameters["gap_coefficient"] = kwargs['gap_weight']
 
         if 'uq_metric' in kwargs:
             self.uq_metric = kwargs['uq_metric']

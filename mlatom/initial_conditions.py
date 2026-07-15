@@ -127,7 +127,7 @@ def generate_initial_conditions(
         number_of_initial_conditions (int): number of initial conditions to generate, 1 by default
         file_with_initial_xyz_coordinates (str): file with initial xyz coordinates, only valid for ``generation_method='user-defined'``
         file_with_initial_xyz_velocities (str): file with initial xyz velocities, only valid for ``generation_method='user-defined'``
-        eliminate_angular_momentum (bool): remove angular momentum from velocities, valid for ``generation_method='random'`` and ``generation_method='wigner'``
+        eliminate_angular_momentum (bool): remove angular momentum from velocities, valid for ``generation_method='random'``, ``generation_method='maxwell-boltzmann'`` and ``generation_method='wigner'``
         degrees_of_freedom (int): degrees of freedom of the molecule, by default remove translational and rotational degrees of freedom. It can be a negative value, which means that some value is subtracted from 3*Natoms
         initial_temperature (float): initial temperature in Kelvin, control random initial velocities
         initial_kinetic_energy (float): initial kinetic energy in Hartree, control random initial velocities
@@ -221,7 +221,9 @@ def generate_initial_conditions(
             degrees_of_freedom = 3 * len(molecule.atoms) + degrees_of_freedom 
     else:
         if eliminate_angular_momentum:
-            degrees_of_freedom = max(1, 3 * len(molecule.atoms) - 6)
+            # A linear molecule has only 2 rotational degrees of freedom.
+            rotational_dof = 5 if molecule.is_it_linear() else 6
+            degrees_of_freedom = max(1, 3 * len(molecule.atoms) - rotational_dof)
         else:
             degrees_of_freedom = max(1, 3 * len(molecule.atoms) - 3)
 
@@ -244,9 +246,12 @@ def generate_initial_conditions(
                     new_molecule.atoms[iatom].xyz_velocities = velocities[iatom]
                 init_cond_db.molecules.append(new_molecule)
         elif generation_method.casefold() == 'maxwell-boltzmann'.casefold():
-            init_cond_db.read_from_numpy(coordinates=np.repeat([molecule.xyz_coordinates], number_of_initial_conditions, axis=0), species=np.repeat([molecule.element_symbols], number_of_initial_conditions, axis=0))
-            velocities = np.random.randn(*init_cond_db.xyz_coordinates.shape) * np.sqrt(initial_temperature * constants.kB / (init_cond_db.nuclear_masses / 1000 / constants.Avogadro_constant))[...,np.newaxis] / 1E5
-            init_cond_db.add_xyz_vectorial_properties(velocities, xyz_vectorial_property='xyz_velocities')
+            for irepeat in range(number_of_initial_conditions):
+                new_molecule = molecule.copy()
+                velocities = generate_random_velocities(new_molecule,eliminate_angular_momentum,degrees_of_freedom,temp=initial_temperature,boltzmann=True)
+                for iatom in range(Natoms):
+                    new_molecule.atoms[iatom].xyz_velocities = velocities[iatom]
+                init_cond_db.molecules.append(new_molecule)
         elif generation_method.casefold() == 'wigner'.casefold():
             coordinates_all, velocities_all = wigner_sampling.sample(number_of_initial_conditions,molecule,temperature=initial_temperature,use_hessian=use_hessian,reaction_coordinate_momentum=reaction_coordinate_momentum)
             mass_ = np.array([each.nuclear_mass for each in molecule.atoms])
@@ -322,46 +327,43 @@ def read_velocities_from_file(filename):
                     break
     return velocities
 
-def generate_random_velocities(molecule,noang,dof,temp=None,ekin=None):
+def generate_random_velocities(molecule,noang,dof,temp=None,ekin=None,boltzmann=False):
+    # Shared generator for the 'random' and 'maxwell-boltzmann' initial conditions:
+    # both draw mass-weighted random velocities and project out the overall
+    # translation (and, with noang, rotation); they differ ONLY in how the magnitude
+    # is set. 'random' (boltzmann=False) rescales to a fixed total kinetic energy
+    # (dof/2 kB T, an exact temperature); 'maxwell-boltzmann' (boltzmann=True) scales
+    # to the thermal magnitude and keeps the natural Boltzmann fluctuation of the
+    # kinetic energy. Rotation removal is robust for linear molecules (getridofang
+    # uses the pseudo-inverse of the inertia tensor).
     Natoms = len(molecule.atoms)
     randnum = np.random.randn(Natoms,3)
     coord = np.array([each.xyz_coordinates for each in molecule.atoms])
-    
+
     mass_ = np.array([each.nuclear_mass for each in molecule.atoms])
     mass = np.array(mass_).reshape(Natoms,1)
-    
-    if temp != None:
-        kb = constants.kB_in_Hartree # Unit: Hartree/K
-        kinetic_energy = dof/2.0 * kb * temp
-    else:
-        kinetic_energy = ekin
-    
-    linearity = molecule.is_it_linear()
-    # Eliminate total angular momentum
+
+    rand_velocity = randnum / np.sqrt(mass*constants.ram2au)
+    # Eliminate total angular momentum, then total linear momentum.
     if noang:
-        if linearity:
-            rand_velocity = generate_random_velocities_for_linear_molecule(molecule)
-        else:
-            rand_velocity = randnum / np.sqrt(mass*constants.ram2au)
-            rand_velocity = getridofang(coord,rand_velocity,mass_)
-    else:
-        rand_velocity = randnum / np.sqrt(mass*constants.ram2au)
-
-    # Raise warning if degrees of freedom are not compatible to the linear molecule
-    if linearity:
-        if dof != 3*Natoms-5:
-            print(f'WARNING: Linear molecule detected, but degrees of freedom used is {dof} instead of {3*Natoms-5}')
-
-
-    # Eliminate total linear momentum
+        rand_velocity = getridofang(coord,rand_velocity,mass_)
     total_mass = sum(mass)[0]
     v_cm = sum(rand_velocity*mass)/total_mass
     rand_velocity = rand_velocity - v_cm
-    
-    rand_energy = np.sum((rand_velocity**2) * (mass*constants.ram2au)) / 2.0
-    ratio = rand_energy / kinetic_energy 
-    velocity = rand_velocity / np.sqrt(ratio) # Unit: a.u.
-    
+
+    if boltzmann:
+        # Maxwell-Boltzmann magnitude (Unit: a.u.); the total kinetic energy is left
+        # to fluctuate as a proper thermal sample.
+        velocity = rand_velocity * np.sqrt(constants.kB_in_Hartree * temp)
+    else:
+        # Rescale to the target kinetic energy (Unit: a.u.).
+        if temp != None:
+            kinetic_energy = dof/2.0 * constants.kB_in_Hartree * temp
+        else:
+            kinetic_energy = ekin
+        rand_energy = np.sum((rand_velocity**2) * (mass*constants.ram2au)) / 2.0
+        velocity = rand_velocity / np.sqrt(rand_energy / kinetic_energy)
+
     velocity = velocity * constants.Bohr2Angstrom / constants.au2fs # Unit: Angstrom / fs
     return velocity
 
@@ -375,7 +377,11 @@ def getridofang(coord,vel,mass):
 def getAngV(xyz,v,m,center=None):
     L=getAngM(xyz,v,m,center)
     I=getMomentOfInertiaTensor(xyz,m,center)
-    omega=np.linalg.inv(I).dot(L)
+    # Pseudo-inverse so a linear molecule (singular inertia tensor: no moment about
+    # the molecular axis) is handled robustly — it zeroes the ill-defined axial mode
+    # and removes the two real perpendicular rotations. Identical to the inverse for
+    # a non-linear molecule.
+    omega=np.linalg.pinv(I).dot(L)
     return omega
 
 def getCoM(xyz,m=None):
@@ -792,16 +798,4 @@ class harmonic_quantum_Boltzmann_sampling():
 #     vlist = np.array(vlist) * constants.Bohr2Angstrom / constants.au2fs
 
 #     return qlist, vlist, linear_int
-    
-# generate random velocities without angular momentum for linear molecule
-def generate_random_velocities_for_linear_molecule(molecule):
-    np.random.seed()
-    Natoms = len(molecule.atoms)
-    coord = molecule.xyz_coordinates
-    randnum = np.random.randn(Natoms)
-    avgnum = np.average(randnum)
-    randnum = randnum - avgnum 
-    vec = coord[1] - coord[0]
-    rand_velocities = [vec*each for each in randnum]
-    return rand_velocities
 

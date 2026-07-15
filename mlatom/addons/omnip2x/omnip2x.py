@@ -216,7 +216,7 @@ class omnip2x(method_model, downloadable_model):
         if 'max_epochs' not in _hyperparameters:
             _hyperparameters['max_epochs'] = 100
         if 'gap_coefficient' not in _hyperparameters:
-            _hyperparameters['gap_coefficient'] = 1
+            _hyperparameters['gap_coefficient'] = 0.01
         if 'fixed_layers' not in _hyperparameters:
             _hyperparameters['fixed_layers'] = [[0,4]]
         new_models = []

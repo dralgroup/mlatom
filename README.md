@@ -3,7 +3,6 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/dralgroup/mlatom/actions/workflows/ci.yml"><img src="https://github.com/dralgroup/mlatom/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://pypi.org/project/mlatom/"><img src="https://img.shields.io/pypi/v/mlatom.svg" alt="PyPI version"></a>
   <a href="https://pepy.tech/project/mlatom"><img src="https://static.pepy.tech/badge/mlatom" alt="Downloads"></a>
   <a href="https://pepy.tech/project/mlatom"><img src="https://static.pepy.tech/badge/mlatom/month" alt="Downloads per month"></a>
@@ -26,10 +25,15 @@ Run MLatom in your browser on either online platform — both powered by [Protom
 
 ## Local installation
 
-The easiest way to run MLatom is [online](http://mlatom.com/docs/cloud.html) — no installation. To run the **AIQM2** quick start below locally, install MLatom together with the specific PyTorch/TorchANI versions it needs, a geometry-optimization backend, and the DFT-D4 program (via conda):
+The easiest way to run MLatom is [online](http://mlatom.com/docs/cloud.html) — no installation. To install locally:
 
 ```bash
-pip install -U "numpy<2" "torch==2.1.2" "torchani==2.2.3" "setuptools<81" mlatom joblib requests psutil pyscf geometric
+python3 -m pip install -U mlatom
+```
+
+That pulls in the required dependencies automatically (including the PyTorch/TorchANI and geometry-optimization backends the **AIQM2** quick start uses). AIQM2 additionally needs the DFT-D4 program, installed via conda:
+
+```bash
 conda install -c conda-forge dftd4
 export dftd4bin=$(which dftd4)   # point MLatom at the dftd4 executable
 ```
@@ -96,10 +100,10 @@ Feature-specific references appear in the program output and in [`CITATION.cff`]
 
 Full [release notes](http://mlatom.com/docs/releases.html) · [`CHANGELOG.md`](CHANGELOG.md)
 
-- **3.23** — **[AIQM3](http://mlatom.com/docs/tutorial_aiqm2.html)**, the latest AI-enhanced quantum-mechanical method — coupled-cluster accuracy at semi-empirical cost across seven main-group elements ([paper](https://doi.org/10.1021/acs.jctc.5c01794)) — as a public add-on (`pip install aitomic-addons`); direct Gaussian workflows (geometry optimization, frequencies, IRC, TD); version/commit/build-date startup banner.
-- **3.22** — **[OMNI-P2x](http://mlatom.com/docs/tutorial_omnip2x.html)**, the first universal neural-network potential for excited states ([paper](https://doi.org/10.26434/chemrxiv-2025-j207x)); faster [nonadiabatic dynamics](http://mlatom.com/docs/tutorial_namd.html).
-- **3.21** — refactored [ORCA interface](http://mlatom.com/docs/tutorial_es_methods.html) supporting many more excited-state methods.
-- **3.18** — **[FSSH](http://mlatom.com/docs/tutorial_namd.html)** (fewest-switches surface hopping for nonadiabatic dynamics); **[MDtrajNet-1](http://mlatom.com/docs/tutorial_mdtrajnet.html)**, a foundational model that generates molecular-dynamics trajectories directly across chemical space; **[KRR in Julia](http://mlatom.com/docs/tutorial_krr_julia.html)**; and **ECTS**, an ultra-fast diffusion model for exploring reactions and generating transition states ([paper](https://doi.org/10.26434/chemrxiv-2025-f9vdp)).
+- **3.23** — AIQM3 public add-on (`pip install aitomic-addons`); direct Gaussian workflows; version/commit/build-date banner with a daily update check.
+- **3.22** — OMNI-P2x model; faster nonadiabatic dynamics.
+- **3.21** — refactored ORCA interface supporting many more excited-state methods.
+- **3.18** — FSSH; MDtrajNet-1 (directly predicting MD trajectories); KRR in Julia; ECTS diffusion model for transition states.
 
 ## Contributing
 

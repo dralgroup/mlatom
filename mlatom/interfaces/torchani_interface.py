@@ -845,7 +845,7 @@ class msani(ml_model, torchani_model):
         #### Loss ####
         'force_coefficient':    hyperparameter(value=0.1, minval=0.05, maxval=5, optimization_space='linear'),
         'median_loss':          hyperparameter(value=False),
-        'gap_coefficient':             hyperparameter(value=1.0, minval=0.05, maxval=5, optimization_space='linear'),
+        'gap_coefficient':             hyperparameter(value=0.01, minval=0.0, maxval=0.1, optimization_space='linear'),
         #### Network ####
         "neurons":              hyperparameter(value=[[160, 128, 96]]),
         "activation_function":  hyperparameter(value='CELU(0.1)',#lambda: torch.nn.CELU(0.1), 
@@ -1136,6 +1136,9 @@ class msani(ml_model, torchani_model):
         def validate_training():
             total_mse = 0.0
             count = 0
+            nb = 0
+            e_sum = f_sum = g_sum = mae_sum = 0.0
+            mae_fn = torch.nn.L1Loss(reduction='sum')
             for properties in self.validation_set:
                 true_energies = properties['energies'].to(self.device).float()
                 species = properties['species'].to(self.device)
@@ -1166,7 +1169,7 @@ class msani(ml_model, torchani_model):
                     for i in range(int(len(predicted_energies)/self.nstates)):
                         for j in range(1,self.nstates):
                             predicted_gap_list.append(abs(predicted_energies[i*self.nstates+j]-predicted_energies[i*self.nstates+j-1]))
-                    predicted_gaps = torch.FloatTensor(predicted_gap_list).to(self.device)
+                    predicted_gaps = torch.stack(predicted_gap_list).to(self.device) if len(predicted_gap_list) else torch.tensor([], device=self.device)
                     
                     forces = -torch.autograd.grad(predicted_energies.sum(), coordinates, create_graph=True, retain_graph=True)[0]
                     # true_energies[true_energies.isnan()]=predicted_energies[true_energies.isnan()]
@@ -1187,6 +1190,9 @@ class msani(ml_model, torchani_model):
                     force_loss = (loss_function(true_forces, forces, weightings_f).sum(dim=(1, 2)) / num_atoms).nanmean()
                     loss = energy_loss + self.hyperparameters.force_coefficient * force_loss + self.hyperparameters.gap_coefficient * gap_loss
                     total_mse += loss.item()
+                    nb += 1; count += predicted_energies.shape[0]
+                    e_sum += float(energy_loss); f_sum += float(force_loss); g_sum += float(gap_loss)
+                    mae_sum += mae_fn(predicted_energies * weightings_e, true_energies * weightings_e).item()
                 else:
                     coordinates = properties['coordinates'].to(self.device).float()
                     _, predicted_energies = self.model(species, coordinates, state)
@@ -1196,7 +1202,7 @@ class msani(ml_model, torchani_model):
                     for i in range(int(len(predicted_energies)/self.nstates)):
                         for j in range(1,self.nstates):
                             predicted_gap_list.append(abs(predicted_energies[i*self.nstates+j]-predicted_energies[i*self.nstates+j-1]))
-                    predicted_gaps = torch.FloatTensor(predicted_gap_list).to(self.device)
+                    predicted_gaps = torch.stack(predicted_gap_list).to(self.device) if len(predicted_gap_list) else torch.tensor([], device=self.device)
                     
                     energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
                     if self.hyperparameters.gap_coefficient != 0.0:
@@ -1206,18 +1212,28 @@ class msani(ml_model, torchani_model):
                     # true_forces[true_
                     loss = energy_loss + self.hyperparameters.gap_coefficient * gap_loss
                     total_mse += loss.item()
-            return total_mse
+                    nb += 1; count += predicted_energies.shape[0]
+                    e_sum += float(energy_loss); g_sum += float(gap_loss)
+                    mae_sum += mae_fn(predicted_energies * weightings_e, true_energies * weightings_e).item()
+            nb = max(nb, 1); count = max(count, 1)
+            comps = {'E_mse': e_sum / nb, 'F_mse': f_sum / nb, 'gap_mse': g_sum / nb, 'E_mae': mae_sum / count}
+            return total_mse, comps
         
         def loss_function(prediction, reference, weightings=1, reduction='none'):
             return torch.nn.functional.mse_loss(prediction*weightings, reference*weightings, reduction=reduction)
 
         if self.verbose: print("training starting from epoch", self.AdamW_scheduler.last_epoch + 1)
         for _ in range(self.AdamW_scheduler.last_epoch + 1, self.hyperparameters.max_epochs + 1):
+            comps = None
             if self.validate_train == True:
-                rmse = validate_training()
+                rmse, comps = validate_training()
             else:
                 rmse = validate()
             if self.verbose: print('validation MSE:', rmse, 'at epoch', self.AdamW_scheduler.last_epoch + 1)
+            if comps is not None and self.verbose:
+                print('  val loss components:  E_mse=%.6g  F_mse=%.6g  gap_mse=%.6g  E_mae=%.6g'
+                      % (comps['E_mse'], comps['F_mse'], comps['gap_mse'], comps['E_mae']),
+                      'at epoch', self.AdamW_scheduler.last_epoch + 1)
             sys.stdout.flush()
             learning_rate = self.AdamW.param_groups[0]['lr']
             if self.verbose: print('learning_rate:',learning_rate)
@@ -1268,7 +1284,7 @@ class msani(ml_model, torchani_model):
                     for i in range(int(len(predicted_energies)/self.nstates)):
                         for j in range(1,self.nstates):
                             predicted_gap_list.append(abs(predicted_energies[i*self.nstates+j]-predicted_energies[i*self.nstates+j-1]))
-                    predicted_gaps = torch.FloatTensor(predicted_gap_list).to(self.device)
+                    predicted_gaps = torch.stack(predicted_gap_list).to(self.device) if len(predicted_gap_list) else torch.tensor([], device=self.device)
                     #print(predicted_gaps)
                     forces = -torch.autograd.grad(predicted_energies.sum(), coordinates, create_graph=True, retain_graph=True)[0]
                     # true_energies[true_energies.isnan()]=predicted_energies[true_energies.isnan()]
@@ -1298,7 +1314,7 @@ class msani(ml_model, torchani_model):
                     for i in range(int(len(predicted_energies)/self.nstates)):
                         for j in range(1,self.nstates):
                             predicted_gap_list.append(abs(predicted_energies[i*self.nstates+j]-predicted_energies[i*self.nstates+j-1]))
-                    predicted_gaps = torch.FloatTensor(predicted_gap_list).to(self.device)
+                    predicted_gaps = torch.stack(predicted_gap_list).to(self.device) if len(predicted_gap_list) else torch.tensor([], device=self.device)
                     #print(predicted_gaps)
 
                     energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()

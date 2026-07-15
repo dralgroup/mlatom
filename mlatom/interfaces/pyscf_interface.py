@@ -72,11 +72,11 @@ class pyscf_methods(OMP_pyscf):
         if not 'DM21' in method.upper():
             if 'PYSCF_PATH' in os.environ:
                 sys.path.insert(0,os.environ['PYSCF_PATH'])
-        from pyscf.dft.libxc import parse_xc
         method = method.split('/')[0]
         if method.casefold() in [m.casefold() for m in cls.supported_methods]:
             return True
         try:
+            from pyscf.dft.libxc import parse_xc
             if 'TDA'.casefold() in method.casefold():
                 import re
                 method = re.sub('tda-', '', method, flags=re.IGNORECASE)

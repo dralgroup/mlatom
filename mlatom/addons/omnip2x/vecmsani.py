@@ -140,7 +140,7 @@ class vecmsani(ml_model, torchani_model):
         #### Loss ####
         'force_coefficient':    hyperparameter(value=0.1, minval=0.05, maxval=5, optimization_space='linear'),
         'median_loss':          hyperparameter(value=False),
-        'gap_coefficient':             hyperparameter(value=1.0, minval=0.05, maxval=5, optimization_space='linear'),
+        'gap_coefficient':             hyperparameter(value=0.01, minval=0.0, maxval=0.1, optimization_space='linear'),
         #### Network ####
         "neurons":              hyperparameter(value=[[160, 128, 96]]),
         "activation_function":  hyperparameter(value='CELU(0.1)',#lambda: torch.nn.CELU(0.1), 
@@ -417,7 +417,7 @@ class vecmsani(ml_model, torchani_model):
                     for i in range(int(len(predicted_energies)/self.nstates)):
                         for j in range(1,self.nstates):
                             predicted_gap_list.append(abs(predicted_energies[i*self.nstates+j]-predicted_energies[i*self.nstates+j-1]))
-                    predicted_gaps = torch.FloatTensor(predicted_gap_list).to(self.device)
+                    predicted_gaps = torch.stack(predicted_gap_list).to(self.device) if len(predicted_gap_list) else torch.tensor([], device=self.device)
                     
                     forces = -torch.autograd.grad(predicted_energies.sum(), coordinates, create_graph=True, retain_graph=True)[0]
                     # true_energies[true_energies.isnan()]=predicted_energies[true_energies.isnan()]
@@ -449,7 +449,7 @@ class vecmsani(ml_model, torchani_model):
                     for i in range(int(len(predicted_energies)/self.nstates)):
                         for j in range(1,self.nstates):
                             predicted_gap_list.append(abs(predicted_energies[i*self.nstates+j]-predicted_energies[i*self.nstates+j-1]))
-                    predicted_gaps = torch.FloatTensor(predicted_gap_list).to(self.device)
+                    predicted_gaps = torch.stack(predicted_gap_list).to(self.device) if len(predicted_gap_list) else torch.tensor([], device=self.device)
                     
                     energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
                     #auxnumber = int(len(predicted_energies)/self.nstates)
@@ -523,7 +523,7 @@ class vecmsani(ml_model, torchani_model):
                     for i in range(int(len(predicted_energies)/self.nstates)):
                         for j in range(1,self.nstates):
                             predicted_gap_list.append(abs(predicted_energies[i*self.nstates+j]-predicted_energies[i*self.nstates+j-1]))
-                    predicted_gaps = torch.FloatTensor(predicted_gap_list).to(self.device)
+                    predicted_gaps = torch.stack(predicted_gap_list).to(self.device) if len(predicted_gap_list) else torch.tensor([], device=self.device)
                     #print(predicted_gaps)
                     forces = -torch.autograd.grad(predicted_energies.sum(), coordinates, create_graph=True, retain_graph=True)[0]
                     # true_energies[true_energies.isnan()]=predicted_energies[true_energies.isnan()]
@@ -552,7 +552,7 @@ class vecmsani(ml_model, torchani_model):
                     for i in range(int(len(predicted_energies)/self.nstates)):
                         for j in range(1,self.nstates):
                             predicted_gap_list.append(abs(predicted_energies[i*self.nstates+j]-predicted_energies[i*self.nstates+j-1]))
-                    predicted_gaps = torch.FloatTensor(predicted_gap_list).to(self.device)
+                    predicted_gaps = torch.stack(predicted_gap_list).to(self.device) if len(predicted_gap_list) else torch.tensor([], device=self.device)
                     #print(predicted_gaps)
 
                     energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
