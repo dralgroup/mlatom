@@ -1322,7 +1322,7 @@ class molecule:
 
 
     @property 
-    def nstates(self) -> np.int:
+    def nstates(self) -> int:
         '''
         The number of electronic states.
         '''
