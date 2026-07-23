@@ -1934,7 +1934,7 @@ def load_ani1xnr_model():
         if not os.path.exists(local_dir+'ani-1xnr-main'):
             os.makedirs(local_dir, exist_ok=True)
             print(f'Downloading ANI-1xnr model parameters ...')
-            resource_res = requests.get(url)
+            resource_res = requests.get(url, timeout=30)
             resource_zip = zipfile.ZipFile(io.BytesIO(resource_res.content))
             resource_zip.extractall(local_dir)
         return local_dir
