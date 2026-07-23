@@ -284,7 +284,7 @@ class downloadable_model(model):
         assert target is not None, "Please provide target directory to be downloaded"
         print(f'Start downloading model from {link} to {target}'); sys.stdout.flush()
         try:
-            response = requests.get(link, headers=headers, stream=True, allow_redirects=True)
+            response = requests.get(link, headers=headers, stream=True, allow_redirects=True, timeout=30)
             total_size = int(response.headers.get("content-length", 0))
             target += '.temp'
 
