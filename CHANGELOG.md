@@ -7,6 +7,12 @@ Dates are given as DD.MM.YYYY. Versions are available on
 [PyPI](https://pypi.org/project/mlatom/) and
 [GitHub](https://github.com/dralgroup/mlatom).
 
+## [3.23.5] – 27.07.2026
+- Sampling now writes the training/subtraining/validation/test and
+  cross-validation index files correctly to output paths that contain spaces
+  (and portably across platforms), replacing shell `cp`/`mv` calls with
+  `shutil`. Thanks to @rayair250-droid.
+
 ## [3.23.4] – 15.07.2026
 - MLatom is now released under the Apache License 2.0.
 - Improved initial-conditions sampling: unified `random` and `Maxwell-Boltzmann`
