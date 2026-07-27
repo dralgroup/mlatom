@@ -818,10 +818,10 @@ def sampling(args=None, XYZfile=None, XfileIn=None, sampling=None, Nuse=None,
             if os.path.exists(tmpdirname + '/icvtest1.dat'):  args.iCVtestPrefIn = tmpdirname + '/icvtest'
             if os.path.exists(tmpdirname + '/icvopt1.dat'):   args.iCVoptPrefIn  = tmpdirname + '/icvopt'
             if os.path.exists(tmpdirname + '/icvtest1icvopt1.dat'):   args.iCVoptPrefIn  = 'icvopt'
-            if iTrainOut:      os.system(f'cp {tmpdirname}/itrain.dat {iTrainOut}')
-            if iSubtrainOut:   os.system(f'cp {tmpdirname}/isubtrain.dat {iSubtrainOut}')
-            if iValidateOut:   os.system(f'cp {tmpdirname}/ivalidate.dat {iValidateOut}')
-            if iTestOut:       os.system(f'cp {tmpdirname}/itest.dat {iTestOut}')
+            if iTrainOut:      shutil.copy(os.path.join(tmpdirname, 'itrain.dat'), iTrainOut)
+            if iSubtrainOut:   shutil.copy(os.path.join(tmpdirname, 'isubtrain.dat'), iSubtrainOut)
+            if iValidateOut:   shutil.copy(os.path.join(tmpdirname, 'ivalidate.dat'), iValidateOut)
+            if iTestOut:       shutil.copy(os.path.join(tmpdirname, 'itest.dat'), iTestOut)
             if args.CVtest and iCVtestPrefOut: 
                 if args.CVopt and iCVoptPrefOut:
                     os.system(f"find {tmpdirname} -name '*icvopt*' -exec bash -c ' mv $0 ${{0/\"icvopt\"/\"{iCVoptPrefOut}\"}}' {{}} \;")
