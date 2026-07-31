@@ -14,13 +14,13 @@
 
 MLatom is an open-source package for **atomistic simulations with machine learning and quantum chemical methods** — DFT, wavefunction-based, and semi-empirical approximations. Use it as a Python library, through input files, or from the command line — run it locally, or online with no installation.
 
-**[Website](http://mlatom.com)** · **[Documentation](http://mlatom.com/docs)** · **[Protomia](https://aitomistic.com/protomia)** · **[Aitomistic Hub](https://aitomistic.xyz)** · **[Aitomistic Lab@XMU](https://atom.xmu.edu.cn)** · **[Releases](http://mlatom.com/docs/releases.html)**
+**[Website](http://mlatom.com)** · **[Documentation](http://mlatom.com/docs)** · **[Protomia](https://aitomistic.com/mlatom/ai_agents.html)** · **[Aitomistic Hub](https://aitomistic.xyz)** · **[Aitomistic Lab@XMU](https://atom.xmu.edu.cn)** · **[Releases](http://mlatom.com/docs/releases.html)**
 
 ## Run online — no installation
 
-Run MLatom in your browser on either online platform — both powered by [Protomia](https://aitomistic.com/protomia), with an AI assistant for autonomous atomistic simulations:
+Run MLatom in your browser on either online platform — both powered by [Protomia](https://aitomistic.com/mlatom/ai_agents.html), with an AI assistant for autonomous atomistic simulations:
 
-- **[Aitomistic Hub](https://aitomistic.xyz)** — registration-free.
+- **[Aitomistic Hub](https://aitomistic.xyz)** — free registration.
 - **[Aitomistic Lab@XMU](https://atom.xmu.edu.cn)** — free for academic users (registration with an academic email).
 
 ## Local installation
@@ -71,7 +71,7 @@ optxyz=opt.xyz      # output geometry
 mlatom geomopt.inp
 ```
 
-Prefer zero setup? Run these online on the [Aitomistic Hub](https://aitomistic.xyz) or [Aitomistic Lab@XMU](https://atom.xmu.edu.cn) (both powered by [Protomia](https://aitomistic.com/protomia)) — no installation needed.
+Prefer zero setup? Run these online on the [Aitomistic Hub](https://aitomistic.xyz) or [Aitomistic Lab@XMU](https://atom.xmu.edu.cn) (both powered by [Protomia](https://aitomistic.com/mlatom/ai_agents.html)) — no installation needed.
 
 ## Features & documentation
 
