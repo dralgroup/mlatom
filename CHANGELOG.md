@@ -7,6 +7,20 @@ Dates are given as DD.MM.YYYY. Versions are available on
 [PyPI](https://pypi.org/project/mlatom/) and
 [GitHub](https://github.com/dralgroup/mlatom).
 
+## [3.24.0] – 03.08.2026
+- MLatom now prints the references to cite for AIQM3, UAIQM, OMNI-P2x,
+  ANI-1ccx-gelu, DFT ensembles, and for IR spectra with AIQM models.
+- Fixed the state energies read from MNDO's `fort.15` when the requested
+  gradient list does not start at the ground state. This affected the energies
+  reported along a molecular dynamics trajectory, not the trajectory itself.
+- Fixed the filtering of initial conditions, where the molecules kept in the
+  filtered database were all the same object.
+- Downloading a model no longer hangs indefinitely on an unresponsive server,
+  and a download that did not succeed is recognized as such: MLatom continues
+  with the next link and, if none work, reports where to get the files by hand.
+- Fixed the type annotation of `molecule.nstates`, which used `np.int`, removed
+  in NumPy 1.24.
+
 ## [3.23.5] – 27.07.2026
 - Sampling now writes the training/subtraining/validation/test and
   cross-validation index files correctly to output paths that contain spaces

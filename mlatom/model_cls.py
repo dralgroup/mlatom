@@ -17,6 +17,8 @@ from collections import UserDict
 from . import data, stats
 from .decorators import doc_inherit
 
+NETWORK_TIMEOUT = 30                # seconds without data before a download is given up on
+
 class model():
     '''
     Parent (super) class for models to enable useful features such as logging during geometry optimizations.
@@ -284,19 +286,20 @@ class downloadable_model(model):
         assert target is not None, "Please provide target directory to be downloaded"
         print(f'Start downloading model from {link} to {target}'); sys.stdout.flush()
         try:
-            response = requests.get(link, headers=headers, stream=True, allow_redirects=True, timeout=30)
+            response = requests.get(link, headers=headers, stream=True, allow_redirects=True, timeout=NETWORK_TIMEOUT)
+            response.raise_for_status()
             total_size = int(response.headers.get("content-length", 0))
             target += '.temp'
 
             with open(target, "wb") as f:
                 with tqdm(total=total_size, unit="B", unit_scale=True, desc=target) as pbar:
                     for chunk in response.iter_content(chunk_size=1024):
-                        if chunk: 
+                        if chunk:
                             f.write(chunk)
                             pbar.update(len(chunk))
             return target
-        except: 
-            print(f'Failed to download model from {link} to {target}'); sys.stdout.flush()
+        except Exception as err:
+            print(f'Failed to download model from {link} to {target}: {err}'); sys.stdout.flush()
             return None
     
     def extract_zip(self, src=None, target=None):

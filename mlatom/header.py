@@ -78,6 +78,10 @@ def printHeader(args):
         refItems['Machine learning-two photon absorption']  = refs['MLTPA']
         refItems['RDKit']  = refs['RDKit']  
 
+    if args.ir and type(args.method) is str:
+        if args.method.casefold().startswith(('aiqm', 'uaiqm')):
+            refItems['IR spectra with AIQM models']  = refs['AIQM-IR']
+
     if 'hyperopt' in ' '.join(args.args2pass).lower():
         refItems['hyperopt program'] = refs['hyperopt']
         refItems['Tree-Structured Parzen Estimator algorithm'] = refs['TPE']
@@ -106,6 +110,23 @@ def printHeader(args):
             refItems['D4 program']  = refs['D4prog']
             refItems['ANI model'] = refs['ANI']
             refItems['TorchANI program'] = refs['TorchANI']
+
+        if args.method.casefold() in [m.casefold() for m in ['AIQM3', 'AIQM3@DFT']]:
+            refItems['AIQM3']  = refs['AIQM3']
+            refItems['GFN2-xTB']  = refs['xtb']
+            refItems['D4']  = refs['D4']
+            refItems['D4 program']  = refs['D4prog']
+            refItems['ANI model'] = refs['ANI']
+            refItems['TorchANI program'] = refs['TorchANI']
+
+        if args.method.casefold() in [m.casefold() for m in ['omni-p2x', 'omnip2x']]:
+            refItems['OMNI-P2x'] = refs['OMNI-P2x']
+
+        if args.method.casefold().startswith('uaiqm'):
+            refItems['UAIQM'] = refs['UAIQM']
+
+        if args.method.casefold().startswith('dens24'):
+            refItems['DFT ensembles'] = refs['DENS']
     
         if args.method.casefold() in [models.mndo_methods.supported_methods + models.sparrow_methods.supported_methods]:
             if args.ODM2:
@@ -150,6 +171,16 @@ def printHeader(args):
 
     if args.omnip1:
         refItems['OMNI-P1'] = refs['OMNI-P1']
+
+    if args.uaiqm:
+        refItems['UAIQM'] = refs['UAIQM']
+
+    if args.ani1ccxgelu or args.ani1ccxgelud4:
+        refItems['ANI-1ccx-gelu'] = refs['ANI-1ccx-gelu']
+        refItems['TorchANI program'] = refs['TorchANI']
+        if args.ani1ccxgelud4:
+            refItems['D4']  = refs['D4']
+            refItems['D4 program']  = refs['D4prog']
 
     if args.method:
         if 'DM21' in args.method.upper():

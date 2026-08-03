@@ -25,7 +25,10 @@
     "GAP":                   "A. P. Bartok, M. C. Payne, R. Konor, G. Csanyi,\nPhys. Rev. Lett. 2010, 104, 136403",
     "SOAP":                  "A. P. Bartok,              R. Konor, G. Csanyi,\nPhys. Rev. B     2013,  87, 184115",
     "AIQM1":                 "P. Zheng, R. Zubatyuk, W. Wu, O. Isayev, P.O. Dral,\nNat. Commun. 2021, 12, 7022",
-    "AIQM2":                 "Y. Chen and P.O. Dral,\nChem. Sci. 2025, DOI: 10.1039/D5SC02802G",
+    "AIQM2":                 "Y. Chen and P.O. Dral,\nChem. Sci. 2025, 16, 15901",
+    "AIQM3":                 "Y. Chen, Y.-F. Hou, R. Zubatyuk, O. Isayev, P.O. Dral,\nJ. Chem. Theory Comput. 2026, 22, 2232",
+    "UAIQM":                 "Y. Chen, Y.-F. Hou, O. Isayev, P.O. Dral,\nUniversal and Updatable Artificial Intelligence-Enhanced Quantum\nChemical Foundational Models.\nChemRxiv 2024, DOI: 10.26434/chemrxiv-2024-604wb",
+    "AIQM-IR":               "Y.-F. Hou, C. Wang, P.O. Dral,\nJ. Phys. Chem. A 2025, 129, 3613",
     "ODM2":                  "P.O. Dral, X. Wu, W. Thiel,\nJ. Chem. Theory Comput. 2019, 15, 1743",
     "MNDOprog":              "W. Thiel, MNDO [check your version]\n(Max-Planck-Institut fur Kohlenforschung,\nMulheim an der Ruhr, [year])",
     "D4":                    "E. Caldeweyher, C. Bannwarth, S. Grimme,\nJ. Chem. Phys. 2017, 147, 034112",
@@ -53,6 +56,9 @@
     "ANI-1xnr": "S. Zhang, M.Z. Makoś, R.B. Jadrich, E. Kraka, K. Barros, \nB. T. Nebgen,S. Tretiak, O. Isayev, N. Lubbers, R. A. Messerly,\nJ. S. Smith, Nat. Chem. 2024, 16, 727",
     "MACE-OFF": "Kovacs, D. P.; Moore, J. H.; Browning, N. J.; Batatia, I.; Horton, J. T.;\n Pu, Y.; Kapil, V.; Witt, W. C.; Magdau, I. B.; Cole, D. J.; et al. \nMACE-OFF: Short-Range Transferable Machine Learning Force Fields for Organic Molecules. \nJ. Am. Chem. Soc. 2025, 147 (21), 17598–17611.",
     "pysisyphus": "J. Steinmetzer, S. Kupfer, S. Gräfe\npysisyphus: Exploring potential energy surfaces in ground  and excited states. \nInt. J. Quantum Chem. 2021, 121, e26390",
-    "OMNI-P1": "Y. Chen, P. O. Dral\nOne to Rule Them All: A Universal Interatomic Potential Learning across \nQuantum Chemical Levels. J. Chem. Theory Comput. 2025, 21(18), 8762–8772"
+    "OMNI-P1": "Y. Chen, P. O. Dral\nOne to Rule Them All: A Universal Interatomic Potential Learning across \nQuantum Chemical Levels. J. Chem. Theory Comput. 2025, 21(18), 8762–8772",
+    "OMNI-P2x": "M. Martyka, X.-Y. Tong, J. Jankowska, P. O. Dral\nOMNI-P2x universal neural network potential for excited-state simulations.\nNat. Commun. 2026, 17, 4949",
+    "ANI-1ccx-gelu": "S. F. Alavi, Y. Chen, Y.-F. Hou, F. Ge, P. Zheng, P. O. Dral\nANI-1ccx-gelu Universal Interatomic Potential and Its Fine-Tuning: Toward \nAccurate and Efficient Anharmonic Vibrational Frequencies. \nJ. Phys. Chem. Lett. 2025, 16, 483–493",
+    "DENS": "Y. Rui, Y. Chen, E. Ivanova, V. B. Kumar, S. Śmiga, I. Grabowski, P. O. Dral\nThe Best DFT Functional Is the Ensemble of Functionals. \nAdv. Sci. 2024, 11, 2408239"
 }
 

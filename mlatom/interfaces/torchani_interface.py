@@ -1934,9 +1934,13 @@ def load_ani1xnr_model():
         if not os.path.exists(local_dir+'ani-1xnr-main'):
             os.makedirs(local_dir, exist_ok=True)
             print(f'Downloading ANI-1xnr model parameters ...')
-            resource_res = requests.get(url, timeout=30)
-            resource_zip = zipfile.ZipFile(io.BytesIO(resource_res.content))
-            resource_zip.extractall(local_dir)
+            try:
+                resource_res = requests.get(url, timeout=30)
+                resource_res.raise_for_status()
+                resource_zip = zipfile.ZipFile(io.BytesIO(resource_res.content))
+                resource_zip.extractall(local_dir)
+            except Exception as err:
+                raise RuntimeError(f'Failed to download ANI-1xnr model parameters: {err}\nPossible solutions:\n 1. Check your internet connection.\n 2. Download {url} manually and extract it to {local_dir}')
         return local_dir
     model_prefix = parse_ani1xnr_resources() + 'ani-1xnr-main/model/ani-1xnr/'
     # const_file, sae_file, ensemble_prefix, ensemble_size = parse_ani1xnr_resources()

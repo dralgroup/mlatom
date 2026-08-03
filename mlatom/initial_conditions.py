@@ -53,12 +53,14 @@ def excitation_energy_window_filter(molecular_database=None,
             if abs(excitation_energy - target_excitation_energy) <= window_half_width:
                 if check_os:
                     if mol.oscillator_strengths[i-1]/f_max >= np.random.random():
-                        mol.current_state = i
-                        mol.energy = mol.electronic_states[i].energy
-                        init_cond_db.molecules.append(mol)
+                        molcopy = mol.copy()
+                        molcopy.current_state = i
+                        molcopy.energy = molcopy.electronic_states[i].energy
+                        init_cond_db.molecules.append(molcopy)
                 else:
-                    mol.current_state = i
-                    init_cond_db.molecules.append(mol)
+                    molcopy = mol.copy()
+                    molcopy.current_state = i
+                    init_cond_db.molecules.append(molcopy)
     if check_os:
         return check_os, f_max, init_cond_db
     else:
@@ -94,12 +96,14 @@ def filter_by_excitation_energy_window(molecular_database,
             if abs(excitation_energy - target_excitation_energy) <= window_half_width:
                 if check_os:
                     if mol.oscillator_strengths[i-1]/f_max >= np.random.random():
-                        mol.current_state = i
-                        mol.energy = mol.electronic_states[i].energy
-                        init_cond_db.molecules.append(mol)
+                        molcopy = mol.copy()
+                        molcopy.current_state = i
+                        molcopy.energy = molcopy.electronic_states[i].energy
+                        init_cond_db.molecules.append(molcopy)
                 else:
-                    mol.current_state = i
-                    init_cond_db.molecules.append(mol)
+                    molcopy = mol.copy()
+                    molcopy.current_state = i
+                    init_cond_db.molecules.append(molcopy)
     return init_cond_db
 
 def generate_initial_conditions(

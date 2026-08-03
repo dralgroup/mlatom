@@ -350,23 +350,42 @@ def parse_mndo_output(filename=None, molecule=None):
         mol.energy = energy
     
     if nstates > 1:
-        state_energies = []
-        #If multi-state energy/grad flag found, take all energies from fort.15
+        # fort.15 state energies carry 1-based state labels in the first column:
+        # MULSAV writes only the ncigrd states of the gradient list, which do
+        # not have to start at (or include) the ground state.
+        fort15_state_energies = {}
         if found_ffort15_ens_flag:
             for i in ffort15_ms_ens_indices:
-                state_e_kcal = ffort15_lines[int(i)].split()[1]
-                state_e_hartree = float(state_e_kcal)/ (27.21 * 23.061)
-                state_energies.append(state_e_hartree)
-        #if no multigrad flag found, take S0 energy from fort.15 and add EE to it
-        if len(state_energies) < nstates:
-            if found_ffort15_en_flag:
-                energy = ffort15_lines[ffort15_en_index].split()[0]
-                energy = float(energy) / (27.21 * 23.061)
-                state_energies.append(energy)
-            for idx in output_ens_index[len(state_energies):]:
+                parts = ffort15_lines[int(i)].split()
+                fort15_state_energies[int(parts[0])-1] = float(parts[1]) / (27.21 * 23.061)
+        if len(fort15_state_energies) >= nstates:
+            state_energies = [fort15_state_energies[i] for i in range(nstates)]
+        else:
+            # Reconstruct all states from the E-E(1) excitation energies printed
+            # in the output, anchored at one absolute energy of a KNOWN state:
+            # a labeled fort.15 energy if available, otherwise the single-surface
+            # fort.15 energy (which belongs to the LROOT state in jop=2 runs).
+            # Anchoring at the wrong state shifts every energy by that state's
+            # excitation energy (huge apparent energy drift in NAMD).
+            ees = [0.0]
+            for idx in output_ens_index[1:]:
                 parts = outputs[idx].split('E-E(1)')
                 ee = parts[1].split()[1]
-                state_energies.append(float(ee)/27.21+state_energies[0])
+                ees.append(float(ee)/27.21)
+            if fort15_state_energies:
+                anchor_state = min(fort15_state_energies)
+                anchor_energy = fort15_state_energies[anchor_state]
+            elif found_ffort15_en_flag:
+                anchor_state = current_state if current_state is not None else 0
+                anchor_energy = float(ffort15_lines[ffort15_en_index].split()[0]) / (27.21 * 23.061)
+            else:
+                raise ValueError(f'no absolute state energy found in fort.15 next to {filename}')
+            e_ground = anchor_energy - ees[anchor_state]
+            state_energies = [e_ground + ee for ee in ees[:nstates]]
+            # exact fort.15 energies win over reconstructed ones where available
+            for istate, state_e in fort15_state_energies.items():
+                if istate < nstates:
+                    state_energies[istate] = state_e
         
         # Per-state gradients honesty: seed every per-state gradient with NaN so any state not
         # freshly overwritten by the gradient-storage loop reads as NaN instead of an inherited/stale
