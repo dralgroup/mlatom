@@ -7,6 +7,38 @@ Dates are given as DD.MM.YYYY. Versions are available on
 [PyPI](https://pypi.org/project/mlatom/) and
 [GitHub](https://github.com/dralgroup/mlatom).
 
+## [3.25.0] – 13.08.2026
+- Fine-tuning of the universal models on your own data. ANI, AIQM1, AIQM2,
+  AIQM3, UAIQM, OMNI-P1 and OMNI-P2x are fine-tuned through the same `train()`
+  call, and the result saves and loads like any other model. See the
+  [tutorial](http://mlatom.com/docs/tutorial_finetuning.html).
+- Dispersion is now declared once and handled on both sides: the term is
+  subtracted from the reference labels before training and added back at
+  prediction, so a fine-tuned model keeps the long-range behaviour of the model
+  it started from.
+- One geometry can carry labels from several methods. A molecule records where a
+  label came from (`molecule.label_source`), a property can be addressed by its
+  source (`mol.get_property('wb97x.energy_gradients')`), and the database keeps
+  a registry of the sources it holds (`molecular_database.label_sources`).
+  Databases can be written to and read back from HDF5.
+- Molecules missing the property being learned are dropped before training
+  rather than entering the loss as NaN, for the training and the validation set
+  alike (`molecular_database.without_missing_labels()`).
+- Fixed: a `weighted_sum` model tree applied its weights to only one molecule of
+  a database, so every multi-molecule weighted sum was in effect unweighted.
+  This affected all DENS predictions.
+- Fixed: the D4(wB97X) term of AIQM1, AIQM2, OMNI-P1 and the ANI `-D4` variants
+  is now selected by its damping parameters rather than by the functional name.
+  dftd4 4.0.0 renamed `wb97x` to `wb97x-2008` and gave the name `wb97x` to a
+  different functional, so on dftd4 >= 4.0.0 these models silently used another
+  functional's damping: AIQM2 shifted by 3.5 kcal/mol on one geometry, and the
+  methane-dimer well deepened from -0.65 to -1.16 kcal/mol. Results on
+  dftd4 3.x are unchanged.
+- Fixed: re-downloading a model died on the files already present, leaving the
+  model half-extracted.
+- Fixed: `CISD` and `CCSD` were concatenated in the PySCF interface's list of
+  supported methods, which removed both from dispatch.
+
 ## [3.24.0] – 03.08.2026
 - MLatom now prints the references to cite for AIQM3, UAIQM, OMNI-P2x,
   ANI-1ccx-gelu, DFT ensembles, and for IR spectra with AIQM models.

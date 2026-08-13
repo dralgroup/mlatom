@@ -790,7 +790,20 @@ class molecule:
     def get_property(self, property_name):
         '''
         Get the property in the molecule.
+
+        A dotted name reaches a property held under a named label source rather
+        than in the flat slot: ``mol.get_property('wb97x.energy_gradients')`` is
+        the gradients as computed by the source registered under ``'wb97x'``,
+        while ``mol.get_property('energy')`` is the flat value, whose source is
+        recorded in ``mol.label_source``.
+
+        A dotted name that does not resolve raises, because it names one source
+        explicitly and there is no sensible value to return instead. A plain name
+        keeps its long-standing behaviour of returning ``NaN`` when absent, which
+        :meth:`molecular_database.filter_by_property` depends on.
         '''
+        if '.' in property_name:
+            return self._get_property_from_source(property_name)
         if property_name in self.__dict__:
             return self.__dict__[property_name] 
         elif property_name in self.__dir__() and isinstance(getattr(self.__class__, property_name), property):
@@ -806,8 +819,64 @@ class molecule:
                     return properties
             else:
                 return np.nan
-        else: 
+        else:
             return np.nan
+
+    @staticmethod
+    def _named_contents(container):
+        '''Names worth listing in a "cannot resolve" message, bookkeeping aside.'''
+        skip = {'name', 'parent', 'children', 'atoms'}
+        return sorted(name for name in getattr(container, '__dict__', {})
+                      if name not in skip and not name.startswith('_'))
+
+    def _get_property_from_source(self, property_name):
+        '''
+        Resolve a dotted property name, e.g. ``'wb97x.energy_gradients'`` or
+        ``'aiqm2_nn.member_0.energy'``, walking the named nodes in turn.
+        '''
+        container = self
+        walked = []
+        for step in property_name.split('.'):
+            if step not in container.__dict__:
+                raise ValueError(
+                    f"cannot resolve '{property_name}': "
+                    f"{'the molecule' if not walked else chr(39) + '.'.join(walked) + chr(39)}"
+                    f" carries no '{step}'.\n"
+                    f"  Available here: {', '.join(self._named_contents(container)) or 'nothing'}.\n"
+                    f"  The label sources a database declares are listed in its "
+                    f"label_sources.")
+            container = container.__dict__[step]
+            walked.append(step)
+        return container
+
+    def label_sources_present(self):
+        '''
+        Names of the label sources this molecule carries labels under, i.e. the
+        namespaces reachable with a dotted property name.
+        '''
+        return sorted(name for name, value in self.__dict__.items()
+                      if isinstance(value, properties_tree_node))
+
+    def set_label_source(self, source, **properties):
+        '''
+        Record that this molecule's flat labels came from ``source``, and
+        optionally file a copy of them under that name.
+
+        ``mol.set_label_source('ccsdt', energy=-76.4)`` sets ``mol.energy``,
+        ``mol.ccsdt.energy`` and ``mol.label_source``; without keyword arguments
+        it only records where the labels already in the flat slots came from.
+        '''
+        self.__dict__['label_source'] = source
+        if not properties:
+            return self
+        node = self.__dict__.get(source, None)
+        if not isinstance(node, properties_tree_node):
+            node = properties_tree_node(name=source)
+            self.__dict__[source] = node
+        for name, value in properties.items():
+            node.__dict__[name] = value
+            self.__dict__[name] = value
+        return self
 
     def set_property(self, **kwargs) -> None:
         '''
@@ -1525,6 +1594,35 @@ class properties_tree_node():
                 self.__dict__[property_name + '_standard_deviation'] = np.std(property_values_list, axis=0)
             
 class molecular_database:
+    #: Dump/load formats this class understands, keyed by file extension.
+    #: ``dump(filename)`` and ``load(filename)`` infer the format from it.
+    format_by_extension = {
+        '.json': 'json',
+        '.npz': 'npz',
+        '.h5': 'h5',
+        '.hdf5': 'h5',
+    }
+
+    @classmethod
+    def infer_format_from_filename(cls, filename, default=None):
+        '''
+        Return the dump/load format implied by ``filename``'s extension.
+
+        ``default`` is returned for an unknown or missing extension; if it is
+        ``None``, a ``ValueError`` naming the supported formats is raised instead.
+        '''
+        extension = os.path.splitext(str(filename))[1].casefold()
+        format = cls.format_by_extension.get(extension, None)
+        if format is not None:
+            return format
+        if default is not None:
+            return default
+        raise ValueError(
+            f"cannot tell the format of '{filename}' from its extension. "
+            f"Use one of {sorted(set(cls.format_by_extension))}, or pass format= "
+            f"explicitly (supported: {sorted(set(cls.format_by_extension.values()))})."
+        )
+
     '''
     Create a database for molecule objects.
 
@@ -1624,30 +1722,31 @@ class molecular_database:
         xyz_string = conversions.smi2xyz(smi_string)
         self.read_from_xyz_string(xyz_string)
         return self
-        
+    
     def read_from_h5_file(self,
         filename: str = '', 
-        properties: list = None, 
-        xyz_derivative_properties: list = None,
+        properties: Union[list,str] = None, 
+        xyz_derivative_properties: Union[list,str] = None,
         parallel: Union[bool,int,tuple] = False, 
         verbose:bool = False) -> molecular_database:
         ''' 
         Generate molecular database from formatted h5 file. 
 
-        The standard h5 format file should at least contains 'species' and 'coordinates'. An example for h5 file with energies and gradients inside, as well as additional scalar values 'scalar1' and vectors 'vector1'
+        The standard h5 format file should at least contains 'atomic_numbers' and 'xyz_coordinates'. An example for h5 file with energies and gradients inside, as well as additional scalar values 'scalar1' and vectors 'vector1'
         
         ```
         >>> ddls example.h5
         /002                       dict
         /002/_id                   array (204,) [bytes192]
-        /002/coordinates           array (204, 2, 3) [float64]
-        /002/species               array (204, 2) [int64]
+        /002/xyz_coordinates       array (204, 2, 3) [float64]
+        /002/atomic_numbers        array (204, 2) [int64]
         /002/energy                array (204,) [float64]
         /002/gradients             array (204, 2, 3) [float64]
         /002/scalar1               array (204,) [int64]
         /002/vector1               array (204, 2) [int64]
 
         ```
+        If properties and xyz_derivative_properties are not provided, all the properties will be directly assigned to each molecule without storing into atom
 
         Arguments:
             `h5file (str)`: 
@@ -1668,6 +1767,11 @@ class molecular_database:
         
         h5data = h5dataloader(filename)
 
+        if xyz_derivative_properties and isinstance(xyz_derivative_properties, str):
+            xyz_derivative_properties = [xyz_derivative_properties]
+        if properties and isinstance(properties, str):
+            properties = [properties]
+
         def configurations():
             for cc in h5data:
                 yield cc
@@ -1677,9 +1781,9 @@ class molecular_database:
                 if not properties:
                     properties = [*m]
                 else:
-                    properties = list(set(properties)|{'coordinates','species'})
+                    properties = list(set(properties)|{'xyz_coordinates','atomic_numbers'})
                 
-                coordinates = m['coordinates']
+                coordinates = m['xyz_coordinates']
                 (nc, na, _) = coordinates.shape
                 for i in range(nc):
                     ret = {}
@@ -1705,19 +1809,47 @@ class molecular_database:
             prop, xyz_derivative_properties = properties
             mols = []
             for cc in b:
-                mol = molecule.from_numpy(species=cc['species'],coordinates=cc['coordinates'])
-                na = cc['coordinates'].shape[0]
+                mol = molecule.from_numpy(species=cc['atomic_numbers'],coordinates=cc['xyz_coordinates'])
+                na = cc['xyz_coordinates'].shape[0]
                 if not prop and not xyz_derivative_properties:
                     prop = [*cc]
-                    prop.remove('species')
-                    prop.remove('coordinates')
+                    prop.remove('atomic_numbers')
+                    prop.remove('xyz_coordinates')
 
                 for pp in prop:
                     prop_value = cc[pp]
                     if type(prop_value) != str and prop_value.shape == (1,):
                         prop_value = prop_value[0]
-                      
-                    mol.add_scalar_property(prop_value,pp)
+                    # h5 stores text as fixed-length bytes. Decode it, or the same
+                    # database loaded from .h5 and from .json disagrees on the type
+                    # of every string property - id, label_source - and comparing
+                    # them silently fails.
+                    if isinstance(prop_value, (bytes, np.bytes_)):
+                        prop_value = prop_value.decode()
+
+                    # A dotted key is a label held under a named source. Rebuild
+                    # the namespace rather than making an attribute whose name
+                    # contains a dot: mol.gfn2xtbstar.energy, not
+                    # getattr(mol, 'gfn2xtbstar.energy').
+                    if '.' in pp:
+                        source, _, remainder = pp.partition('.')
+                        node = mol.__dict__.get(source, None)
+                        if not isinstance(node, properties_tree_node):
+                            node = properties_tree_node(name=source)
+                            mol.__dict__[source] = node
+                        node.__dict__[remainder] = prop_value
+                        continue
+
+                    # A property shaped (natoms, 3) is a per-atom vector (gradients,
+                    # dipole derivatives, ...) and has to be stored on the atoms.
+                    # Storing it on the molecule instead leaves
+                    # get_xyz_vectorial_properties() returning NaN.
+                    if (isinstance(prop_value, np.ndarray)
+                            and prop_value.shape == (na, 3)
+                            and not (xyz_derivative_properties and pp in xyz_derivative_properties)):
+                        mol.add_xyz_vectorial_property(prop_value, pp)
+                    else:
+                        mol.add_scalar_property(prop_value,pp)
                 if xyz_derivative_properties:
                     for pp in xyz_derivative_properties:
                         prop_value = cc[pp]
@@ -1754,7 +1886,19 @@ class molecular_database:
         for mm in mols:
             self.molecules += mm
 
-        return self 
+        # Database-level attributes (e.g. the provenance stamp) are stored in the
+        # h5 root attrs by dump_h5_file; restore them here so they survive the trip.
+        for label, value in h5data.store.attrs.items():
+            try:
+                self.__dict__[label] = json.loads(value)
+            except (TypeError, ValueError):
+                self.__dict__[label] = value
+
+        return self
+
+    @classmethod
+    def from_h5_file(cls, **kwargs):
+        return cls().read_from_h5_file(**kwargs)
 
     def dump_h5_file(
         self,
@@ -1781,11 +1925,10 @@ class molecular_database:
 
         def update_h5file(h5file, na, h5key, updated_value):
             updated_value = updated_value[None,:]
-            if h5key == 'atomic_numbers':
-                h5key = 'species'
-            elif h5key == 'xyz_coordinates':
-                h5key = 'coordinates'
-
+            # Property names are written exactly as they are held on the molecule.
+            # This method used to rename 'atomic_numbers'->'species' and
+            # 'xyz_coordinates'->'coordinates', which read_from_h5_file cannot read,
+            # so MLatom could not read back the h5 files it had written.
             if na not in h5file.keys():
                 g = h5file.create_group(na)
                 g.create_dataset(h5key, data=updated_value)
@@ -1799,24 +1942,101 @@ class molecular_database:
                     del g[h5key]
                     g[h5key] = value_updated
 
+        if not properties:
+            # Default to everything the molecules actually carry.  Previously an
+            # empty list meant "coordinates, atomic numbers and id only", so
+            # dump_h5_file silently dropped energies, gradients and every other
+            # property - unlike the json and npz dumps, which write everything.
+            properties = self.dumpable_property_names()
+
+        # h5 has no representation for electronic states, and dropping them
+        # silently is how a database loses half its content between a dump and a
+        # load. Label sources it does carry, as dotted dataset names.
+        with_states = [imol for imol, mol in enumerate(self.molecules)
+                       if getattr(mol, 'electronic_states', None)]
+        if with_states:
+            shown = ', '.join(str(i) for i in with_states[:5])
+            more = '' if len(with_states) <= 5 else f' (and {len(with_states) - 5} more)'
+            raise ValueError(
+                f'h5 cannot represent electronic states, and {len(with_states)} of '
+                f'{len(self)} molecules have them: indices {shown}{more}.\n'
+                f"  Dump to .json or .npz instead, which keep them, rather than "
+                f"having them dropped without a word.")
+
         h5file = h5py.File(filename, 'w')
+        # Database-level attributes (e.g. the provenance stamp) live in the root
+        # attrs so that they survive the round trip, as they do for json.
+        for label, value in self.__dict__.items():
+            if label == 'molecules':
+                continue
+            try:
+                h5file.attrs[label] = json.dumps(value)
+            except TypeError:
+                pass
         initial_properties = ['xyz_coordinates', 'atomic_numbers', 'id']
         properties = list(set(properties)|set(initial_properties))
-        for mol in self.molecules:
-            na = len(mol.atoms)
-            for prop in properties:
-                prop_value = mol.get_property(prop)
-                if type(prop_value) == list:
-                    prop_value = np.array(prop_value)
-                elif type(prop_value) == str:
-                    prop_value = np.array([prop_value.encode()])
-                elif type(prop_value) == np.ndarray:
-                    pass
-                else:
-                    prop_value = np.array([prop_value])
 
-                update_h5file(h5file, str(na), prop, prop_value)
-        h5file.close() 
+        # "this molecule does not carry that property at all", which is neither
+        # an error nor NaN: one database may hold labels from several sources
+        # with only some present on any given molecule.
+        missing = object()
+
+        def property_or_missing(mol, property_name):
+            if '.' in property_name:
+                try:
+                    return mol.get_property(property_name)
+                except ValueError:
+                    return missing
+            if property_name in mol.__dict__:
+                return mol.__dict__[property_name]
+            value = mol.get_property(property_name)
+            if isinstance(value, float) and np.isnan(value):
+                return missing
+            return value
+
+        def as_array(value):
+            if type(value) == list:
+                return np.array(value)
+            if type(value) == str:
+                return np.array([value.encode()])
+            if type(value) == np.ndarray:
+                return value
+            return np.array([value])
+
+        # A molecule need not carry every source: that is the whole point of one
+        # database holding several. Missing values are written as NaN of the same
+        # shape, which is what the ANI-1x files do and what filter_by_property and
+        # without_missing_labels read back.
+        templates = {}
+        for mol in self.molecules:
+            key = str(len(mol.atoms))
+            for prop in properties:
+                if (key, prop) in templates:
+                    continue
+                value = property_or_missing(mol, prop)
+                if value is missing:
+                    continue
+                array_value = as_array(value)
+                templates[(key, prop)] = (array_value.shape, array_value.dtype.kind)
+
+        def filler(shape, kind):
+            if kind in 'SU':
+                return np.full(shape, b'')      # no source, no name
+            return np.full(shape, np.nan)       # integer columns become float here
+
+        for mol in self.molecules:
+            key = str(len(mol.atoms))
+            for prop in properties:
+                value = property_or_missing(mol, prop)
+                if value is missing:
+                    template = templates.get((key, prop), None)
+                    if template is None:
+                        continue        # nothing in this group has it at all
+                    prop_value = filler(*template)
+                else:
+                    prop_value = as_array(value)
+                update_h5file(h5file, key, prop, prop_value)
+        h5file.close()
 
     @classmethod
     def from_xyz_file(cls, filename: str) -> molecular_database:
@@ -2206,7 +2426,61 @@ class molecular_database:
     
     def filter_by_property(self, property_name):
         return molecular_database(self[~np.isnan(self.get_properties(property_name))])
-    
+
+    def without_missing_labels(self, property_name, label=None, verbose=1):
+        '''
+        Return a copy holding only the molecules whose ``property_name`` is
+        present and finite, reporting how many were dropped.
+
+        This is what makes a database carrying labels from several sources
+        trainable: molecules for which the expensive source was never computed
+        are dropped before the model sees them, exactly as the ANI-1x loader
+        does, rather than being fitted to ``NaN``.
+
+        Dropping them is not optional. The energy losses reduce with
+        ``.nanmean()``, so a missing label leaves the reported loss finite and
+        healthy-looking while ``.backward()`` poisons every shared parameter
+        through the ``0 * NaN`` product.
+
+        :meth:`filter_by_property` selects the same molecules for a scalar
+        label. This one additionally reports what it dropped, refuses an empty
+        result rather than returning one, and does not assume the property is a
+        scalar - ``get_properties`` on a vectorial one returns an array whose
+        ``isnan`` mask cannot index the database.
+
+        Arguments:
+            property_name (str): the label to require, e.g. ``'energy'``.
+            label (str, optional): name used in the message, e.g. ``'training'``.
+            verbose (int, optional): print the count of dropped molecules.
+        '''
+        keep = []
+        for mol in self.molecules:
+            try:
+                value = mol.get_property(property_name)
+            except ValueError:
+                # A source absent altogether is exactly as missing as one present
+                # with NaN - which of the two a molecule shows depends only on
+                # whether the database came back from .json or from .h5.
+                keep.append(False)
+                continue
+            try:
+                keep.append(bool(np.all(np.isfinite(np.asarray(value, dtype=float)))))
+            except (TypeError, ValueError):
+                keep.append(False)
+        if all(keep):
+            return self
+        kept = molecular_database([mol for mol, ok in zip(self.molecules, keep) if ok])
+        if verbose:
+            where = f' from the {label} set' if label else ''
+            print(f'  {len(self) - len(kept)} of {len(self)} molecules dropped{where}: '
+                  f'no usable {property_name}')
+        if len(kept) == 0:
+            raise ValueError(
+                f'no molecule has a usable {property_name}, so there is nothing to '
+                f'train on. Check that property_to_learn names a label the database '
+                f'actually carries.')
+        return kept
+
     def proliferate(self, *args, **kwargs) -> molecular_database:
         '''
         Proliferate the unicell by specified shifts along cell vectors.
@@ -2220,18 +2494,35 @@ class molecular_database:
     def dump(self, filename=None, format='json'):
         '''
         Dump the molecular database to a file.
+
+        ``format`` defaults to ``'json'``, as it always has - a filename ending
+        in ``.h5`` does not by itself change what is written, because scripts
+        that pass such a name and expect json must keep working. Pass
+        ``format='h5'`` (or ``'npz'``) to choose, or ``format=None`` to infer it
+        from the extension.
         '''
+        if format is None:
+            format = self.infer_format_from_filename(filename, default='json')
         if format.casefold() == 'json'.casefold():
             jsonfile = open(filename, 'w')
             json.dump(class_instance_to_dict(self), jsonfile, indent=4)
             jsonfile.close()
-        if format.casefold() == 'npz'.casefold():
+        elif format.casefold() == 'npz'.casefold():
             np.savez(filename, **class_instance_to_dict(self))
-    
+        elif format.casefold() == 'h5'.casefold():
+            self.dump_h5_file(filename=filename)
+        else:
+            raise ValueError(
+                f"unsupported dump format '{format}'; "
+                f"supported: {sorted(set(self.format_by_extension.values()))}."
+            )
+
     def _load(self, filename=None, format=None):
+        if format is None:
+            format = self.infer_format_from_filename(filename)
         if format.casefold() == 'json'.casefold():
-            jsonfile = open(filename, 'r')
-            data = json.load(jsonfile)
+            with open(filename, 'r') as jsonfile:
+                data = json.load(jsonfile)
             # deal with single molecule json file
             if "molecules" not in data:
                 if "id" in data:
@@ -2240,12 +2531,16 @@ class molecular_database:
                 self.molecules = []
                 for mol in data['molecules']:
                     self.molecules.append(dict_to_molecule_class_instance(mol))
+                self._restore_database_labels(data)
         elif format.casefold() == 'npz'.casefold():
             with np.load(filename, allow_pickle=True) as npz:
                 data = dict(npz)
                 self.molecules = []
                 for mol in data['molecules']:
                     self.molecules.append(dict_to_molecule_class_instance(mol))
+                self._restore_database_labels(data)
+        elif format.casefold() == 'h5'.casefold():
+            self.read_from_h5_file(filename=filename)
         elif format.casefold() == 'gaussian'.casefold():
             mol = molecule.load(filename, format=format)
             if 'molecular_database' in mol.__dict__.keys():
@@ -2253,7 +2548,300 @@ class molecular_database:
                     self.__dict__[key] = mol.molecular_database.__dict__[key]
             else:
                 self.molecules.append(mol)
+        else:
+            raise ValueError(
+                f"unsupported load format '{format}'; supported: "
+                f"{sorted(set(self.format_by_extension.values()) | {'gaussian'})}."
+            )
         return self
+
+    def dumpable_property_names(self):
+        '''
+        Names of the per-molecule and per-atom properties held in this database,
+        i.e. what an h5 dump should write when no explicit list is given.
+        Structural bookkeeping (the atoms themselves, coordinates, atomic numbers)
+        is excluded - h5 dumps carry those unconditionally.
+
+        Labels held under a named source appear as dotted names
+        (``'gfn2xtbstar.energy'``), which is how the h5 dump carries them: the
+        dataset key is the dotted name, and the loader rebuilds the namespace
+        from it.
+        '''
+        skip_molecular = {'atoms', 'electronic_states', 'properties_and_their_derivatives',
+                          '_pbc', '_cell'}
+        skip_atomic = {'atomic_number', 'xyz_coordinates'}
+        dumpable = (bool, int, float, str, list, np.ndarray, np.integer, np.floating)
+        names = set()
+        for mol in self.molecules:
+            for label, value in mol.__dict__.items():
+                if label in skip_molecular or label.startswith('_'):
+                    continue
+                if isinstance(value, dumpable):
+                    names.add(label)
+                elif isinstance(value, properties_tree_node):
+                    for sub_label, sub_value in value.__dict__.items():
+                        if sub_label in ('name', 'parent', 'children') or sub_label.startswith('_'):
+                            continue
+                        if isinstance(sub_value, dumpable):
+                            names.add(label + '.' + sub_label)
+            for atom in mol.atoms:
+                for label in atom.__dict__:
+                    if label in skip_atomic or label.startswith('_'):
+                        continue
+                    names.add(label)
+        return sorted(names)
+
+    @property
+    def label_sources(self):
+        '''
+        The registry of label sources in this database: ``{name: spec}``, where a
+        spec says what produced those labels - a level of theory, a delta, an
+        experiment.  Written to the h5 root attrs and to json, so it travels with
+        the data rather than in a paper's supplementary table.
+        '''
+        return self.__dict__.setdefault('label_sources', {})
+
+    @label_sources.setter
+    def label_sources(self, value):
+        self.__dict__['label_sources'] = dict(value)
+
+    def register_label_source(self, name, **spec):
+        '''
+        Declare what the labels under ``name`` are, e.g.::
+
+            db.register_label_source('ccsdt', method='CCSD(T)', basis='CBS',
+                                     program='MRCC')
+
+        A source can be anything that produced labels, not only a level of
+        theory: a delta database registers what was subtracted from what.
+        '''
+        registry = self.label_sources
+        if name in registry and registry[name] != spec and spec:
+            raise ValueError(
+                f"label source '{name}' is already declared in this database as "
+                f"{registry[name]}, which is not the same as {spec}.\n"
+                f"  Two different things under one name make every label under it "
+                f"ambiguous; use a different name for the second.")
+        registry[name] = dict(spec)
+        return self
+
+    @classmethod
+    def as_database(cls, database):
+        '''
+        Accept either a :class:`molecular_database` or the name of a file holding
+        one, and return the database. The format is inferred from the extension.
+        '''
+        if database is None:
+            return None
+        if isinstance(database, molecular_database):
+            return database
+        if isinstance(database, str):
+            return cls.load(database)
+        raise TypeError('expected a molecular_database or a filename, got '
+                        f'{type(database).__name__}')
+
+    def geometries_only(self):
+        '''
+        A copy carrying the geometries and nothing else, keeping each molecule's
+        ``id``.
+
+        ``molecular_labels=[]`` is what makes it geometries-only, and it is not
+        optional: ``copy(atomic_labels=[...])`` alone copies *every* molecular
+        attribute, reference labels included. A database that starts life holding
+        another's labels cannot afterwards be checked for whether it was ever
+        computed - the value is there and finite either way. Keeping the ``id``
+        is what lets the result be matched back to the geometry it came from,
+        since ``copy()`` mints a new one.
+        '''
+        copied = self.copy(atomic_labels=['xyz_coordinates'], molecular_labels=[])
+        for mol, original in zip(copied.molecules, self.molecules):
+            mol.id = original.id
+        return copied
+
+    def aligned_to(self, other, label='component'):
+        '''
+        This database's molecules in ``other``'s order.
+
+        Keyed on ``id`` when the two share one, and on position otherwise - but
+        only after checking the geometries match. An unchecked positional join is
+        how one molecule's value gets subtracted from another's and produces a
+        plausible number.
+        '''
+        if len(self) != len(other):
+            raise ValueError(
+                f'the {label} database has {len(self)} geometries and the '
+                f'reference data has {len(other)}. They must describe the same '
+                f'geometries, in any order.')
+        by_id = {mol.id: mol for mol in self.molecules}
+        if len(by_id) == len(self) and all(mol.id in by_id for mol in other.molecules):
+            return [by_id[mol.id] for mol in other.molecules]
+        for imol, (reference, mine) in enumerate(zip(other.molecules, self.molecules)):
+            same = (np.array_equal(np.asarray(reference.atomic_numbers),
+                                   np.asarray(mine.atomic_numbers))
+                    and np.allclose(np.asarray(reference.xyz_coordinates, dtype=float),
+                                    np.asarray(mine.xyz_coordinates, dtype=float),
+                                    atol=1e-6))
+            if not same:
+                raise ValueError(
+                    f'the {label} database does not describe the same geometries '
+                    f'as the reference data: they differ at index {imol}, and the '
+                    f'two share no id to match on.')
+        return list(self.molecules)
+
+    def as_label_source(self, tag, with_gradients=False):
+        '''
+        This database with ``tag``'s labels in the flat slots, or unchanged if it
+        does not carry that source.
+
+        The named source wins over whatever is already flat, and the order
+        matters: a prepared database carries both, so preferring the flat slot
+        would return the reference labels where the component was asked for.
+        '''
+        if not len(self) or not tag:
+            return self
+        if not any(tag in mol.__dict__ for mol in self.molecules):
+            return self
+        return self.expand_label_sources(
+            sources=[tag],
+            xyz_derivative_property_to_learn='energy_gradients' if with_gradients else None,
+            verbose=0)
+
+    @staticmethod
+    def source_tag(method):
+        '''
+        The name a method's labels live under: ``'GFN2-xTB*'`` -> ``'gfn2xtbstar'``.
+
+        Deliberately the spelling the model trees already use for their baseline
+        nodes, so a stored baseline and a freshly predicted one land in the same
+        place rather than under two names for one quantity.
+        '''
+        import re as _re
+        return _re.sub(r'[^0-9a-z]+', '', str(method).lower().replace('*', 'star'))
+
+    def expand_label_sources(self, sources=None, property_to_learn='energy',
+                             xyz_derivative_property_to_learn=None, verbose=1):
+        '''
+        Return one molecule per (geometry, label source) - the shape a network is
+        actually trained in, where ``mol.energy`` is unambiguous on every row.
+
+        This is a *view*, not a storage layout. Build it **after** splitting, never
+        before: a random split over an already-expanded database puts the same
+        geometry at one source in training and at another in test, and the test set
+        then contains geometries the model was fitted on. Splitting the collapsed
+        database and expanding each part cannot leak, by construction.
+
+        Arguments:
+            sources (list, optional): which sources to expand; by default every
+                source in the registry that a molecule actually carries.
+            property_to_learn (str): the label to bring into the flat slot.
+            xyz_derivative_property_to_learn (str, optional): its derivatives,
+                brought onto the atoms alongside it.
+        '''
+        if sources:
+            wanted = list(sources)
+        else:
+            # What the molecules actually carry, not what the registry declares:
+            # the registry is documentation and a subset of a database may have
+            # been built without it.
+            present = set()
+            for mol in self.molecules:
+                present.update(mol.label_sources_present())
+            wanted = sorted(present)
+        expanded = molecular_database()
+        for mol in self.molecules:
+            for source in wanted:
+                node = mol.__dict__.get(source, None)
+                if not isinstance(node, properties_tree_node):
+                    continue
+                if property_to_learn not in node.__dict__:
+                    continue
+                row = mol.copy()
+                row.id = mol.id          # a view keeps the geometry's identity
+                for name in list(row.__dict__):
+                    if isinstance(row.__dict__[name], properties_tree_node):
+                        del row.__dict__[name]
+                row.__dict__[property_to_learn] = node.__dict__[property_to_learn]
+                row.__dict__['label_source'] = source
+                if xyz_derivative_property_to_learn:
+                    derivatives = node.__dict__.get(xyz_derivative_property_to_learn, None)
+                    if derivatives is not None:
+                        row.add_xyz_derivative_property(
+                            np.asarray(derivatives), property_to_learn,
+                            xyz_derivative_property_to_learn)
+                expanded.molecules.append(row)
+        expanded.label_sources = dict(self.label_sources)
+        if verbose:
+            print(f'  {len(self)} geometries expanded to {len(expanded)} rows over '
+                  f'{len(wanted)} label source(s)')
+        return expanded
+
+    def collapse_label_sources(self, property_to_learn='energy',
+                               xyz_derivative_property_to_learn=None, verbose=1):
+        '''
+        The inverse of :meth:`expand_label_sources`: fold rows that describe the
+        same geometry into one molecule carrying each row's labels under its own
+        source name.
+
+        This is the conversion from the older layout in which each level of theory
+        was a separate database and the databases were concatenated - the shape
+        OMNI-P2x is trained in. Geometries are matched on ``id`` when the rows
+        share one, and on species-and-coordinates otherwise.
+        '''
+        collapsed = molecular_database()
+        index = {}
+        for mol in self.molecules:
+            key = (mol.id if mol.id else None) or (
+                tuple(np.asarray(mol.atomic_numbers).tolist()),
+                tuple(np.round(np.asarray(mol.xyz_coordinates, dtype=float), 6).ravel().tolist()))
+            source = mol.__dict__.get('label_source', None)
+            if key not in index:
+                merged = mol.copy()
+                merged.id = mol.id
+                index[key] = merged
+                collapsed.molecules.append(merged)
+            merged = index[key]
+            if source is None:
+                continue
+            node = merged.__dict__.get(source, None)
+            if not isinstance(node, properties_tree_node):
+                node = properties_tree_node(name=source)
+                merged.__dict__[source] = node
+            if property_to_learn in mol.__dict__:
+                node.__dict__[property_to_learn] = mol.__dict__[property_to_learn]
+            if xyz_derivative_property_to_learn:
+                derivatives = mol.get_xyz_vectorial_properties(
+                    xyz_derivative_property_to_learn)
+                if derivatives is not None and np.size(derivatives):
+                    node.__dict__[xyz_derivative_property_to_learn] = np.asarray(derivatives)
+        collapsed.label_sources = dict(self.label_sources)
+        if verbose:
+            print(f'  {len(self)} rows collapsed to {len(collapsed)} geometries')
+        return collapsed
+
+    def set_label_source(self, source, **spec):
+        '''
+        Record on every molecule that its flat labels came from ``source``, and
+        declare that source in the registry.
+        '''
+        if spec:
+            self.register_label_source(source, **spec)
+        elif source not in self.label_sources:
+            self.label_sources[source] = {}
+        for mol in self.molecules:
+            mol.__dict__['label_source'] = source
+        return self
+
+    def _restore_database_labels(self, data):
+        '''
+        Restore database-level attributes (everything except the molecules
+        themselves) from a dumped dictionary.  Without this, anything stored on
+        the database rather than on its molecules - such as the provenance
+        stamp - is written by dump() and silently lost on load().
+        '''
+        for label, value in data.items():
+            if label == 'molecules':
+                continue
+            self.__dict__[label] = value
     
     @classmethod
     def load(cls, filename=None, format=None):
@@ -2613,6 +3201,10 @@ class reactions_database():
                 self.reactions.append(newreaction)
 
 
+# Formats understood by molecular_database.dump()/load(), keyed by file extension.
+# ``load(filename)`` and ``dump(filename)`` infer the format from the extension,
+# which is what the ``format=None`` default has always advertised.
+
 def class_instance_to_dict(inst):
     dd = copy.deepcopy(inst.__dict__)
     for key in dd.keys():
@@ -2844,10 +3436,11 @@ class molecular_trajectory():
                     except AttributeError:
                         data['random_number'].append(np.nan)
                 if 'hopping_probabilities' in data.keys():
+                    # the probabilities of all the states are stored; steps without them are padded after the loop
                     try:
-                        data['hopping_probabilities'].append(max(istep.hopping_probabilities))
+                        data['hopping_probabilities'].append(np.atleast_1d(istep.hopping_probabilities))
                     except AttributeError:
-                        data['hopping_probabilities'].append(np.nan)
+                        data['hopping_probabilities'].append(None)
                 # NOTE: substep data is dumped in atomic units
                 if 'state_coefficients_r' in data.keys():
                     try:
@@ -2920,6 +3513,11 @@ class molecular_trajectory():
                         data['need_to_be_labeled'].append(np.nan)
                 if dp_flag:
                     data['dipole_moment'].append(istep.molecule.dipole_moment)
+            if 'hopping_probabilities' in data.keys():
+                # every step must hold the same number of probabilities to be stored in the h5md file
+                nprobs = max((len(probs) for probs in data['hopping_probabilities'] if probs is not None), default=1)
+                data['hopping_probabilities'] = [probs if probs is not None and len(probs) == nprobs else np.full(nprobs, np.nan)
+                                                 for probs in data['hopping_probabilities']]
             with h5md(filename) as trajH5:
                 trajH5.write(data)
         
@@ -2930,10 +3528,13 @@ class molecular_trajectory():
             moldb.write_file_with_xyz_coordinates(filename+'.xyz')
             moldb.write_file_with_xyz_vectorial_properties(filename+'.vxyz',xyz_vectorial_property_to_write='xyz_velocities')
             moldb.write_file_energy_gradients(filename+'.grad')
-            moldb.write_file_with_properties(filename+'.ekin',property_to_write='kinetic_energy')
-            moldb.write_file_with_properties(filename+'.epot',property_to_write='energy')
-            moldb.write_file_with_properties(filename+'.etot',property_to_write='total_energy')
-            moldb.write_file_with_properties(filename+'.temp',property_to_write='temperature')
+            # Properties such as temperature are only defined for some ensembles, skip the missing ones
+            for property_to_write, extension in [('kinetic_energy', '.ekin'),
+                                                 ('energy',         '.epot'),
+                                                 ('total_energy',   '.etot'),
+                                                 ('temperature',    '.temp')]:
+                if all(hasattr(imolecule, property_to_write) for imolecule in moldb.molecules):
+                    moldb.write_file_with_properties(filename+extension, property_to_write=property_to_write)
             if 'dipole_moment' in moldb.molecules[0].__dict__.keys():
                 with open(filename+'.dp','w') as dpf:
                     for imolecule in moldb.molecules:
@@ -3038,6 +3639,7 @@ class molecular_trajectory():
                     trajectory_step.random_number = data['random_number'][istep]
                 # prob
                 if 'hopping_probabilities' in data.keys():
+                    # NaN at the steps where no hop was checked
                     trajectory_step.hopping_probabilities = data['hopping_probabilities'][istep]
                 if 'state_coefficients_r' in data.keys():
                     trajectory_step.state_coefficients = data['state_coefficients_r'][istep]+1j*data['state_coefficients_i'][istep]
@@ -3280,9 +3882,16 @@ class h5md():
         self.close()
 
 class h5dataloader:
-    
+
+    # h5 datasets in the wild (ANI-style, and MLatom dumps written before the
+    # writer stopped renaming) spell these two properties differently.
+    property_aliases = {
+        'species': 'atomic_numbers',
+        'coordinates': 'xyz_coordinates',
+    }
+
     def __init__(self, store_file):
-        
+
         if not os.path.exists(store_file):
             exit('Error: file not found - ' + store_file)
         self.store = h5py.File(store_file, 'r')
@@ -3303,7 +3912,6 @@ class h5dataloader:
                 for k in keys:
                     if not isinstance(item[k], h5py.Group):
                         dataset = np.array(item[k][()])
-
                         if isinstance(dataset, np.ndarray):
                             if dataset.size != 0:
                                 if isinstance(dataset[0], np.bytes_):
@@ -3312,7 +3920,10 @@ class h5dataloader:
                                 if isinstance(dataset[0], bytes):
                                     dataset = [a.decode('utf-8')
                                                for a in dataset]
-                        data.update({k: dataset})
+                        # Accept the 'species'/'coordinates' spelling used by
+                        # ANI-style h5 datasets (and by older MLatom dumps) under
+                        # MLatom's own property names.
+                        data.update({self.property_aliases.get(k, k): dataset})
                 yield data
             else:  # test for group (go down)
                 yield from self.h5py_dataset_iterator(item, path)
@@ -3326,7 +3937,7 @@ class h5dataloader:
     def size(self):
         count = 0
         for g in self.store.values():
-            count = count + len(g['coordinates'][:])
+            count = count + len(g['xyz_coordinates'][:])
         return count
 
 def sample(molecular_database_to_split=None, sampling='random', number_of_splits=2, split_equally=None, fraction_of_points_in_splits=None, indices=None):
@@ -3379,6 +3990,20 @@ def sample(molecular_database_to_split=None, sampling='random', number_of_splits
         splits_DBs.append(type(molDB)()) # Make it work for all kinds of database
         for ii in isplit:
             splits_DBs[-1].append(molDB[ii])
+
+    # Database-level metadata describes the data, not the particular rows, so a
+    # split keeps it: without this a split delta database loses its provenance
+    # stamp and its label_sources registry, and the halves stop being usable for
+    # what the whole was prepared for.
+    #
+    # Named one by one, not "everything except molecules": ml_database holds its
+    # rows in .entries, and copying that wholesale handed every split the entire
+    # set. Training and validation then became the same data, which silently
+    # flattened KREG's hyperparameter search onto a grid bound.
+    for split_db in splits_DBs:
+        for label in ('provenance', 'label_sources'):
+            if label in molDB.__dict__:
+                split_db.__dict__[label] = copy.deepcopy(molDB.__dict__[label])
 
     return splits_DBs
 

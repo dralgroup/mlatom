@@ -600,7 +600,11 @@ from .addons.omnip2x.omnip2x         import omnip2x
 from .addons.omnip2x.vecmsani        import vecmsani
 from .addons.aiqm3.aiqm3             import aiqm3
 
-from .aiqm1                          import aiqm1
+# aiqm1_ani_wrapper is resolved through this namespace, not by module path:
+# an ani-derived leaf serialises as type='ml_model', and load_dict looks that
+# branch up in globals() (see load_dict, the ml_model case). Removing it makes
+# every saved AIQM1 tree unloadable.
+from .aiqm1                          import aiqm1, aiqm1_ani_wrapper
 from .aiqm2                          import aiqm2
 from .dens                           import dens
 from .omnip1                         import omnip1
@@ -711,14 +715,14 @@ def load_json(filename):
     
     with open(filename) as f:
         model_dict = json.load(f)
-    return load_dict(model_dict)
+    return load_dict(model_dict, base_dir=os.path.dirname(os.path.abspath(filename)))
 
 def load_pickle(filename):
     import pickle
     with open(filename, 'rb') as file:
         return pickle.load(file)
 
-def load_dict(model_dict):
+def load_dict(model_dict, base_dir=None):
     type = model_dict.pop('type')
     nthreads = model_dict.pop('nthreads') if 'nthreads' in model_dict else 0
     if type == 'method':
@@ -731,16 +735,26 @@ def load_dict(model_dict):
         model = globals()[model_dict['ml_model_type'].split('.')[-1]](**model_dict['kwargs'])
 
     if type == 'model_tree_node':
-        children = [load_dict(child_dict) for child_dict in model_dict['children']] if model_dict['children'] else None
+        children = [load_dict(child_dict, base_dir=base_dir) for child_dict in model_dict['children']] if model_dict['children'] else None
         name = model_dict['name']
         operator = model_dict['operator']
-        model = load_dict(model_dict['model']) if model_dict['model'] else None
+        model = load_dict(model_dict['model'], base_dir=base_dir) if model_dict['model'] else None
         weight = model_dict['weight'] if 'weight' in model_dict else None 
         model = model_tree_node(name=name, children=children, operator=operator, model=model)
         if weight:
             model.weight = weight
 
-    if type not in ['method', 'ml_model', 'model_tree_node']:
+    # Transfer-learning (TL) method types known to implement save()/load()/from_dict().
+    # Extend this list when additional method classes gain TL persistence support.
+    TL_METHOD_TYPES = ['ani_methods', 'aiqm1', 'aiqm2', 'aiqm3', 'uaiqm', 'omnip1']
+    if type in TL_METHOD_TYPES and ('model_tree' in model_dict or model_dict.get('tl')):
+        moduleinfo = model_dict.pop('module')
+        module_import = import_from_path(moduleinfo['name'], moduleinfo['path'])
+        modelcls = module_import.__dict__[type]
+        model = modelcls.from_dict(model_dict, base_dir=base_dir)
+
+    tl_loaded = type in TL_METHOD_TYPES and ('model_tree' in model_dict or model_dict.get('tl'))
+    if type not in ['method', 'ml_model', 'model_tree_node'] and not tl_loaded:
         moduleinfo = model_dict.pop('module')
         module_import = import_from_path(moduleinfo['name'], moduleinfo['path'])
         modelcls = module_import.__dict__[type]

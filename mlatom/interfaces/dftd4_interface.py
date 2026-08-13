@@ -38,11 +38,18 @@ class dftd4_methods(OMP_model, method_model):
     def __init__(self, 
                  method: str = 'D4',
                  functional: str = 'wb97x', 
+                 damping_function_params = None,
                  save_files_in_current_directory: bool = False, 
                  working_directory: str = None, 
                  nthreads: int = 1):
         self.method = method.casefold()
         self.functional = functional
+        # Explicit damping parameters, as dftd3_methods already accepts. They are
+        # passed to dftd4 with --param and fully determine the damping, so the
+        # functional is not sent as well; naming both would be ambiguous.
+        self.damping_function_params = damping_function_params
+        if self.damping_function_params:
+            self.damping_function_params = [str(ii) for ii in self.damping_function_params]
         self.save_files_in_current_directory = save_files_in_current_directory
         self.working_directory = working_directory
         self.nthreads = nthreads
@@ -82,7 +89,11 @@ class dftd4_methods(OMP_model, method_model):
                     xyzfilename = f'{tmpdirname}/predict{ii}.xyz'
                     mol.write_file_with_xyz_coordinates(filename = xyzfilename)
                     
-                    dftd4args = [self.dftd4bin, xyzfilename, '-f', '%s' % self.functional, '-c', '%d' % mol.charge, '-s', '-s', '--noedisp']
+                    dftd4args = [self.dftd4bin, xyzfilename, '-c', '%d' % mol.charge, '-s', '-s', '--noedisp']
+                    if self.damping_function_params:
+                        dftd4args += ['--param'] + self.damping_function_params
+                    else:
+                        dftd4args += ['-f', '%s' % self.functional]
                     if calculate_hessian:
                         dftd4args += ['--json', '--grad', '--hessian']
                     elif calculate_energy_gradients:

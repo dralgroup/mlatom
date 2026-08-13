@@ -310,8 +310,18 @@ class downloadable_model(model):
 
     def flatten(self, target):
         for root, dirs, files in os.walk(target):
+            if os.path.abspath(root) == os.path.abspath(target):
+                continue        # already where it belongs
             for ff in files:
-                shutil.move(os.path.join(root, ff), target)
+                destination = os.path.join(target, ff)
+                # A re-download into a directory that already holds some of the
+                # files made shutil.move raise "Destination path ... already
+                # exists" partway through, leaving the model half-extracted and
+                # the run dead - and the next run then succeeded, so it looked
+                # like a flake. The freshly downloaded copy wins.
+                if os.path.exists(destination):
+                    os.remove(destination)
+                shutil.move(os.path.join(root, ff), destination)
 
     def download(self, download_links, target, extract=True, flatten=True):
         '''
@@ -1076,8 +1086,19 @@ class model_tree_node(model):
         else:
             for child in self.children:
                 child.predict(**kwargs)
+                # The weight has to be written onto every molecule's copy of the
+                # child node - weighted_sum() reads it there. Writing it outside
+                # this loop reached only whichever molecule the loop above left
+                # behind, which silently turned every multi-molecule weighted_sum
+                # into an unweighted one.
                 if 'weight' in child.__dict__.keys():
-                    mol.__dict__[child.name].__dict__['weight'] = child.weight
+                    for mol in molDB.molecules:
+                        if child.name in mol.__dict__:
+                            mol.__dict__[child.name].__dict__['weight'] = child.weight
+                        if nstates and nstates > 1:
+                            for mol_el_st in mol.electronic_states:
+                                if child.name in mol_el_st.__dict__:
+                                    mol_el_st.__dict__[child.name].__dict__['weight'] = child.weight
 
             if self.operator == 'sum':
                 for mol in molDB.molecules:

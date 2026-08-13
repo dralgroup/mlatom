@@ -18,20 +18,47 @@ from ... import data, model_cls
 from ...model_cls import ml_model, torchani_model, method_model, hyperparameters, hyperparameter, model_tree_node
 from ...decorators import doc_inherit
 
-def calculate_re_descriptor(eqmol, mol):
-    natoms = len(eqmol.atoms)  
-    eq_distmat = eqmol.get_internuclear_distance_matrix()
-    descriptor = np.zeros(int(natoms*(natoms-1)/2))
-    distmat = mol.get_internuclear_distance_matrix()
-    ii = -1
-  
-    for iatomind in range(natoms):
-        for jatomind in range(iatomind+1,natoms):
-            ii += 1
-            descriptor[ii] = eq_distmat[iatomind][jatomind]/distmat[iatomind][jatomind]
-    mol.__dict__["RE"] = descriptor
-    mol.descriptor = descriptor
-    
+def level_descriptor(mol, descriptor_dim, source_index=None, default=None):
+    '''
+    The one-hot this model eats for the label source a molecule's labels are at.
+
+    The data declares a *name* - ``mol.label_source`` - and the model owns the
+    encoding, which is what the ``{source: index}`` map saved in the checkpoint
+    is for. Reading the name rather than a pre-built vector is also what keeps
+    this out of ``mol.descriptor``, which kernel methods use for something
+    entirely unrelated (the RE geometric descriptor, ``models.py:436``): writing
+    both to one attribute meant computing an RE descriptor on a database and then
+    training here silently replaced the level input with a geometric vector.
+
+    ``mol.descriptor`` is still honoured for scripts that set it directly, but its
+    length is now checked, so a substitution raises instead of being fitted.
+    '''
+    if default is None:
+        default = [0] * descriptor_dim
+        default[-1] = 1
+
+    source = getattr(mol, 'label_source', None)
+    if source is not None and source_index and source in source_index:
+        one_hot = [0] * descriptor_dim
+        one_hot[source_index[source]] = 1
+        return np.array(one_hot)
+
+    given = getattr(mol, 'descriptor', None)
+    if given is None:
+        return np.array(default)
+    given = np.asarray(given)
+    if given.size != descriptor_dim:
+        raise ValueError(
+            f'mol.descriptor has {given.size} entries but this model expects '
+            f'{descriptor_dim} (one per label source).\n'
+            f'  mol.descriptor is also written by the RE geometric descriptor '
+            f'(models.py:436), which is a different quantity - if this database '
+            f'was used with a kernel method, that is what happened.\n'
+            f'  Declare the label source by name instead: '
+            f"mol.label_source = '<name>', or db.set_label_source('<name>').")
+    return given
+
+
 def median(yp,yt):
     import torch
     return torch.median(torch.abs(yp-yt))
@@ -76,15 +103,11 @@ def molDB2ANIdata_state_Re(molDB,
     return TransformableIterable(IterableAdapter(lambda: molDBiter()))
     
 def unpackData2State_RE(mol_db, property_to_learn=None,
-                  xyz_derivative_property_to_learn=None, eqmol=None, descriptor_dim=2):
+                  xyz_derivative_property_to_learn=None, eqmol=None, descriptor_dim=2,
+                  source_index=None):
     train_data = data.molecular_database()
     for mol_id, i in enumerate(mol_db):
-        try:
-            dsc = i.descriptor
-        except:
-            dsc = [0] * descriptor_dim
-            dsc[-1] = 1
-        i.descriptor = np.array(dsc)
+        i.descriptor = level_descriptor(i, descriptor_dim, source_index)
         for idx, state in enumerate(i.electronic_states):
             new_mol = data.molecule()
             new_mol.read_from_xyz_string(i.get_xyz_string())
@@ -97,6 +120,16 @@ def unpackData2State_RE(mol_db, property_to_learn=None,
             if xyz_derivative_property_to_learn:
                 exec(cmd2)
             new_mol.mol_id = mol_id
+            # Every state is kept, including one whose label is NaN. The gap loss
+            # indexes this batch as true_energies[i*nstates + j], i.e. it assumes
+            # exactly nstates consecutive rows per molecule; dropping a state
+            # shifts everything after it and silently pairs states belonging to
+            # different geometries.
+            #
+            # A NaN label that reaches the loss is not harmless: mse_loss gives
+            # NaN there, .nanmean() hides it in the forward pass, and the
+            # backward pass then computes 0 * NaN and poisons every shared
+            # parameter. train() masks it, the way it masks missing gradients.
             train_data.append(new_mol)
     return train_data
 
@@ -168,7 +201,7 @@ class vecmsani(ml_model, torchani_model):
     }
     verbose = 1
 
-    def __init__(self, model_file: str = None, device: str = None, hyperparameters: Union[Dict[str,Any], model_cls.hyperparameters]={}, verbose=1, nstates=1,validate_train=True, descriptor_dim=2):
+    def __init__(self, model_file: str = None, device: str = None, hyperparameters: Union[Dict[str,Any], model_cls.hyperparameters]={}, verbose=1, nstates=1,validate_train=True, descriptor_dim=None):
         import torch, torchani
         if device == None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -177,7 +210,15 @@ class vecmsani(ml_model, torchani_model):
         self.hyperparameters.update(hyperparameters)
         self.verbose = verbose
         self.nstates = nstates
-        self.descriptor_dim = descriptor_dim
+        # An explicit descriptor_dim is the caller's statement about the network
+        # in front of them and always wins over whatever a checkpoint recorded:
+        # the width can be changed after the fact (increase_input_dim) without
+        # the saved value being updated, so the stored one goes stale.
+        self._descriptor_dim_given = descriptor_dim is not None
+        self.descriptor_dim = 2 if descriptor_dim is None else descriptor_dim
+        # {label source name: index in the one-hot}; the data declares a
+        # name and the model owns the encoding.
+        self.source_index = {}
 
         self.validate_train = validate_train
         self.energy_shifter = torchani.utils.EnergyShifter(None)
@@ -221,6 +262,11 @@ class vecmsani(ml_model, torchani_model):
                 'nn': self.nn.state_dict(),
                 'AEV_computer': self.aev_computer,
                 'energy_shifter': self.energy_shifter,
+                # Without these a loaded model has no idea how wide its level
+                # input is, nor which index means which source, so every default
+                # call was made at an unnamed level.
+                'descriptor_dim': self.descriptor_dim,
+                'source_index': getattr(self, 'source_index', {}),
             }
             , model_file
         )
@@ -244,6 +290,14 @@ class vecmsani(ml_model, torchani_model):
             return
         
         model_dict = torch.load(model_file, map_location=torch.device('cpu'), weights_only=False)
+
+        # How wide the level input is, and which index means which label source.
+        # A checkpoint written before these were saved has neither, and every
+        # call against it is made at an unnamed source - which is why they are
+        # written now.
+        if 'descriptor_dim' in model_dict and not getattr(self, '_descriptor_dim_given', False):
+            self.descriptor_dim = model_dict['descriptor_dim']
+        self.source_index = dict(model_dict.get('source_index', {}) or {})
 
         if 'property' in model_dict['args']:
             self.property_name = model_dict['args']['property']
@@ -343,6 +397,12 @@ class vecmsani(ml_model, torchani_model):
         import torch
         if hyperparameters:
             self.hyperparameters.update(hyperparameters)
+            # batch_size is given in molecules, and __init__ scales it to rows.
+            # One passed here arrives after that, so scale it the same way -
+            # otherwise a batch does not start at a molecule boundary and the
+            # gap term pairs states across the edge of a batch.
+            if 'batch_size' in hyperparameters:
+                self.hyperparameters.batch_size = self.hyperparameters.batch_size * self.nstates
 
         energy_weighting_function_kwargs = {k: (v.value if isinstance(v, hyperparameter) else v) for k, v in energy_weighting_function_kwargs.items()}
         if reset_energy_shifter:
@@ -420,7 +480,13 @@ class vecmsani(ml_model, torchani_model):
                     predicted_gaps = torch.stack(predicted_gap_list).to(self.device) if len(predicted_gap_list) else torch.tensor([], device=self.device)
                     
                     forces = -torch.autograd.grad(predicted_energies.sum(), coordinates, create_graph=True, retain_graph=True)[0]
-                    # true_energies[true_energies.isnan()]=predicted_energies[true_energies.isnan()]
+                    # A state with no label must not reach the loss: mse_loss gives NaN
+                    # there and the backward pass then computes 0 * NaN, which poisons
+                    # every shared parameter. Zero the residual, the way the missing
+                    # gradients are zeroed below. torch.where, not an in-place write,
+                    # because the batch is cached and reused every epoch.
+                    true_energies = torch.where(torch.isnan(true_energies), predicted_energies.detach(), true_energies)
+                    true_gaps = torch.where(torch.isnan(true_gaps), predicted_gaps.detach(), true_gaps)
                     if self.hyperparameters.median_loss:
                         energy_loss= median(predicted_energies,true_energies)
                     else:
@@ -450,7 +516,11 @@ class vecmsani(ml_model, torchani_model):
                         for j in range(1,self.nstates):
                             predicted_gap_list.append(abs(predicted_energies[i*self.nstates+j]-predicted_energies[i*self.nstates+j-1]))
                     predicted_gaps = torch.stack(predicted_gap_list).to(self.device) if len(predicted_gap_list) else torch.tensor([], device=self.device)
-                    
+
+                    # see above: a NaN label is finite through .nanmean() but poisons
+                    # the gradient, so the residual is zeroed
+                    true_energies = torch.where(torch.isnan(true_energies), predicted_energies.detach(), true_energies)
+                    true_gaps = torch.where(torch.isnan(true_gaps), predicted_gaps.detach(), true_gaps)
                     energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
                     #auxnumber = int(len(predicted_energies)/self.nstates)
                     if self.hyperparameters.gap_coefficient != 0.0:
@@ -526,7 +596,13 @@ class vecmsani(ml_model, torchani_model):
                     predicted_gaps = torch.stack(predicted_gap_list).to(self.device) if len(predicted_gap_list) else torch.tensor([], device=self.device)
                     #print(predicted_gaps)
                     forces = -torch.autograd.grad(predicted_energies.sum(), coordinates, create_graph=True, retain_graph=True)[0]
-                    # true_energies[true_energies.isnan()]=predicted_energies[true_energies.isnan()]
+                    # A state with no label must not reach the loss: mse_loss gives NaN
+                    # there and the backward pass then computes 0 * NaN, which poisons
+                    # every shared parameter. Zero the residual, the way the missing
+                    # gradients are zeroed below. torch.where, not an in-place write,
+                    # because the batch is cached and reused every epoch.
+                    true_energies = torch.where(torch.isnan(true_energies), predicted_energies.detach(), true_energies)
+                    true_gaps = torch.where(torch.isnan(true_gaps), predicted_gaps.detach(), true_gaps)
                     if self.hyperparameters.median_loss:
                         energy_loss= median(predicted_energies,true_energies)
                     else:
@@ -555,6 +631,10 @@ class vecmsani(ml_model, torchani_model):
                     predicted_gaps = torch.stack(predicted_gap_list).to(self.device) if len(predicted_gap_list) else torch.tensor([], device=self.device)
                     #print(predicted_gaps)
 
+                    # see above: a NaN label is finite through .nanmean() but poisons
+                    # the gradient, so the residual is zeroed
+                    true_energies = torch.where(torch.isnan(true_energies), predicted_energies.detach(), true_energies)
+                    true_gaps = torch.where(torch.isnan(true_gaps), predicted_gaps.detach(), true_gaps)
                     energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
                     if self.hyperparameters.gap_coefficient != 0.0:
                         gap_loss = (loss_function(predicted_gaps,true_gaps, 1)).nanmean()
@@ -609,10 +689,9 @@ class vecmsani(ml_model, torchani_model):
 
 
         for mol in molDB:
-            try:
-                mol.descriptor = mol.descriptor
-            except:
-                mol.descriptor = def_descriptor
+            mol.descriptor = level_descriptor(
+                mol, self.descriptor_dim, getattr(self, 'source_index', None),
+                default=def_descriptor)
         for batch in molDB.batches(batch_size):
             state_energies =[]
             state_gradients =[]
@@ -796,6 +875,11 @@ class vecmsani(ml_model, torchani_model):
                    property_to_learn, xyz_derivative_property_to_learn):
         assert molecular_database, 'provide molecular database'
         import torch
+        # NOTE: no molecule-level label filter here. On this path the label lives
+        # on mol.electronic_states[i], not on the molecule, so filtering by
+        # property_to_learn would drop every molecule. unpackData2State* does the
+        # filtering per state instead, and the emptiness guard is below, after
+        # the unpack.
         self.property_name = property_to_learn
         
         data_element_symbols = list(np.sort(np.unique(np.concatenate(molecular_database.element_symbols))))
@@ -807,7 +891,39 @@ class vecmsani(ml_model, torchani_model):
                 if element not in self.species_order:
                     print('element(s) outside supported species detected, please check the database')
                     return
-                
+
+        # {label source name: index in the one-hot}. The data declares a name and
+        # the model owns the encoding, so the map is built here - before the split,
+        # or the two halves could be encoded differently. descriptor_dim is the
+        # width of the network input, so the number of names it holds is fixed; a
+        # model loaded from a checkpoint keeps the map it was trained with, and a
+        # new name takes the next free index. One name against a model with no map
+        # takes the default slot, which is the one-hot this data would have got
+        # anyway, so a fine-tuning run stays warm and only the name is recorded.
+        declared = []
+        for mol in molecular_database:
+            source = getattr(mol, 'label_source', None)
+            if source is not None and source not in declared:
+                declared.append(source)
+        unmapped = [source for source in declared if source not in self.source_index]
+        if unmapped:
+            free = [i for i in range(self.descriptor_dim) if i not in set(self.source_index.values())]
+            if not self.source_index and len(unmapped) == 1:
+                free = [self.descriptor_dim - 1]
+            if len(unmapped) > len(free):
+                raise ValueError(
+                    f'the training data declares {len(self.source_index) + len(unmapped)} label '
+                    f'sources but this model encodes at most {self.descriptor_dim}.\n'
+                    f'  Already mapped: {self.source_index or "none"}\n'
+                    f'  Without an index: {unmapped}\n'
+                    f'  descriptor_dim is the width of the network input, so it cannot grow on a '
+                    f'model that is already built. Construct the model with '
+                    f'descriptor_dim={len(self.source_index) + len(unmapped)} and train from '
+                    f'scratch, or train one source at a time.')
+            for source, index in zip(unmapped, free):
+                self.source_index[source] = index
+            if self.verbose: print(f'label sources encoded as {self.source_index}')
+
         if validation_molecular_database == 'sample_from_molecular_database':
             idx = np.arange(len(molecular_database))
             np.random.shuffle(idx)
@@ -815,15 +931,48 @@ class vecmsani(ml_model, torchani_model):
         elif not validation_molecular_database:
             raise NotImplementedError("please specify validation_molecular_database or set it to 'sample_from_molecular_database'")
         molecular_database = unpackData2State_RE(molecular_database, property_to_learn=property_to_learn,
-                  xyz_derivative_property_to_learn=xyz_derivative_property_to_learn, descriptor_dim=self.descriptor_dim)
+                  xyz_derivative_property_to_learn=xyz_derivative_property_to_learn, descriptor_dim=self.descriptor_dim,
+                  source_index=getattr(self, 'source_index', None))
         validation_molecular_database = unpackData2State_RE(validation_molecular_database, property_to_learn=property_to_learn,
-                  xyz_derivative_property_to_learn=xyz_derivative_property_to_learn, descriptor_dim=self.descriptor_dim)
+                  xyz_derivative_property_to_learn=xyz_derivative_property_to_learn, descriptor_dim=self.descriptor_dim,
+                  source_index=getattr(self, 'source_index', None))
+
+        # The unpackers drop states whose label is missing; if that leaves
+        # nothing, say so here rather than failing obscurely further down.
+        for name, unpacked in (('training', molecular_database),
+                               ('validation', validation_molecular_database)):
+            if not len(unpacked):
+                raise ValueError(
+                    f'no state in the {name} set has a usable {property_to_learn}, '
+                    f'so there is nothing to train on. Check that property_to_learn '
+                    f'names a label the electronic states actually carry.')
+
+        unlabelled = sum(int(np.isnan(np.array(unpacked.get_properties(property_to_learn), dtype=float)).sum())
+                         for unpacked in (molecular_database, validation_molecular_database))
+        if unlabelled:
+            print(f'WARNING: {unlabelled} states have no {property_to_learn}. They are kept so the '
+                  f'gap term keeps its stride, and masked out of the loss - they contribute nothing '
+                  f'to it. Check the database if you did not expect missing labels.')
+
+        # By design the gap term only works on a homogeneous set: every molecule
+        # carries the same number of states, and that number is nstates. This is
+        # a deliberate limit, not something to work around - the term reads the
+        # energies in blocks of nstates, so a molecule with a different count
+        # shifts every block after it and the gap is then taken between two
+        # different molecules. There is no correct gap for such a molecule, so
+        # switch the term off rather than compute a wrong one.
+        if self.hyperparameters.gap_coefficient != 0.0:
+            counts = np.concatenate([np.unique([mol.mol_id for mol in unpacked], return_counts=True)[1]
+                                     for unpacked in (molecular_database, validation_molecular_database)])
+            if np.any(counts != self.nstates):
+                print(f'WARNING: {np.sum(counts != self.nstates)} of {len(counts)} molecules do not '
+                      f'have {self.nstates} states with a usable {property_to_learn}. '
+                      f'gap_coefficient set to 0.0 (was {self.hyperparameters.gap_coefficient}), '
+                      f'because the gap term needs the same number of states for every molecule.')
+                self.hyperparameters.gap_coefficient = 0.0
+
         if self.energy_shifter.self_energies is None:
-            if np.isnan(molecular_database.get_properties(property_to_learn)).sum():
-                molDB2ANIdata_state_Re(molecular_database.filter_by_property(property_to_learn), property_to_learn, xyz_derivative_property_to_learn).subtract_self_energies(self.energy_shifter, self.species_order)
-                self.subtraining_set = molDB2ANIdata_state_Re(molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).cache()
-            else:   
-                self.subtraining_set = molDB2ANIdata_state_Re(molecular_database, property_to_learn, xyz_derivative_property_to_learn).subtract_self_energies(self.energy_shifter, self.species_order).species_to_indices(self.species_order).cache()
+            self.subtraining_set = molDB2ANIdata_state_Re(molecular_database, property_to_learn, xyz_derivative_property_to_learn).subtract_self_energies(self.energy_shifter, self.species_order).species_to_indices(self.species_order).cache()
         else:
             self.subtraining_set = molDB2ANIdata_state_Re(molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).cache()
 

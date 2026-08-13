@@ -17,6 +17,8 @@ import tqdm
 from collections import OrderedDict
 
 from .. import data, model_cls
+from .. import dispersion as dispersion_utils
+from .. import delta_learning
 from ..model_cls import ml_model, torchani_model, method_model, hyperparameters, hyperparameter, model_tree_node, downloadable_model
 from ..decorators import doc_inherit
 
@@ -57,8 +59,13 @@ def unpackData2State(mol_db, property_to_learn=None,
             if xyz_derivative_property_to_learn:
                 exec(cmd2)            
             new_mol.mol_id = mol_id
-            if not np.isnan(getattr(state, property_to_learn)):
-                train_data.append(new_mol)
+            # Every state is kept, including one whose label is NaN, the same as
+            # unpackData2State_RE in the OMNI-P2x path. The gap loss indexes this
+            # batch as true_energies[i*nstates + j], so it assumes exactly nstates
+            # consecutive rows per molecule; dropping a state shifts everything
+            # after it and silently pairs states of different geometries. train()
+            # masks the NaN out of the loss instead.
+            train_data.append(new_mol)
     return train_data
 #The two MOLDB2ANIdata should be merged, i just didnt have the time to do it.
 def molDB2ANIdata(molDB, 
@@ -101,6 +108,39 @@ class ani(ml_model, torchani_model):
         hyperparameters (Dict[str, Any] | :class:`model_cls.hyperparameters`, optional): Updates the hyperparameters of the model with provided.
         verbose (int, optional): 0 for silence, 1 for verbosity.
     '''
+
+    #: Prediction keywords a composite model passes down to every child and that
+    #: an ANI network has no answer for: properties it cannot compute, and the
+    #: electronic-state selection it does not have. ``predict()`` accepts and
+    #: ignores exactly these.
+    #:
+    #: Whether an ANI network can produce a dipole derivative is a fact about
+    #: ANI, not about whoever is asking, so it is recorded here once. It used to
+    #: be stripped by a wrapper subclass per parent - three of them, each with a
+    #: slightly different list, so the same question had three answers.
+    #:
+    #: Anything *not* named here still raises: the point of naming them is that a
+    #: misspelled or genuinely wrong keyword stays loud rather than being
+    #: swallowed along with the rest.
+    ignorable_prediction_kwargs = (
+        'calculate_dipole_derivatives',
+        'calculate_polarizability_derivatives',
+        'nstates',
+        'current_state',
+    )
+
+    @classmethod
+    def check_ignorable(cls, given):
+        '''Refuse any keyword this model is not entitled to ignore.'''
+        unexpected = [name for name in given
+                      if name not in cls.ignorable_prediction_kwargs]
+        if unexpected:
+            raise TypeError(
+                f"{cls.__name__}.predict() got an unexpected keyword argument "
+                f"{unexpected[0]!r}.\n"
+                f"  Keywords this model may ignore, because a neural network has "
+                f"no answer for them:\n"
+                f"    {', '.join(cls.ignorable_prediction_kwargs)}")
 
     hyperparameters = model_cls.hyperparameters({
         #### Training ####
@@ -151,6 +191,9 @@ class ani(ml_model, torchani_model):
         self.hyperparameters = self.hyperparameters.copy()
         self.hyperparameters.update(hyperparameters)
         self.verbose = verbose
+        # A fresh ani() must have one: train() only builds it when
+        # reset_energy_shifter is set, and that defaults to False so that
+        # ani.train() on an existing model keeps continuing it.
         self.energy_shifter = torchani.utils.EnergyShifter(None)
         if 'key' in kwargs:
             self.key = kwargs['key']
@@ -285,10 +328,27 @@ class ani(ml_model, torchani_model):
         Load an ANI model.
         
             Arguments:
-                method(str): Can be ``'ANI-1x'``, ``'ANI-1ccx'``, or ``'ANI-2x'``.
+                method(str): Can be ``'ANI-1x'``, ``'ANI-1ccx'``, ``'ANI-2x'``, or ``'ANI-1xnr'``.
         '''
         import torch, torchani
         self.hyperparameters.update(hyperparameters)
+        if 'ANI-1xnr'.casefold() in method.casefold():
+            # ANI-1xnr is distributed as a NeuroChem ensemble; unpack it into the
+            # same internal representation as the built-in ANI models.
+            model = load_ani1xnr_model().to(self.device)
+            self.species_order = model.species
+            self.argsdict.update({'species_order': self.species_order})
+            self.aev_computer = model[0][1]
+            self.networkdict = [OrderedDict(**{k: v for k, v in nn[2].items()}) for nn in model]
+            self.neurons = [[[layer.out_features for layer in network if isinstance(layer, torch.nn.Linear)] for network in subdict.values()] for subdict in self.networkdict]
+            self.nn = torchani.nn.Ensemble([nn[2] for nn in model])
+            self.optimizer_setup(**self.hyperparameters)
+            self.energy_shifter = model[0][3]
+            self.model = torchani.nn.Sequential(self.aev_computer, self.nn).to(self.device).float()
+            self.hyperparameters['neurons'] = self.neurons
+            if self.verbose: print(f'loaded {method} model')
+            return
+
         if 'ANI-1x'.casefold() in method.casefold():
             model = torchani.models.ANI1x(periodic_table_index=True).to(self.device)
         elif 'ANI-1ccx'.casefold() in method.casefold():
@@ -308,6 +368,7 @@ class ani(ml_model, torchani_model):
         self.optimizer_setup(**self.hyperparameters)
         self.energy_shifter = model.energy_shifter
         self.model = torchani.nn.Sequential(self.aev_computer, self.nn).to(self.device).float()
+        self.hyperparameters['neurons'] = self.neurons
         if self.verbose: print(f'loaded {method} model')
     
     @doc_inherit
@@ -324,6 +385,7 @@ class ani(ml_model, torchani_model):
         check_point: str = None,
         reset_optim_state: bool = False,
         use_last_model: bool = False,
+        reset_aev: bool = False,
         reset_parameters: bool = False,
         reset_network: bool = False,
         reset_optimizer: bool = False,
@@ -362,18 +424,23 @@ class ani(ml_model, torchani_model):
         energy_weighting_function_kwargs = {k: (v.value if isinstance(v, hyperparameter) else v) for k, v in energy_weighting_function_kwargs.items()}
         
         if reset_energy_shifter:
-            if self.energy_shifter:
-                self.energy_shifter_ = self.energy_shifter
-            if type(reset_energy_shifter) == list:
+
+            # save old energy shifter for backup
+            if 'energy_shifter' in self.__dict__:
+                assert isinstance(self.energy_shifter, torchani.utils.EnergyShifter), "The energy shifter should be class torchani.utils.EnergyShifter"
+                if self.energy_shifter.self_energies is not None:
+                    self.energy_shifter_ = self.energy_shifter
+
+            if isinstance(reset_energy_shifter, list):
                 self.energy_shifter = torchani.utils.EnergyShifter(reset_energy_shifter)
             elif isinstance(reset_energy_shifter, torchani.utils.EnergyShifter):
                 self.energy_shifter = reset_energy_shifter
             else:
                 self.energy_shifter = torchani.utils.EnergyShifter(None)
-            
         if not molecular_database._is_uniform_cell():
             print('non-uniform PBC cells detected, using batch_size=1')
             self.hyperparameters.batch_size = 1
+
         self.data_setup(molecular_database, validation_molecular_database, spliting_ratio, property_to_learn, xyz_derivative_property_to_learn)
 
         # print energy shifter information
@@ -384,21 +451,40 @@ class ani(ml_model, torchani_model):
             print('\n')
             sys.stdout.flush()
 
-        if not self.model:
-            self.model_setup(**self.hyperparameters)
-        else:
-            if 'fixed_layers' in hyperparameters:
-                if hyperparameters['fixed_layers'] and type(hyperparameters['fixed_layers'])==list:
-                    self.fix_layers(layers_to_fix=hyperparameters['fixed_layers'])
-
-        if reset_network:
-            self.NN_setup(**self.hyperparameters)
-
-        if reset_parameters:
-            self.NN_initialize()
-        
-        if reset_optimizer:
+        # The reset_* flags mean "rebuild this even though it exists", and they
+        # default to False so that train() on an existing model continues it.
+        # A model that has never been set up needs the piece built regardless -
+        # otherwise a fresh ani() reaches the asserts below with no aev_computer
+        # and no nn.
+        if reset_aev or not hasattr(self, 'aev_computer'):
+            self.AEV_setup(**self.hyperparameters)
+        if reset_network or not hasattr(self, 'nn'):
+            if not reset_parameters and hasattr(self, 'nn'):
+                self.NN_setup_with_parameters(**self.hyperparameters)
+            else: self.NN_setup(**self.hyperparameters)
+        if reset_parameters: self.NN_initialize()
+        if reset_optimizer or not hasattr(self, 'AdamW_scheduler'):
             self.optimizer_setup(**self.hyperparameters)
+
+        # set up model by default
+        assert 'aev_computer' in self.__dict__, "aev_computer not found when establishing model"
+        assert 'nn' in self.__dict__, "nn not found when establishing model"
+        self.model = torchani.nn.Sequential(self.aev_computer, self.nn).float().to(self.device)
+
+        # fix layers
+        if 'fixed_layers' in hyperparameters:
+            # `hyperparameters` is documented as "Dict[str, Any] |
+            # model_cls.hyperparameters", and the container's __setitem__ wraps
+            # every value in a hyperparameter object (model_cls.py:944). This
+            # test used to read `type(x) == list`, which is False for that
+            # wrapper - so passing the documented container instead of a plain
+            # dict silently skipped the freezing and fine-tuned every layer,
+            # with nothing raised and nothing logged. Unwrap first, and use
+            # isinstance so a list subclass is not rejected either.
+            layers_to_fix = getattr(hyperparameters['fixed_layers'], 'value',
+                                    hyperparameters['fixed_layers'])
+            if layers_to_fix and isinstance(layers_to_fix, list):
+                self.fix_layers(layers_to_fix=layers_to_fix)
 
         self.model.train()
 
@@ -541,33 +627,35 @@ class ani(ml_model, torchani_model):
                     'SGD_scheduler':    self.SGD_scheduler.state_dict(),
                 }, check_point)
 
-        # print the performance of the best model
-        if self.verbose and self.verbose == 2:
-            print('\nPerformance of the best model on validation set')
-            _, best_rmse, best_mae, best_val_loss = validate()
-            print('best validation MAE:', best_mae,)
-            print('best validation RMSE:', best_rmse,)
-            print('best validation energy loss:', best_val_loss,)
-
         if save_model and not use_last_model:
             self.load(self.model_file)
 
+            # print the performance of the best model
+            if self.verbose and self.verbose == 2:
+                print('\nPerformance of the best model on validation set')
+                _, best_rmse, best_mae, best_val_loss = validate()
+                print('best validation MAE:', best_mae,)
+                print('best validation RMSE:', best_rmse,)
+                print('best validation energy loss:', best_val_loss,)
+
     @doc_inherit
     def predict(
-            self, 
-            molecular_database: data.molecular_database = None, 
+            self,
+            molecular_database: data.molecular_database = None,
             molecule: data.molecule = None,
             calculate_energy: bool = False,
-            calculate_energy_gradients: bool = False, 
+            calculate_energy_gradients: bool = False,
             calculate_hessian: bool = False,
-            property_to_predict: Union[str, None] = 'estimated_y', 
-            xyz_derivative_property_to_predict: Union[str, None] = None, 
-            hessian_to_predict: Union[str, None] = None, 
+            property_to_predict: Union[str, None] = 'estimated_y',
+            xyz_derivative_property_to_predict: Union[str, None] = None,
+            hessian_to_predict: Union[str, None] = None,
             batch_size: int = 2**16,
+            **not_for_a_network,
         ) -> None:
         '''
             batch_size (int, optional): The batch size for batch-predictions.
         '''
+        self.check_ignorable(not_for_a_network)
         import torch, torchani
         molDB, property_to_predict, xyz_derivative_property_to_predict, hessian_to_predict = \
             super().predict(molecular_database=molecular_database, molecule=molecule, calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, property_to_predict = property_to_predict, xyz_derivative_property_to_predict = xyz_derivative_property_to_predict, hessian_to_predict = hessian_to_predict)
@@ -641,8 +729,63 @@ class ani(ml_model, torchani_model):
 
         self.nn = torchani.ANIModel(self.networkdict)
 
+    def NN_setup_with_parameters(self, **kwargs):
+
+        assert 'nn' in self.__dict__, "Please provide nn to load parameters"
+        assert 'networkdict' in self.__dict__, "Please provide networkdict to load parameters"
+
+        old_nn = OrderedDict()
+        for specie in self.nn:
+            old_nn[specie] = {k: v.detach().clone() for k, v in self.nn[specie].state_dict().items()}
+        old_networkdict = self.networkdict
+        
+        import torch, torchani
+        kwargs = hyperparameters(kwargs)
+
+        assert len(kwargs.neurons) == 1, "Only same kind of neurons is supported e.g. [[160,128,96]] to setup NN with old parameters"
+        self.neurons = [kwargs.neurons[0].copy() for _ in range(len(self.species_order))]
+
+        # define nn structures
+        self.networkdict = OrderedDict()
+        for i, specie in enumerate(self.species_order):
+            self.neurons[i] += [1]
+            layers = [torch.nn.Linear(self.aev_computer.aev_length, self.neurons[i][0])]
+            for j in range(len(self.neurons[i]) - 1):
+                if type(kwargs.activation_function) == str:
+                    act_fun = kwargs.activation_function
+                    if '(' in act_fun:
+                        xx = act_fun.split('(')
+                        act_fun = xx[0]
+                        alpha = float(xx[1].strip(')'))
+                        layers += [torch.nn.__dict__[act_fun](alpha)]
+                    else:  
+                        layers += [torch.nn.__dict__[act_fun]()]
+                elif callable(kwargs.activation_function):
+                    layers += [kwargs.activation_function()]
+                layers += [torch.nn.Linear(self.neurons[i][j], self.neurons[i][j + 1])]
+            self.networkdict[specie] = torch.nn.Sequential(*layers)
+
+            # load old model architecture
+            if specie in old_networkdict:
+                self.networkdict[specie] = old_networkdict[specie]
+                # change the first layer if aev length does not match old NN
+                if self.aev_computer.aev_length != old_networkdict[specie][0].in_features:
+                    self.networkdict[specie][0] = torch.nn.Linear(self.aev_computer.aev_length, old_networkdict[specie][0].out_features)
+        
+        self.nn = torchani.ANIModel(self.networkdict)
         self.NN_initialize()
-        self.optimizer_setup(**kwargs)  
+
+        # load parameters - will only load the layers that matches
+        for i, specie in enumerate(self.species_order):
+            if specie in old_nn:
+                state_to_load = old_nn[specie]
+                for kk, vv in old_nn[specie].items():
+                    if vv.shape != self.nn[specie].state_dict()[kk].shape:
+                        state_to_load[kk] = self.nn[specie].state_dict()[kk]
+                        # reset bias which has the same shape as current NN
+                        bias_name = kk.replace('weight','bias')
+                        state_to_load[bias_name] = self.nn[specie].state_dict()[bias_name]
+                self.nn[specie].load_state_dict(state_to_load)
 
     def NN_initialize(self, a: float = 1.0) -> None:
         '''
@@ -763,28 +906,60 @@ class ani(ml_model, torchani_model):
         if layers_to_fix:
             if len(layers_to_fix) == 1:
                 layers_to_fix = layers_to_fix * len(self.species_order)
+
+            # fix NN that exists in established models
+            if 'element_symbols_available' in self.__dict__:
+                elements_to_include = self.element_symbols_available
+            else: elements_to_include = []
+
             for name, parameter in self.model.named_parameters():
                 indices = name.split('.')
-                if int(indices[-2]) in layers_to_fix[self.species_order.index(indices[-3] if indices[-3] in data.element_symbol2atomic_number else data.atomic_number2element_symbol[int(indices[-3])])]:
-                    parameter.requires_grad=False
+
+                if indices[-3] in elements_to_include or indices[-3] in [data.element_symbol2atomic_number[es] for es in elements_to_include]:
+                    if int(indices[-2]) in layers_to_fix[self.species_order.index(indices[-3] if indices[-3] in data.element_symbol2atomic_number else data.atomic_number2element_symbol[int(indices[-3])])]:
+                        parameter.requires_grad=False
+
+                        # if self.verbose: # debug
+                        #     print(f'{name} fixed'); sys.stdout.flush()
 
     def data_setup(self, molecular_database, validation_molecular_database, spliting_ratio,
                    property_to_learn, xyz_derivative_property_to_learn, ):
         import torch
         assert molecular_database, 'provide molecular database'
+        # Molecules lacking the label are dropped here, not tolerated in the
+        # loss: .nanmean() keeps the reported loss finite while .backward()
+        # poisons every shared parameter through the 0 x NaN product. This is
+        # also what lets one database carry labels from several sources, with
+        # the expensive one present on only some molecules.
+        molecular_database = molecular_database.without_missing_labels(
+            property_to_learn, label='training', verbose=getattr(self, 'verbose', 1))
+        if (validation_molecular_database is not None
+                and not isinstance(validation_molecular_database, str)
+                and validation_molecular_database):
+            validation_molecular_database = validation_molecular_database.without_missing_labels(
+                property_to_learn, label='validation', verbose=getattr(self, 'verbose', 1))
 
         self.property_name = property_to_learn
         
-        data_element_symbols = list(np.sort(np.unique(np.concatenate(molecular_database.element_symbols))))
+        data_atomic_numbers = list(np.sort(np.unique(np.concatenate(molecular_database.atomic_numbers))))
+        data_element_symbols = [data.atomic_number2element_symbol[an] for an in data_atomic_numbers]
 
         if not self.species_order: 
             self.species_order = data_element_symbols
-        else:
-            for element in data_element_symbols:
-                if element not in self.species_order:
-                    print('element(s) outside supported species detected, please check the database')
-                    return
-                
+        # else:
+        #     for element in data_element_symbols:
+        #         if element not in self.species_order:
+        #             # print('element(s) outside supported species detected, please check the database')
+        #             print(f"Species {element} found. Additional atomic neural networks will be added"); sys.stdout.flush()
+        
+        if self.species_order != data_element_symbols:
+            if 'energy_shifter_' in self.__dict__:
+                old_species_sae_dict = {ss:ee for ss, ee in zip(self.species_order, self.energy_shifter_.self_energies.tolist())}
+            else: old_species_sae_dict = {ss:0 for ss in self.species_order}
+
+            self.species_order.extend(data_element_symbols)
+            self.species_order = sorted(np.unique(self.species_order), key=lambda x: data.element_symbol2atomic_number[x])
+
         if validation_molecular_database == 'sample_from_molecular_database':
             idx = np.arange(len(molecular_database))
             np.random.shuffle(idx)
@@ -793,24 +968,20 @@ class ani(ml_model, torchani_model):
             raise NotImplementedError("please specify validation_molecular_database or set it to 'sample_from_molecular_database'")
 
         if self.energy_shifter.self_energies is None:
-            if np.isnan(molecular_database.get_properties(property_to_learn)).sum():
-                molDB2ANIdata(molecular_database.filter_by_property(property_to_learn), property_to_learn, xyz_derivative_property_to_learn).subtract_self_energies(self.energy_shifter, self.species_order)
-                self.subtraining_set = molDB2ANIdata(molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).shuffle()
-            else:   
-                self.subtraining_set = molDB2ANIdata(molecular_database, property_to_learn, xyz_derivative_property_to_learn).subtract_self_energies(self.energy_shifter, self.species_order).species_to_indices(self.species_order).shuffle()
+            self.subtraining_set = molDB2ANIdata(molecular_database, property_to_learn, xyz_derivative_property_to_learn).subtract_self_energies(self.energy_shifter, self.species_order).species_to_indices(self.species_order).shuffle()
         else:
             self.subtraining_set = molDB2ANIdata(molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).shuffle()
 
-        if len(self.species_order) != len(self.energy_shifter.self_energies):
-            true_species_order = sorted(data_element_symbols, key=lambda x: self.species_order.index(x))
-            expanded_self_energies = np.zeros((len(self.species_order)))
-            for ii, sp in enumerate(self.species_order):
-                if sp in true_species_order:
-                    expanded_self_energies[ii] = self.energy_shifter.self_energies[true_species_order.index(sp)]
-                elif 'energy_shifter_' in self.__dict__:
-                    expanded_self_energies[ii] = self.energy_shifter_.self_energies[ii]
-
-            self.energy_shifter.self_energies = torch.tensor(expanded_self_energies)
+        if self.species_order != data_element_symbols:
+            incoming_species_sae_dict = {ss:ee for ss, ee in zip(data_element_symbols, self.energy_shifter.self_energies.tolist())}
+            updated_species_sae_dict = OrderedDict()
+            for sp in self.species_order:
+                if sp in incoming_species_sae_dict:
+                    updated_species_sae_dict[sp] = incoming_species_sae_dict[sp]
+                else: # use old sae
+                    updated_species_sae_dict[sp] = old_species_sae_dict[sp]
+        
+            self.energy_shifter.self_energies = torch.tensor(list((updated_species_sae_dict.values())), dtype=torch.float64)
         
         self.validation_set = molDB2ANIdata(validation_molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).shuffle()
         
@@ -1172,7 +1343,13 @@ class msani(ml_model, torchani_model):
                     predicted_gaps = torch.stack(predicted_gap_list).to(self.device) if len(predicted_gap_list) else torch.tensor([], device=self.device)
                     
                     forces = -torch.autograd.grad(predicted_energies.sum(), coordinates, create_graph=True, retain_graph=True)[0]
-                    # true_energies[true_energies.isnan()]=predicted_energies[true_energies.isnan()]
+                    # A state with no label must not reach the loss: mse_loss gives NaN
+                    # there and the backward pass then computes 0 * NaN, which poisons
+                    # every shared parameter. Zero the residual, the way the missing
+                    # gradients are zeroed below. torch.where, not an in-place write,
+                    # because the batch is cached and reused every epoch.
+                    true_energies = torch.where(torch.isnan(true_energies), predicted_energies.detach(), true_energies)
+                    true_gaps = torch.where(torch.isnan(true_gaps), predicted_gaps.detach(), true_gaps)
                     if self.hyperparameters.median_loss:
                         energy_loss= median(predicted_energies,true_energies)
                     else:
@@ -1203,7 +1380,11 @@ class msani(ml_model, torchani_model):
                         for j in range(1,self.nstates):
                             predicted_gap_list.append(abs(predicted_energies[i*self.nstates+j]-predicted_energies[i*self.nstates+j-1]))
                     predicted_gaps = torch.stack(predicted_gap_list).to(self.device) if len(predicted_gap_list) else torch.tensor([], device=self.device)
-                    
+
+                    # see above: a NaN label is finite through .nanmean() but poisons
+                    # the gradient, so the residual is zeroed
+                    true_energies = torch.where(torch.isnan(true_energies), predicted_energies.detach(), true_energies)
+                    true_gaps = torch.where(torch.isnan(true_gaps), predicted_gaps.detach(), true_gaps)
                     energy_loss = (loss_function(predicted_energies, true_energies, weightings_e) / num_atoms.sqrt()).nanmean()
                     if self.hyperparameters.gap_coefficient != 0.0:
                         gap_loss = (loss_function(predicted_gaps,true_gaps, 1)).nanmean()
@@ -1548,6 +1729,11 @@ class msani(ml_model, torchani_model):
                    property_to_learn, xyz_derivative_property_to_learn, ):
         import torch
         assert molecular_database, 'provide molecular database'
+        # NOTE: no molecule-level label filter here. On this path the label lives
+        # on mol.electronic_states[i], not on the molecule, so filtering by
+        # property_to_learn would drop every molecule. unpackData2State* does the
+        # filtering per state instead, and the emptiness guard is below, after
+        # the unpack.
 
         self.property_name = property_to_learn
         
@@ -1571,14 +1757,43 @@ class msani(ml_model, torchani_model):
                   xyz_derivative_property_to_learn=xyz_derivative_property_to_learn)
         validation_molecular_database = unpackData2State(validation_molecular_database,property_to_learn=property_to_learn,
                   xyz_derivative_property_to_learn=xyz_derivative_property_to_learn)
+
+        # The unpackers drop states whose label is missing; if that leaves
+        # nothing, say so here rather than failing obscurely further down.
+        for name, unpacked in (('training', molecular_database),
+                               ('validation', validation_molecular_database)):
+            if not len(unpacked):
+                raise ValueError(
+                    f'no state in the {name} set has a usable {property_to_learn}, '
+                    f'so there is nothing to train on. Check that property_to_learn '
+                    f'names a label the electronic states actually carry.')
+
+        unlabelled = sum(int(np.isnan(np.array(unpacked.get_properties(property_to_learn), dtype=float)).sum())
+                         for unpacked in (molecular_database, validation_molecular_database))
+        if unlabelled:
+            print(f'WARNING: {unlabelled} states have no {property_to_learn}. They are kept so the '
+                  f'gap term keeps its stride, and masked out of the loss - they contribute nothing '
+                  f'to it. Check the database if you did not expect missing labels.')
+
+        # By design the gap term only works on a homogeneous set: every molecule
+        # carries the same number of states, and that number is nstates. This is
+        # a deliberate limit, not something to work around - the term reads the
+        # energies in blocks of nstates, so a molecule with a different count
+        # shifts every block after it and the gap is then taken between two
+        # different molecules. There is no correct gap for such a molecule, so
+        # switch the term off rather than compute a wrong one.
+        if self.hyperparameters.gap_coefficient != 0.0:
+            counts = np.concatenate([np.unique([mol.mol_id for mol in unpacked], return_counts=True)[1]
+                                     for unpacked in (molecular_database, validation_molecular_database)])
+            if np.any(counts != self.nstates):
+                print(f'WARNING: {np.sum(counts != self.nstates)} of {len(counts)} molecules do not '
+                      f'have {self.nstates} states. gap_coefficient set to 0.0 (was '
+                      f'{self.hyperparameters.gap_coefficient}), because the gap term needs the '
+                      f'same number of states for every molecule.')
+                self.hyperparameters.gap_coefficient = 0.0
+
         if self.energy_shifter.self_energies is None:
-            if np.isnan(molecular_database.get_properties(property_to_learn)).sum():
-                print(property_to_learn)
-                print(xyz_derivative_property_to_learn)
-                molDB2ANIdata_state(molecular_database.filter_by_property(property_to_learn), property_to_learn, xyz_derivative_property_to_learn).subtract_self_energies(self.energy_shifter, self.species_order)
-                self.subtraining_set = molDB2ANIdata_state(molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).cache()
-            else:   
-                self.subtraining_set = molDB2ANIdata_state(molecular_database, property_to_learn, xyz_derivative_property_to_learn).subtract_self_energies(self.energy_shifter, self.species_order).species_to_indices(self.species_order).cache()
+            self.subtraining_set = molDB2ANIdata_state(molecular_database, property_to_learn, xyz_derivative_property_to_learn).subtract_self_energies(self.energy_shifter, self.species_order).species_to_indices(self.species_order).cache()
         else:
             self.subtraining_set = molDB2ANIdata_state(molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).cache()
         
@@ -1667,9 +1882,11 @@ class ani_methods(torchani_model, method_model, downloadable_model):
 
     '''
     
-    supported_methods = ["ANI-1x", "ANI-1ccx", "ANI-2x", 'ANI-1x-D4', 'ANI-2x-D4', 'ANI-1xnr', 'ANI-1ccx-gelu', 'ANI-1ccx-gelu-D4', 'ANI-1x-gelu', 'ANI-1x-gelu-d4']
+    supported_methods = ["ANI-1x", "ANI-1ccx", "ANI-2x", 'ANI-1x-D4', 'ANI-2x-D4', 'ANI-1xnr', 'ANI-1xnr-D4', 'ANI-1ccx-gelu', 'ANI-1ccx-gelu-D4', 'ANI-1x-gelu', 'ANI-1x-gelu-d4']
     # no atomic energies for ANI-1ccx-gelu thus calculating energy on single atom will get error
     atomic_energies = {'ANI-1ccx': {1:-0.50088088, 6:-37.79199048, 7:-54.53379230, 8:-75.00968205}}
+    _tl = True
+    verbose = 1
 
     def __init__(self, method: str = 'ANI-1ccx', model_index=None, device = None):
         import torch
@@ -1709,10 +1926,14 @@ class ani_methods(torchani_model, method_model, downloadable_model):
             self.children = [model_tree_node(name=f'{modelname}_nn{index}', model=self.model[index], operator='predict') for index in range(len(self.model))]
         else:
             self.element_symbols_available = self.model.species
-            if self.model_index == None:
+            if self.model_index is None:
                 self.children = [ani_child(self.model, index, name=f'{modelname}_nn{index}', device=self.device).node() for index in range(len(self.model))]
-            else:
+            elif isinstance(self.model_index, list):
+                self.children = [ani_child(self.model, index, name=f'{modelname}_nn{index}', device=self.device).node() for index in self.model_index]
+            elif isinstance(self.model_index, int):
                 self.children = [ani_child(self.model, self.model_index, name=f'{modelname}_nn{self.model_index}', device=self.device).node()]
+            else:
+                raise ValueError(f"Unrecognized model_index type: {type(self.model_index)}. Please provide int, list or None.")
         if 'D4'.casefold() in self.method.casefold():
             d4 = model_tree_node(name='d4_wb97x', operator='predict', model=methods(method='D4', functional='wb97x'))
             ani_nns = model_tree_node(name=f'{modelname}_nn', children=self.children, operator='average')
@@ -1747,7 +1968,12 @@ class ani_methods(torchani_model, method_model, downloadable_model):
                 #     raise ValueError(f'Please put {method}_cv{ii}.pt file under $MODELSPATH/{method}_model/')
                 model_ensemble.append(ani(model_file=f'{mlatom_model_dir}/cv{ii}.pt', verbose=0))
             return model_ensemble
-        else:
+        elif isinstance(model_index,list):
+            model_ensemble = []
+            for ii in model_index:
+                model_ensemble.append(ani(model_file=f'{model_path}/cv{ii}.pt', device=self.device, verbose=0))
+            return model_ensemble
+        elif isinstance(model_index,int):
             # if not os.path.exists(f'{dirname}/{method}_cv{model_index}.pt'):
             #     raise ValueError(f'Please put {method}_cv{model_index}.pt under $MODELSPATH/{method}_model/')
             return [ani(model_file=f'{mlatom_model_dir}/cv{model_index}.pt', verbose=0)]
@@ -1802,11 +2028,13 @@ class ani_methods(torchani_model, method_model, downloadable_model):
         if calculate_energy: properties.append('energy')
         if calculate_energy_gradients: atomic_properties.append('energy_gradients')
         if calculate_hessian: properties.append('hessian')
-        if 'D4'.casefold() in self.method.casefold():
-            modelname = self.method.lower().replace('-','')
+        modelname = self.method.lower().replace('-','')
+        # The standard deviation belongs to the NN ensemble.  If the root model
+        # is a sum (because a D4 node was added), the ensemble is the child
+        # named ``{modelname}_nn``.
+        if (hasattr(self, 'model') and getattr(self.model, 'operator', None) == 'sum'
+                and any(getattr(child, 'name', '').startswith('d4_') for child in self.model.children)):
             modelname = f'{modelname}_nn'
-        else:
-            modelname = self.method.lower().replace('-','')
         molecule.__dict__[f'{modelname}'].standard_deviation(properties=properties+atomic_properties)
     
     def train(self, **kwargs):
@@ -1814,108 +2042,340 @@ class ani_methods(torchani_model, method_model, downloadable_model):
         
         # default settings
         kwargs['save_model'] = True # force saving model
+        kwargs['reset_energy_shifter'] = True # force resetting energy shifter for backup old energy shifter
+        kwargs['reset_parameters'] = False # force keeping parameters
+        # Rebuild the AEV computer from the copied hyperparameters (ensures the
+        # saved ``species_order`` is clean) but keep the pretrained network.
+        kwargs['reset_network'] = False
+        kwargs['reset_aev'] = True
+        # Fine-tuning starts a fresh optimizer over the pretrained weights.
+        # Stated here rather than inherited: train()'s default is False so that
+        # ani.train() on an existing model keeps continuing it, as it always has.
+        kwargs['reset_optimizer'] = True
+
+        # The dispersion term named here is subtracted from the reference labels
+        # AND added back at prediction - the same term on both sides.  The -D4
+        # variants have a native term and so require a declaration: train() used
+        # to drop it silently, returning a model still called ANI-2x-D4 with no
+        # D4 in it.
+        tl_dispersion_kwargs = kwargs.pop('dispersion_kwargs', 'not given')
+
         if 'file_to_save_model' in kwargs:
             file_to_save_model = kwargs['file_to_save_model']
         else:
             file_to_save_model = None
-        if 'reset_energy_shifter' not in kwargs:
-            kwargs['reset_energy_shifter'] = True
+
         if 'verbose' not in kwargs:
             verbose = 0
         else:
             verbose = kwargs['verbose']
 
+        # ANI is a pure NN: there is no baseline, so the delta labels are the
+        # reference energies minus whatever dispersion term was named.
+        property_to_learn = kwargs.get('property_to_learn', 'energy')
+        xyz_derivative_property_to_learn = kwargs.get('xyz_derivative_property_to_learn', None)
+        resolved = delta_learning.resolve_training_labels(
+            model_method=self.method,
+            molecular_database=kwargs.get('molecular_database', None),
+            delta_db=kwargs.pop('delta_db', None),
+            dispersion_kwargs=tl_dispersion_kwargs,
+            baseline_method=None,
+            property_to_learn=property_to_learn,
+            xyz_derivative_property_to_learn=xyz_derivative_property_to_learn,
+            verbose=verbose,
+        )
+        self.dispersion_kwargs = resolved['dispersion_kwargs']
+        self._training_database = resolved['database']
+        self._training_delta_source = resolved['delta_source']
+        self._training_stamp = resolved['stamp']
+        kwargs['molecular_database'] = resolved['database']
+        kwargs['property_to_learn'] = 'delta_energy'
+        if xyz_derivative_property_to_learn:
+            kwargs['xyz_derivative_property_to_learn'] = 'delta_energy_gradients'
+
         if 'hyperparameters' in kwargs:
             _hyperparameters = kwargs['hyperparameters']
         else:
             _hyperparameters = {}
-        # check hyperparameters
-        if 'fix_layers' not in _hyperparameters:
+        
+        # default hyperparameters
+        if 'fixed_layers' not in _hyperparameters:
             _hyperparameters['fixed_layers'] = [[0,4]]
         if 'loss_type' not in _hyperparameters:
             _hyperparameters['loss_type'] = 'geometric'
         if 'max_epochs' not in _hyperparameters:
             _hyperparameters['max_epochs'] = 100
-
-        kwargs['hyperparameters'] = _hyperparameters
         
         pretrained_models = []
-        if 'ANI-1xnr'.casefold() in self.method.casefold():
-            raise ValueError('Currently ANI-1xnr can not be retrained on')
-        elif 'gelu'.casefold() in self.method.casefold():
+        if 'gelu'.casefold() in self.method.casefold():
             if 'ANI-1ccx-gelu'.casefold() in self.method.casefold():
                 pretrained_models = self.load_ani_gelu_model(method='ani_1ccx_gelu', model_index=self.model_index)
             elif 'ANI-1x-gelu'.casefold() in self.method.casefold():
                 pretrained_models = self.load_ani_gelu_model(method='ani_1x_gelu', model_index=self.model_index)
         else:
-            animodel = ani()
-            if 'ANI-1ccx'.casefold() in self.method.casefold():
-                animodel.load_ani_model('ANI-1ccx')
-            elif 'ANI-1x'.casefold() in self.method.casefold():
-                animodel.load_ani_model('ANI-1x')
-            elif 'ANI-2x'.casefold() in self.method.casefold():
-                animodel.load_ani_model('ANI-2x')
-            else:
-                raise ValueError('Not supported pretrained model type')
+            animodel = ani(verbose=verbose, device=self.device)
+            animodel.load_ani_model(self.method)
 
-            if self.model_index == None:
-                for ii in range(8):
-                    pmodel = ani(verbose=verbose)
-                    pmodel.species_order = animodel.species_order
-                    pmodel.aev_computer = animodel.aev_computer
-                    pmodel.networkdict = animodel.networkdict[ii]
-                    pmodel.neurons = animodel.neurons[ii]
-                    pmodel.nn = animodel.nn[ii]
-                    pmodel.energy_shifter = animodel.energy_shifter
-                    pmodel.optimizer_setup(**pmodel.hyperparameters)
-                    pmodel.model = torchani.nn.Sequential(
-                        animodel.aev_computer, animodel.nn[ii]).to(pmodel.device).float()
-                    pretrained_models.append(pmodel)
+            if self.model_index is None:
+                indices = list(range(len(animodel.nn)))
+            elif isinstance(self.model_index, list):
+                indices = self.model_index
+            elif isinstance(self.model_index, int):
+                indices = [self.model_index]
             else:
-                pmodel = ani(verbose=verbose)
+                raise ValueError(f"Unrecognized model_index type: {type(self.model_index)}. Please provide int, list or None.")
+
+            for ii in indices:
+                pmodel = ani(verbose=verbose, device=self.device)
                 pmodel.species_order = animodel.species_order
                 pmodel.aev_computer = animodel.aev_computer
-                pmodel.networkdict = animodel.networkdict[self.model_index]
-                pmodel.neurons = animodel.neurons[self.model_index]
-                pmodel.nn = animodel.nn[self.model_index]
+                pmodel.networkdict = animodel.networkdict[ii]
+                pmodel.neurons = animodel.neurons[ii]
+                pmodel.nn = animodel.nn[ii]
                 pmodel.energy_shifter = animodel.energy_shifter
-                pmodel.optimizer_setup(**pmodel.hyperparameters)
-
-                pmodel.model = torchani.nn.Sequential(
-                    animodel.aev_computer, animodel.nn).to(pmodel.device).float()
                 pretrained_models.append(pmodel)
+            
+        # reload aev parameters
+        for aev_param in ['Rcr','Rca','EtaR','ShfR','Zeta','ShfZ','EtaA','ShfA']:
+            if aev_param not in _hyperparameters:
+                try: _hyperparameters[aev_param] = pretrained_models[0].aev_computer._buffers[aev_param].reshape(-1,)
+                except: _hyperparameters[aev_param] = pretrained_models[0].aev_computer.__dict__[aev_param]
+        kwargs['hyperparameters'] = _hyperparameters
 
         retrained_models = []
         modelname = self.method.lower().replace('-','')
-
-        if isinstance(self.model_index, int):
-            print(f'\nStart retraining on model {self.model_index}...')
-            if file_to_save_model:
-                kwargs['file_to_save_model'] = file_to_save_model + f'.cv{self.model_index}'
-            else:
-                kwargs['file_to_save_model'] = f'{modelname}_retrained.pt.cv{self.model_index}'
-            pretrained_models[0].train(**kwargs)
-            retrained_models.append(pretrained_models[0])
-        else:
+        internal_model_index = []
+        if self.model_index is None:
             for ii, pmodel in enumerate(pretrained_models):
                 print(f'\nStart retraining on model {ii}...')
                 sys.stdout.flush()
-                if file_to_save_model:
-                    kwargs['file_to_save_model'] = file_to_save_model + f'.cv{ii}'
-                else:
-                    kwargs['file_to_save_model'] = f'{modelname}_retrained.pt.cv{ii}'
+                save_dir = file_to_save_model if file_to_save_model else f'{modelname}_retrained'
+                os.makedirs(save_dir, exist_ok=True)
+                kwargs['file_to_save_model'] = os.path.join(save_dir, f'cv{ii}.pt')
+                pmodel.element_symbols_available = self.element_symbols_available
                 pmodel.train(**kwargs)
                 retrained_models.append(pmodel)
+                internal_model_index.append(ii)
+        elif isinstance(self.model_index, list):
+            for ii, pmodel in enumerate(pretrained_models):
+                print(f'\nStart retraining on model {self.model_index[ii]}...')
+                sys.stdout.flush()
+                save_dir = file_to_save_model if file_to_save_model else f'{modelname}_retrained'
+                os.makedirs(save_dir, exist_ok=True)
+                kwargs['file_to_save_model'] = os.path.join(save_dir, f'cv{self.model_index[ii]}.pt')
+                pmodel.element_symbols_available = self.element_symbols_available
+                pmodel.train(**kwargs)
+                retrained_models.append(pmodel)
+                internal_model_index.append(self.model_index[ii])
+        elif isinstance(self.model_index, int):
+            print(f'\nStart retraining on model {self.model_index}...')
+            save_dir = file_to_save_model if file_to_save_model else f'{modelname}_retrained'
+            os.makedirs(save_dir, exist_ok=True)
+            kwargs['file_to_save_model'] = os.path.join(save_dir, f'cv{self.model_index}.pt')
+            pretrained_models[0].element_symbols_available = self.element_symbols_available
+            pretrained_models[0].train(**kwargs)
+            retrained_models.append(pretrained_models[0])
+            internal_model_index.append(self.model_index)
+        else:
+            raise ValueError(f"Unrecognized model_index type: {type(self.model_index)}. Please provide int, list or None.")
 
+        from ..models import methods
         children = [
             model_tree_node(
-                name=f'{modelname}_nn{ii}', 
+                name=f'{modelname}_nn{internal_model_index[ii]}', 
                 model=rmodel, 
                 operator='predict') for ii, rmodel in enumerate(retrained_models)]
-        self.model = model_tree_node(
-            name=modelname, 
-            children=children, 
-            operator='average')
+        dispersion_node = dispersion_utils.build_node(self.dispersion_kwargs)
+        if dispersion_node is not None:
+            ani_nns = model_tree_node(name=f'{modelname}_nn', children=children, operator='average')
+            self.model = model_tree_node(name=modelname, children=[ani_nns, dispersion_node], operator='sum')
+        else:
+            self.model = model_tree_node(
+                name=modelname, 
+                children=children, 
+                operator='average')
+        self.element_symbols_available = retrained_models[0].species_order
+
+        self._training_databases = delta_learning.write_training_database(
+            self._training_database, save_dir,
+            delta_source=self._training_delta_source, verbose=verbose)
+        self.energy_expression = delta_learning.report_model_composition(
+            baseline=None, neural_network='NN',
+            dispersion_kwargs=self.dispersion_kwargs, verbose=verbose)
+
+        # Leave a directory that can be loaded back, rather than one holding
+        # weights that only become a model after a separate save() call.
+        self.save(save_dir)
+
+    def _iter_ani_leaves(self, node=None):
+        """
+        Iterate over the ``ani`` leaf models inside the model tree.
+
+        Yields tuples ``(node, cv_index)`` where ``node`` is a
+        :class:`model_tree_node` whose ``.model`` is an :class:`ani` instance,
+        and ``cv_index`` is parsed from the node name.
+        """
+        if node is None:
+            node = self.model
+        if node.model is not None and isinstance(node.model, ani):
+            try:
+                cv_index = int(node.name.split('_nn')[-1])
+            except (ValueError, IndexError):
+                cv_index = 0
+            yield node, cv_index
+        if node.children:
+            for child in node.children:
+                yield from self._iter_ani_leaves(child)
+
+    @staticmethod
+    def _resolve_model_paths(model_dict, base_dir):
+        """
+        Recursively convert relative ``model_file`` paths in a dumped
+        ``model_tree_node`` dictionary into absolute paths.
+        """
+        if not isinstance(model_dict, dict):
+            return
+        if model_dict.get('type') == 'ml_model' and 'kwargs' in model_dict:
+            kwargs = model_dict['kwargs']
+            if 'model_file' in kwargs:
+                model_file = kwargs['model_file']
+                if not os.path.isabs(model_file):
+                    kwargs['model_file'] = os.path.normpath(os.path.join(base_dir, model_file))
+        children = model_dict.get('children')
+        if children:
+            for child in children:
+                ani_methods._resolve_model_paths(child, base_dir)
+        model = model_dict.get('model')
+        if model:
+            ani_methods._resolve_model_paths(model, base_dir)
+
+    @staticmethod
+    def _make_paths_relative(model_dict, base_dir):
+        """
+        Recursively convert absolute ``model_file`` paths in a dumped
+        ``model_tree_node`` dictionary into paths relative to ``base_dir``.
+        """
+        if not isinstance(model_dict, dict):
+            return
+        if model_dict.get('type') == 'ml_model' and 'kwargs' in model_dict:
+            kwargs = model_dict['kwargs']
+            if 'model_file' in kwargs:
+                model_file = kwargs['model_file']
+                if os.path.isabs(model_file):
+                    kwargs['model_file'] = os.path.relpath(model_file, base_dir)
+        children = model_dict.get('children')
+        if children:
+            for child in children:
+                ani_methods._make_paths_relative(child, base_dir)
+        model = model_dict.get('model')
+        if model:
+            ani_methods._make_paths_relative(model, base_dir)
+
+    def save(self, model_file: str = '') -> None:
+        """
+        Save the transfer-learned ``ani_methods`` model to a directory.
+
+        The directory will contain:
+
+        - ``tree.json``: model metadata and tree structure
+        - ``cv*.pt``:    TorchANI weights for each ensemble member
+
+        Arguments:
+            model_file (str): Path to the directory to create. If empty, a
+                default name based on the method is used.
+        """
+        import json
+        modelname = self.method.lower().replace('-', '')
+        if not model_file:
+            model_file = f'{modelname}_tl_model'
+        os.makedirs(model_file, exist_ok=True)
+        base_dir = os.path.abspath(model_file)
+
+        # Save each ani leaf as cv{i}.pt
+        for node, cv_index in self._iter_ani_leaves():
+            pt_path = os.path.join(base_dir, f'cv{cv_index}.pt')
+            node.model.save(pt_path)
+
+        # Build a model tree dict with relative paths
+        model_tree_dict = self.model.dump(format='dict')
+        self._make_paths_relative(model_tree_dict, base_dir)
+
+        # Write tree.json
+        tree = {
+            'type': 'ani_methods',
+            'module': {
+                'name': self.__module__,
+                'path': sys.modules[self.__module__].__spec__.origin,
+            },
+            'tl': True,
+            'method': self.method,
+            'model_index': self.model_index,
+            'device': str(self.device),
+            'element_symbols_available': self.element_symbols_available,
+            'dispersion_kwargs': getattr(self, 'dispersion_kwargs', {}),
+            'model_tree': model_tree_dict,
+        }
+        tree_path = os.path.join(base_dir, 'tree.json')
+        with open(tree_path, 'w') as f:
+            json.dump(tree, f, indent=4)
+        if self.verbose:
+            print(f'ANI TL model saved in {base_dir}')
+
+    @classmethod
+    def load(cls, model_file: str, device=None):
+        """
+        Load a transfer-learned ``ani_methods`` model from a directory or from
+        the ``tree.json`` file inside it.
+
+        Arguments:
+            model_file (str): Path to the saved directory, or to the
+                ``tree.json`` file inside it.
+            device (str, optional): Device to load the model on. If not given,
+                the device recorded at save time is used.
+        """
+        import json
+        if os.path.isdir(model_file):
+            tree_file = os.path.join(model_file, 'tree.json')
+        else:
+            tree_file = model_file
+        if not os.path.isfile(tree_file):
+            raise FileNotFoundError(f'Cannot find tree.json at {tree_file}')
+
+        with open(tree_file) as f:
+            model_dict = json.load(f)
+        base_dir = os.path.dirname(os.path.abspath(tree_file))
+        if device is None and 'device' in model_dict:
+            device = model_dict['device']
+        return cls.from_dict(model_dict, device=device, base_dir=base_dir)
+
+    @classmethod
+    def from_dict(cls, model_dict, device=None, base_dir=None):
+        """
+        Reconstruct an ``ani_methods`` instance from a dictionary produced by
+        :meth:`save`.
+
+        Arguments:
+            model_dict (dict): Dictionary produced by :meth:`save`.
+            device (str, optional): Device to load the model on.
+            base_dir (str, optional): Directory used to resolve relative
+                ``model_file`` paths in the model tree.
+        """
+        import torch
+        instance = cls.__new__(cls)
+        if device is None:
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        instance.device = torch.device(device)
+        instance.method = model_dict['method']
+        instance.model_index = model_dict.get('model_index', None)
+        instance._tl = True
+        instance.verbose = 1
+        instance.element_symbols_available = model_dict.get('element_symbols_available', [])
+        instance.dispersion_kwargs = model_dict.get('dispersion_kwargs', {})
+        if base_dir is not None:
+            cls._resolve_model_paths(model_dict['model_tree'], base_dir)
+        from ..models import load_dict
+        instance.model = load_dict(model_dict['model_tree'], base_dir=base_dir)
+        return instance
 
 def load_ani1xnr_model():
     # ANI-1xnr https://github.com/atomistic-ml/ani-1xnr/

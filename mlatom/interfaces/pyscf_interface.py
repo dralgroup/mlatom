@@ -47,7 +47,7 @@ class pyscf_methods(OMP_pyscf):
         Hessian: HF, DFT
         
     '''
-    supported_methods=["HF", 'MP2', "FCI", "CISD" "CCSD", "CCSD(T)", "DM21", "DM21m", "DM21mu", "DM21mc"]
+    supported_methods=["HF", 'MP2', "FCI", "CISD", "CCSD", "CCSD(T)", "DM21", "DM21m", "DM21mu", "DM21mc"]
     
     def __init__(self, method='B3LYP/6-31g', nthreads=None, density_fitting=False):
         self.init_kwargs = {'method': method, 'nthreads': nthreads, 'density_fitting': density_fitting}
