@@ -12,8 +12,6 @@ import os
 import sys
 from collections import OrderedDict
 
-import torch as _torch
-
 from . import data
 from . import dispersion as dispersion_utils
 from . import delta_learning

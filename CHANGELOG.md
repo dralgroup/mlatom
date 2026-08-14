@@ -7,6 +7,21 @@ Dates are given as DD.MM.YYYY. Versions are available on
 [PyPI](https://pypi.org/project/mlatom/) and
 [GitHub](https://github.com/dralgroup/mlatom).
 
+## [3.25.1] – 14.08.2026
+- Fixed: the ANI `-D4` models still selected their dispersion parameters by
+  functional name, so on dftd4 4.0.0 and newer they used a different fit — 3.9
+  kcal/mol on an ethanol total energy, silently. 3.25.0 fixed this for AIQM1,
+  AIQM2 and OMNI-P1 but not for these. No method now depends on how dftd4
+  resolves a functional name. By Pavlo O. Dral.
+- Fixed: `import mlatom` required PyTorch to be installed, because `aiqm1.py`
+  imported it at module level without using it. By Pavlo O. Dral.
+- AIQM3's D3(BJ) term is given explicitly too. Results are unchanged. By
+  Pavlo O. Dral.
+- We still recommend **dftd4 3.6.0**: that is the version MLatom is tested
+  against. The parameter pinning above makes the D4 *energies* identical on
+  4.x, but the test suite has not been run against 4.x, so Hessians,
+  thermochemistry and the rest are unverified there.
+
 ## [3.25.0] – 13.08.2026
 - Fine-tuning of the universal models on your own data. ANI, AIQM1, AIQM2,
   AIQM3, UAIQM, OMNI-P1 and OMNI-P2x are fine-tuned through the same `train()`

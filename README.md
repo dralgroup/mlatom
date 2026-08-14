@@ -34,7 +34,7 @@ python3 -m pip install -U mlatom
 That pulls in the required dependencies automatically (including the PyTorch/TorchANI and geometry-optimization backends the **AIQM2** quick start uses). AIQM2 additionally needs the DFT-D4 program, installed via conda:
 
 ```bash
-conda install -c conda-forge dftd4
+conda install -c conda-forge 'dftd4==3.6.0'   # the version MLatom is tested against
 export dftd4bin=$(which dftd4)   # point MLatom at the dftd4 executable
 ```
 

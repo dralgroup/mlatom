@@ -1935,7 +1935,17 @@ class ani_methods(torchani_model, method_model, downloadable_model):
             else:
                 raise ValueError(f"Unrecognized model_index type: {type(self.model_index)}. Please provide int, list or None.")
         if 'D4'.casefold() in self.method.casefold():
-            d4 = model_tree_node(name='d4_wb97x', operator='predict', model=methods(method='D4', functional='wb97x'))
+            # The parameters are given explicitly, not left to the name: dftd4
+            # >= 4.0.0 resolves `wb97x` to a different fit than the one these
+            # models were built against. This line builds its own node rather
+            # than reading universal_mlips.composition, so pinning the table was
+            # not enough - it was missed there, and on dftd4 4.2.0 an ethanol D4
+            # term came out -0.0067159 Eh instead of -0.0004477, 3.9 kcal/mol on
+            # the total, with nothing raised.
+            from ..universal_mlips import D4_WB97X
+            d4 = model_tree_node(name='d4_wb97x', operator='predict',
+                                 model=methods(method='D4', functional='wb97x',
+                                               damping_function_params=D4_WB97X))
             ani_nns = model_tree_node(name=f'{modelname}_nn', children=self.children, operator='average')
             self.model = model_tree_node(name=modelname, children=[ani_nns, d4], operator='sum')
         else:
