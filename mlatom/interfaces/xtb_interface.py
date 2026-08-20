@@ -16,6 +16,160 @@ from .. import constants
 from ..model_cls import OMP_model, method_model
 from ..decorators import doc_inherit
 
+
+def _parse_xtb_orbitals(stdout_lines):
+    '''Parse xtb's "Orbital Energies and Occupations" table from stdout.
+
+    Returns ``(mo_energies, mo_occupations)`` as float64 ndarrays in
+    Hartree (matching ``pyscf_method.mo_energy`` / ``.mo_occ`` shape),
+    or ``(None, None)`` if the block isn't found or parsing fails.
+
+    Closed-shell xtb output (one block, 1D arrays)::
+
+           * Orbital Energies and Occupations
+
+                #    Occupation            Energy/Eh            Energy/eV
+             -------------------------------------------------------------
+                1        2.0000           -0.6810697             -18.5329
+                ...
+                4        2.0000           -0.4473129             -12.1720 (HOMO)
+                5                          0.0833760               2.2688 (LUMO)
+                ...
+             -------------------------------------------------------------
+
+    Virtual rows have a BLANK occupation column (not 0.0000). The
+    optional ``(HOMO)`` / ``(LUMO)`` markers must be stripped before
+    column-counting.
+
+    Open-shell xtb output (alpha+beta blocks, 2D shape (2, N)) is
+    handled by repeating the parse and stacking — best-effort; if
+    only one block is found we return 1D.
+    '''
+    blocks = []
+    energies = None
+    occupations = None
+    in_table = False
+    seen_header = False
+    saw_data = False
+
+    def _finalize_block():
+        nonlocal energies, occupations
+        if energies and occupations and len(energies) == len(occupations):
+            blocks.append((list(energies), list(occupations)))
+        energies = None
+        occupations = None
+
+    for line in stdout_lines:
+        if "Orbital Energies and Occupations" in line:
+            if saw_data:
+                _finalize_block()
+            seen_header = True
+            saw_data = False
+            energies = []
+            occupations = []
+            in_table = False
+            continue
+        if not seen_header:
+            continue
+        # Skip the "#  Occupation  Energy/Eh  Energy/eV" column header
+        if "Occupation" in line and "Energy" in line:
+            continue
+        stripped = line.strip()
+        if not in_table:
+            # Wait for the opening dashes
+            if stripped.startswith("-") and set(stripped) <= set("- "):
+                in_table = True
+            continue
+        # Inside the table
+        if stripped.startswith("-") and set(stripped) <= set("- "):
+            # Closing dashes — end of this block
+            _finalize_block()
+            in_table = False
+            seen_header = False
+            continue
+        # Strip optional (HOMO)/(LUMO) markers
+        parts = [p for p in stripped.split() if not (p.startswith("(") and p.endswith(")"))]
+        if not parts:
+            continue
+        try:
+            int(parts[0])  # must start with the MO index
+        except (ValueError, IndexError):
+            continue
+        # Occupied row: idx  occ  E_Eh  E_eV  → 4 cols
+        # Virtual row:  idx  E_Eh  E_eV       → 3 cols (no occ)
+        try:
+            if len(parts) >= 4:
+                occ = float(parts[1])
+                ene = float(parts[2])
+            elif len(parts) == 3:
+                occ = 0.0
+                ene = float(parts[1])
+            else:
+                continue
+        except ValueError:
+            continue
+        energies.append(ene)
+        occupations.append(occ)
+        saw_data = True
+
+    # If we hit EOF mid-block, flush whatever we have
+    if energies and occupations:
+        _finalize_block()
+
+    if not blocks:
+        return None, None
+    if len(blocks) == 1:
+        e, o = blocks[0]
+        return np.asarray(e, dtype=float), np.asarray(o, dtype=float)
+    # Open-shell: stack the (typically two) blocks → shape (2, N)
+    e_arr = np.asarray([b[0] for b in blocks], dtype=float)
+    o_arr = np.asarray([b[1] for b in blocks], dtype=float)
+    return e_arr, o_arr
+
+
+def _persist_xtb_molden(tmpdirname, namespace="molecule0"):
+    '''Promote xtb's molden output to a stable filename in cwd (D3b).
+
+    xtb, when invoked with ``--molden``, writes ``<namespace>.molden.input``
+    inside its working directory (the run-job tmpdirname). For the
+    post-D3b ``cube_from_calc`` MCP tool's xtb branch (which also covers
+    AIQM1/2/3 + uaiqm, all GFN2-xTB-baselined), we promote that file to
+    ``<cwd>/xtb_molden.input`` so a caller can find it at a fixed path
+    deterministically — mirrors the pyscf branch's ``pyscf_mo.chk`` in
+    cwd convention.
+
+    Validation: returns silently if the source molden is missing, empty,
+    or lacks the canonical ``[GTO]`` + ``[MO]`` markers (the xtb molden
+    is unreliable on non-converged SCFs — workflow blocker mitigation;
+    we only ever fire this helper AFTER xtb returned cleanly, but the
+    file-shape check is a cheap belt-and-suspenders).
+
+    For OPT trajectories, the helper fires from each predict() inside
+    the optimizer; the LAST step's molden overwrites earlier ones at
+    the cwd target — naturally giving us the converged-geometry MO
+    artifact, mirroring the pyscf chkfile convention.
+    '''
+    try:
+        import os
+        import shutil
+        src = os.path.join(tmpdirname, f"{namespace}.molden.input")
+        if not os.path.isfile(src):
+            return
+        # Cheap shape validation: a usable molden has [GTO] (basis) + [MO]
+        # (coefficients) sections. Without both, pyscf.tools.molden.read
+        # returns garbage; better to skip the promote than to ship a
+        # silent-broken artifact downstream.
+        with open(src, "r", encoding="utf-8", errors="ignore") as f:
+            txt = f.read()
+        if not txt.strip() or "[GTO]" not in txt or "[MO]" not in txt:
+            return
+        dst = os.path.join(os.getcwd(), "xtb_molden.input")
+        shutil.copyfile(src, dst)
+    except Exception:
+        # Never let molden persistence kill the calc.
+        pass
+
+
 class xtb_methods(OMP_model, method_model):
     '''
     xTB interface
@@ -147,6 +301,14 @@ class xtb_methods(OMP_model, method_model):
                 if mol.charge != 0: self.xtbargs += ['-c', '%d' % mol.charge] # there is a bug in xtb - it does not read --charg
                 number_of_unpaired_electrons = mol.multiplicity - 1
                 self.xtbargs += ['-u', '%d' % number_of_unpaired_electrons] # there is a bug in xtb - it does not read --uhf
+                # D3b (2026-06-02) — request xtb's molden output so the
+                # orbital-cube path (cube_from_calc / pyscf.tools.molden.read
+                # + tools.cubegen.orbital) has the wavefunction on disk for
+                # AIQM1/2/3, uaiqm, and GFN2-xTB-direct chemists. xtb writes
+                # ``<namespace>.molden.input`` (~5-50 KB) to its working dir
+                # only on converged SCF — the calling code's _persist_xtb_molden
+                # helper validates + promotes it to cwd post-success.
+                self.xtbargs += ['--molden']
                 # with open(f'{tmpdirname}/.CHRG', 'w') as fcharge, open(f'{tmpdirname}/.UHF', 'w') as fuhf:
                 #     fcharge.writelines(f'{mol.charge}\n')
                 #     fuhf.writelines(f'{number_of_unpaired_electrons}\n')
@@ -203,6 +365,31 @@ class xtb_methods(OMP_model, method_model):
                     solvation_free_energy = float(readable.split()[3])
                     mol.solvation_free_energy = solvation_free_energy
 
+            # MO surfacing (D3a) — parse the orbital eigenvalues +
+            # occupations from xtb's "Orbital Energies and Occupations"
+            # block, attach as ndarrays (matches pyscf_method.mo_energy
+            # shape; Hartree). Silently no-op if the block is missing.
+            try:
+                _mo_e, _mo_o = _parse_xtb_orbitals(outputs)
+                if _mo_e is not None and _mo_o is not None:
+                    mol.mo_energies = _mo_e
+                    mol.mo_occupations = _mo_o
+            except Exception:
+                pass
+            # D3b (2026-06-02) — persist xtb's molden output to a
+            # stable filename in cwd for the orbital-cube path. Best-
+            # effort; derives namespace by globbing rather than threading
+            # ``ii`` through the predict_* signatures (also covers the
+            # rare case where ``--namespace`` was customised upstream).
+            try:
+                import glob, os
+                _candidates = glob.glob(os.path.join(self.tmpdirname, "*.molden.input"))
+                if _candidates:
+                    _ns = os.path.basename(_candidates[0]).split(".molden.input")[0]
+                    _persist_xtb_molden(self.tmpdirname, namespace=_ns)
+            except Exception:
+                pass
+
             for iline in range(len(outputs)):
                 if 'molecular dipole:' in outputs[iline]:
                     sum_line = outputs[iline+3].strip().split()[1:]
@@ -246,6 +433,31 @@ class xtb_methods(OMP_model, method_model):
                     iatom += 1
                     mol.atoms[iatom].energy_gradients = np.array([float(xx) / constants.Bohr2Angstrom for xx in line.split()]).astype(float)
 
+            # MO surfacing (D3a) — parse the orbital eigenvalues +
+            # occupations from xtb's "Orbital Energies and Occupations"
+            # block, attach as ndarrays (matches pyscf_method.mo_energy
+            # shape; Hartree). Silently no-op if the block is missing.
+            try:
+                _mo_e, _mo_o = _parse_xtb_orbitals(outputs)
+                if _mo_e is not None and _mo_o is not None:
+                    mol.mo_energies = _mo_e
+                    mol.mo_occupations = _mo_o
+            except Exception:
+                pass
+            # D3b (2026-06-02) — persist xtb's molden output to a
+            # stable filename in cwd for the orbital-cube path. Best-
+            # effort; derives namespace by globbing rather than threading
+            # ``ii`` through the predict_* signatures (also covers the
+            # rare case where ``--namespace`` was customised upstream).
+            try:
+                import glob, os
+                _candidates = glob.glob(os.path.join(self.tmpdirname, "*.molden.input"))
+                if _candidates:
+                    _ns = os.path.basename(_candidates[0]).split(".molden.input")[0]
+                    _persist_xtb_molden(self.tmpdirname, namespace=_ns)
+            except Exception:
+                pass
+
             for iline in range(len(outputs)):
                 if 'molecular dipole:' in outputs[iline]:
                     sum_line = outputs[iline+3].strip().split()[1:]
@@ -283,7 +495,7 @@ class xtb_methods(OMP_model, method_model):
 
         # There is bug in xtb that it fails for H2, thus, it may end with error but still prints hessian.
         # 6.7.0 will not raise error on hessian of H2 but 6.6.1 will raise segmentation error
-        if xtb_scf_successful or os.path.exists(f'{self.tmpdirname}/molecule{ii}.hessian'): 
+        if xtb_scf_successful or os.path.exists(f'{self.tmpdirname}/molecule{ii}.hessian'):
             for readable in stdout:
                 outputs.append(readable)
                 if 'TOTAL ENERGY' in readable:
@@ -295,6 +507,31 @@ class xtb_methods(OMP_model, method_model):
                 if 'Gsolv' in readable:
                     solvation_free_energy = float(readable.split()[3])
                     mol.solvation_free_energy = solvation_free_energy
+
+            # MO surfacing (D3a) — parse orbital eigenvalues + occupations
+            # from xtb's "Orbital Energies and Occupations" block; attach
+            # as ndarrays (pyscf_method.mo_energy shape; Hartree). Silently
+            # no-op if missing.
+            try:
+                _mo_e, _mo_o = _parse_xtb_orbitals(outputs)
+                if _mo_e is not None and _mo_o is not None:
+                    mol.mo_energies = _mo_e
+                    mol.mo_occupations = _mo_o
+            except Exception:
+                pass
+            # D3b (2026-06-02) — persist xtb's molden output to a
+            # stable filename in cwd for the orbital-cube path. Best-
+            # effort; derives namespace by globbing rather than threading
+            # ``ii`` through the predict_* signatures (also covers the
+            # rare case where ``--namespace`` was customised upstream).
+            try:
+                import glob, os
+                _candidates = glob.glob(os.path.join(self.tmpdirname, "*.molden.input"))
+                if _candidates:
+                    _ns = os.path.basename(_candidates[0]).split(".molden.input")[0]
+                    _persist_xtb_molden(self.tmpdirname, namespace=_ns)
+            except Exception:
+                pass
 
             with open(f'{self.tmpdirname}/molecule{ii}.hessian', 'r') as fout:
                 nlines = 0

@@ -20,6 +20,121 @@ from .. import constants, stopper
 from ..model_cls import model
 from ..decorators import doc_inherit
 
+
+def _attach_mo_data(molecule, pyscf_method):
+    '''Attach mol.mo_energies + mol.mo_occupations from a pyscf method.
+
+    Shape and values mirror pyscf_method.mo_energy / .mo_occ verbatim:
+      RHF / RKS:   ndarray shape (N,);     mo_occ ∈ {0.0, 2.0}
+      UHF / UKS:   ndarray shape (2, N);   mo_occ ∈ {0.0, 1.0}
+                                             — index 0 = alpha, 1 = beta
+    Units: mo_energies in Hartree (consistent with mol.energy).
+
+    Stored as np.ndarray on the molecule. ``mlatom.data`` serializes
+    ndarray → JSON list at dump time and reconstructs ndarray on load
+    (``class_instance_to_dict`` + ``dict_to_molecule_class_instance``);
+    consumers see ndarrays in both directions, no list-vs-array drift.
+
+    Best-effort: silently skip if the pyscf object doesn't expose the
+    attrs (e.g. some post-HF wrappers). Never raise.
+    '''
+    try:
+        mo_e = getattr(pyscf_method, "mo_energy", None)
+        mo_o = getattr(pyscf_method, "mo_occ", None)
+        # Post-HF wrappers (MP2, CCSD, …) may not expose mo_energy directly.
+        # Fall through to the underlying SCF object.
+        if mo_e is None or mo_o is None:
+            underlying = getattr(pyscf_method, "_scf", None)
+            if underlying is not None:
+                if mo_e is None:
+                    mo_e = getattr(underlying, "mo_energy", None)
+                if mo_o is None:
+                    mo_o = getattr(underlying, "mo_occ", None)
+        if mo_e is not None and mo_o is not None:
+            molecule.mo_energies = np.asarray(mo_e, dtype=float)
+            molecule.mo_occupations = np.asarray(mo_o, dtype=float)
+    except Exception:
+        # Never let MO surfacing kill the calc.
+        pass
+
+
+def _dump_minimal_chkfile(molecule, pyscf_method):
+    '''Persist the minimal PySCF wavefunction artifact for orbital cubes (D3b).
+
+    Writes a MINIMAL pyscf chkfile (``mo_coeff`` + ``mo_energy`` + ``mo_occ``
+    + Mole pickle only — no DIIS history, no density-matrix history, no 2e
+    integrals) to ``<cwd>/pyscf_mo.chk``. Bounded by ``mo_coeff`` size:
+    ~50 KB for water/6-31G*, ~600 KB for caffeine, ~10 MB for 50-atom
+    def2-TZVP. The full default chkfile (which can reach 50-200 MB on
+    large systems) is NOT written.
+
+    This is the source-of-truth for the post-D3b ``cube_from_calc`` MCP
+    tool's PySCF branch: read ``pyscf_mo.chk`` → reconstruct Mole +
+    ``mo_coeff`` via ``pyscf.lib.chkfile.load_mol`` + ``load`` →
+    ``pyscf.tools.cubegen.orbital(mol, outfile, mo_coeff[:, idx])``.
+
+    Path convention: written to the calc's CWD (typically the engine's
+    ``scr/`` dir). For OPT, this is
+    overwritten on every step's SCF; the converged-geometry SCF wins
+    because it fires last. For SP/FREQ at a single geometry it's the
+    only write. The bundle-promotion layer in
+    the calling layer is responsible for moving
+    ``pyscf_mo.chk`` to ``<bundle>/scr/<stem>.pyscf.chk`` post-success
+    if the bundle layout policy requires; this helper only ensures the
+    artifact exists on disk in the calc's working directory.
+
+    AO ordering convention: PySCF's native ordering (spherical or
+    cartesian depending on ``mol.cart``). The chkfile carries the Mole
+    pickle so the reader rebuilds the Mole with the exact same basis +
+    ordering — no cross-engine convention drift.
+
+    Best-effort: silently skip if the pyscf object doesn't have a
+    usable ``.mol`` (e.g. post-HF wrappers around an SCF object) or
+    if chkfile.dump raises. Never let MO persistence kill the calc.
+    '''
+    try:
+        import os
+        from pyscf import lib as _pyscflib
+        # Reach the underlying SCF object if this is a post-HF wrapper.
+        scf_obj = pyscf_method
+        if getattr(scf_obj, "mo_coeff", None) is None:
+            scf_obj = getattr(pyscf_method, "_scf", None) or pyscf_method
+        mo_coeff = getattr(scf_obj, "mo_coeff", None)
+        mo_energy = getattr(scf_obj, "mo_energy", None)
+        mo_occ = getattr(scf_obj, "mo_occ", None)
+        pyscf_mol = getattr(scf_obj, "mol", None)
+        if mo_coeff is None or pyscf_mol is None:
+            return
+        # Numerical D3b convention: write to a stable filename in cwd
+        # so a caller can find it at a deterministic path.
+        chk_path = os.path.join(os.getcwd(), "pyscf_mo.chk")
+        # _pyscflib.chkfile API: dump_mol writes the Mole; dump writes
+        # arbitrary scalars/arrays under named keys. Mirrors what
+        # mf.chkfile would persist for SCF, but only the keys we need.
+        _pyscflib.chkfile.dump_mol(pyscf_mol, chk_path)
+        _pyscflib.chkfile.dump(chk_path, "scf/mo_coeff", mo_coeff)
+        if mo_energy is not None:
+            _pyscflib.chkfile.dump(chk_path, "scf/mo_energy", mo_energy)
+        if mo_occ is not None:
+            _pyscflib.chkfile.dump(chk_path, "scf/mo_occ", mo_occ)
+    except Exception:
+        # Never let chkfile persistence kill the calc.
+        pass
+
+def _split_unrestricted(method):
+    '''Split a leading unrestricted "U" off a method name.
+
+    The "U" prefix is the standard notation for a spin-unrestricted reference,
+    e.g. UB3LYP, UPBE0, UHF. Returns (method_without_U, unrestricted), keeping
+    any leading TD-/TDA- excited-state prefix in place: "UB3LYP" -> ("B3LYP",
+    True), "TD-UB3LYP" -> ("TD-B3LYP", True), "B3LYP" -> ("B3LYP", False).
+    '''
+    import re
+    m = re.match(r'(?i)(td-|tda-)?u(.+)', method)
+    if m:
+        return (m.group(1) or '') + m.group(2), True
+    return method, False
+
 class OMP_pyscf(model):
     def set_num_threads(self, nthreads=0):
         super().set_num_threads(nthreads)
@@ -53,6 +168,7 @@ class pyscf_methods(OMP_pyscf):
         self.init_kwargs = {'method': method, 'nthreads': nthreads, 'density_fitting': density_fitting}
         
         self.method = method.split('/')[0]
+        self.method, self.unrestricted = _split_unrestricted(self.method)
         if not 'DM21' in self.method.upper():
             if 'PYSCF_PATH' in os.environ:
                 sys.path.insert(0,os.environ['PYSCF_PATH'])
@@ -73,6 +189,7 @@ class pyscf_methods(OMP_pyscf):
             if 'PYSCF_PATH' in os.environ:
                 sys.path.insert(0,os.environ['PYSCF_PATH'])
         method = method.split('/')[0]
+        method, _ = _split_unrestricted(method)
         if method.casefold() in [m.casefold() for m in cls.supported_methods]:
             return True
         try:
@@ -107,8 +224,11 @@ class pyscf_methods(OMP_pyscf):
             return
 
         # HF
+        # scf.HF / dft.KS already return the unrestricted variant when the
+        # spin is non-zero; self.unrestricted (set by a leading "U" on the
+        # method) forces it even for a closed-shell spin.
         if 'HF' == self.method.upper():
-            pyscf_method = scf.HF(pyscf_mol)
+            pyscf_method = (scf.UHF if self.unrestricted else scf.HF)(pyscf_mol)
         
         # MP2
         elif 'MP2' == self.method.upper():
@@ -118,19 +238,19 @@ class pyscf_methods(OMP_pyscf):
         # CISD
         elif 'CISD' == self.method.upper():
             from pyscf import ci
-            pyscf_method_hf = scf.HF(pyscf_mol)
+            pyscf_method_hf = (scf.UHF if self.unrestricted else scf.HF)(pyscf_mol)
             pyscf_method = ci.CISD(pyscf_method_hf.run())
         
         # Full CI
         elif 'FCI' == self.method.upper():
             from pyscf import fci
-            pyscf_method_hf = scf.HF(pyscf_mol)
+            pyscf_method_hf = (scf.UHF if self.unrestricted else scf.HF)(pyscf_mol)
             pyscf_method = fci.FCI(pyscf_method_hf.run())
 
         # CCSD and CCSD(T)
         elif 'CCSD' in self.method.upper():
             from pyscf import cc
-            pyscf_method_hf = scf.HF(pyscf_mol)
+            pyscf_method_hf = (scf.UHF if self.unrestricted else scf.HF)(pyscf_mol)
             pyscf_method = cc.CCSD(pyscf_method_hf.run())
 
         elif 'TDA' in self.method.upper():
@@ -143,7 +263,7 @@ class pyscf_methods(OMP_pyscf):
             except:
                 errmsg = 'Method not supported in pyscf interface'
                 raise ValueError(errmsg)
-            pyscf_method = dft.KS(pyscf_mol)
+            pyscf_method = (dft.UKS if self.unrestricted else dft.KS)(pyscf_mol)
             pyscf_method.xc = method
             pyscf_method.run()
             pyscf_method_tda = tddft.TDA(pyscf_method.run()).run(nstates=nstates)
@@ -181,7 +301,7 @@ class pyscf_methods(OMP_pyscf):
             except:
                 errmsg = 'Method not supported in pyscf interface'
                 raise ValueError(errmsg)
-            pyscf_method = dft.KS(pyscf_mol)
+            pyscf_method = (dft.UKS if self.unrestricted else dft.KS)(pyscf_mol)
             pyscf_method.xc = method
             pyscf_method_tddft = tddft.TDDFT(pyscf_method.run()).run(nstates=nstates)
             if not molecule.electronic_states:
@@ -215,7 +335,7 @@ class pyscf_methods(OMP_pyscf):
                 errmsg = 'Method not supported in pyscf interface'
                 raise ValueError(errmsg)
             from pyscf import dft
-            pyscf_method = dft.KS(pyscf_mol)
+            pyscf_method = (dft.UKS if self.unrestricted else dft.KS)(pyscf_mol)
             pyscf_method.xc = self.method.upper()
             
         # GW
@@ -237,12 +357,16 @@ class pyscf_methods(OMP_pyscf):
 
             if self.density_fitting:
                 molecule.energy = pyscf_method.e_tot
+                _attach_mo_data(molecule, pyscf_method)
+                _dump_minimal_chkfile(molecule, pyscf_method)
             else:
                 converged = self.check_convergence(pyscf_method)
                 if converged:
                     molecule.energy = pyscf_method.e_tot
                     if 'CCSD(T)' == self.method.upper():
                         molecule.energy = pyscf_method.e_tot + pyscf_method.ccsd_t()
+                    _attach_mo_data(molecule, pyscf_method)
+                    _dump_minimal_chkfile(molecule, pyscf_method)
                 else:
                     print("PySCF doesn't converge and energy will not be stored in molecule")
 
@@ -362,8 +486,10 @@ class pyscf_methods(OMP_pyscf):
                 
         if calculate_energy:
             molecule.energy = pyscf_method.e_tot
+            _attach_mo_data(molecule, pyscf_method)
+            _dump_minimal_chkfile(molecule, pyscf_method)
 
-        if calculate_energy_gradients:           
+        if calculate_energy_gradients:
             errmsg = 'DM21 by pyscf does not support gradients calculation'
             raise ValueError(errmsg)
 

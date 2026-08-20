@@ -907,10 +907,122 @@ def parse_orca_output(filename, molecule=None):
     if os.path.exists(hess_file):
         _parse_hessian_from_file(mol, hess_file)
 
+    # MO surfacing (D3a) — attach mol.mo_energies + mol.mo_occupations
+    # from ORCA's "ORBITAL ENERGIES" block. Schema matches
+    # pyscf_method.mo_energy: ndarray 1D for RKS, shape (2, N) for UKS.
+    # Best-effort, silent skip on parse failure.
+    try:
+        _mo_e, _mo_o = _parse_orca_orbitals(lines)
+        if _mo_e is not None and _mo_o is not None:
+            mol.mo_energies = _mo_e
+            mol.mo_occupations = _mo_o
+    except Exception:
+        pass
+
     if molecule is None:
         return mol
     else:
         molecule.update_from(mol)
+
+
+def _parse_orca_orbitals(lines):
+    '''Parse ORCA's "ORBITAL ENERGIES" block from output lines.
+
+    Closed-shell (RKS) format::
+
+        ORBITAL ENERGIES
+        ----------------
+
+          NO   OCC          E(Eh)            E(eV)
+           0   2.0000      -9.959394      -271.0089
+           1   2.0000      -9.914123      -269.7770
+           ...
+           N   0.0000       0.296508         8.0684
+
+    Open-shell (UKS) format inserts "SPIN UP ORBITALS" / "SPIN DOWN
+    ORBITALS" markers between the two blocks.
+
+    ORCA can print multiple sets across an output (geom-opt steps,
+    excited-state passes, etc.); we take the LAST converged set.
+
+    Returns ``(None, None)`` if the block isn't found.
+    '''
+    # Pass 1: find all "ORBITAL ENERGIES" header line indices.
+    headers = [i for i, ln in enumerate(lines) if ln.strip() == 'ORBITAL ENERGIES']
+    if not headers:
+        return None, None
+
+    # Use the LAST header — that's the converged set after all SCF
+    # iterations / geom-opt steps.
+    start = headers[-1]
+
+    # Detect UKS by searching forward for "SPIN UP ORBITALS" / "SPIN DOWN
+    # ORBITALS" markers within a reasonable window (each block ~hundreds
+    # of MOs max for realistic calcs).
+    window_end = min(start + 5000, len(lines))
+    region = lines[start:window_end]
+    is_uks = any('SPIN UP ORBITALS' in ln for ln in region)
+
+    def _parse_block(block_lines):
+        '''Pull the (occ, energy_Eh) data rows out of one ORBITAL block.'''
+        energies = []
+        occupations = []
+        in_table = False
+        for ln in block_lines:
+            stripped = ln.strip()
+            if not stripped:
+                if in_table:
+                    # Blank line ends the table.
+                    break
+                continue
+            # Column header
+            if stripped.startswith('NO') and 'OCC' in stripped and 'E(Eh)' in stripped:
+                in_table = True
+                continue
+            if not in_table:
+                continue
+            parts = stripped.split()
+            # Row shape: idx occ E_Eh E_eV
+            if len(parts) < 4:
+                break
+            try:
+                int(parts[0])
+                occ = float(parts[1])
+                ene = float(parts[2])
+            except (ValueError, IndexError):
+                break
+            occupations.append(occ)
+            energies.append(ene)
+        if not energies:
+            return None, None
+        return energies, occupations
+
+    if is_uks:
+        # Find SPIN UP and SPIN DOWN within the region
+        try:
+            up_idx = next(i for i, ln in enumerate(region) if 'SPIN UP ORBITALS' in ln)
+            down_idx = next(i for i, ln in enumerate(region) if 'SPIN DOWN ORBITALS' in ln)
+        except StopIteration:
+            return None, None
+        alpha_e, alpha_o = _parse_block(region[up_idx:down_idx])
+        # Beta block ends at the next blank-after-table; pass enough lines.
+        beta_e, beta_o = _parse_block(region[down_idx:])
+        if not alpha_e or not beta_e:
+            return None, None
+        if len(alpha_e) != len(beta_e):
+            return None, None
+        return (
+            np.asarray([alpha_e, beta_e], dtype=float),
+            np.asarray([alpha_o, beta_o], dtype=float),
+        )
+    else:
+        energies, occupations = _parse_block(region)
+        if not energies:
+            return None, None
+        return (
+            np.asarray(energies, dtype=float),
+            np.asarray(occupations, dtype=float),
+        )
 
 
 def _parse_geometry_from_content(mol, lines):

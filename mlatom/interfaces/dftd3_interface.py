@@ -43,6 +43,9 @@ class dftd3_methods(method_model):
     '''
 
     bin_env_name = 'dftd3bin'
+    # shown verbatim when the program is missing; must be a command that works
+    install_hint = ('conda install -c conda-forge simple-dftd3',
+                    'export dftd3bin=$(which s-dftd3)')
     supported_methods = ['d3zero', 'd3bj', 'd3bjm', 'd3zerom', 'd3op']
 
     def __init__(self, functional='wb97x', method='d3bj', damping_function_params=None, save_files_in_current_directory=True, working_directory=None):

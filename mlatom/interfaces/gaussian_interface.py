@@ -1109,12 +1109,116 @@ def parse_chunk(mol, chunk):
     if 'infrared_intensities' in mol.__dict__.keys():
         if np.all(mol.infrared_intensities == 0):
             del mol.__dict__['infrared_intensities']
-            
+
     if not 'energy' in mol.__dict__.keys():
         if 'scf_energy' in mol.__dict__.keys():
             mol.energy = mol.scf_energy
         elif recovered_energy is not None:
             mol.energy = recovered_energy
+
+    # MO surfacing (D3a) — attach mol.mo_energies + mol.mo_occupations
+    # from the converged "Alpha/Beta occ./virt. eigenvalues" blocks in
+    # the chunk. Schema matches pyscf_method.mo_energy: ndarray 1D for
+    # RKS/RHF, shape (2, N) for UKS/UHF. Best-effort: silent skip if
+    # the log doesn't carry the blocks.
+    try:
+        _mo_e, _mo_o = _parse_gaussian_log_orbitals(chunk)
+        if _mo_e is not None and _mo_o is not None:
+            mol.mo_energies = _mo_e
+            mol.mo_occupations = _mo_o
+    except Exception:
+        pass
+
+
+def _parse_gaussian_log_orbitals(chunk):
+    '''Parse "Alpha/Beta occ./virt. eigenvalues" lines from a Gaussian
+    log chunk and return (mo_energies, mo_occupations) as ndarrays.
+
+    Format (printed by default — no `pop=full` needed)::
+
+         Alpha  occ. eigenvalues --  -10.18773 -10.18747 -10.18746 ...
+         Alpha  occ. eigenvalues --  -10.18665  -0.84634  -0.73985 ...
+         ...
+         Alpha virt. eigenvalues --    0.00361   0.00364   0.09074 ...
+         ...
+         Beta  occ. eigenvalues --   ...        (only present for UKS)
+         Beta virt. eigenvalues --   ...
+
+    Gaussian prints multiple sets (initial guess + each SCF iteration);
+    we take the LAST set (the converged one) — each new "Alpha occ"
+    block reset the accumulators.
+
+    Schema (matches pyscf shape per dral 2026-06-02):
+      RKS/RHF:  1D ndarray;  occupations 2.0 / 0.0
+      UKS/UHF:  ndarray shape (2, N) [alpha, beta]; occupations 1.0 / 0.0
+
+    Returns ``(None, None)`` if no Alpha-occ block is found.
+    '''
+    import re
+
+    NUM = re.compile(r'-?\d+\.\d+(?:[eE][+-]?\d+)?')
+    alpha_occ, alpha_virt = [], []
+    beta_occ, beta_virt = [], []
+    in_block = None  # 'aocc' / 'avirt' / 'bocc' / 'bvirt' / None
+
+    def _vals_after_marker(s):
+        # Lines look like:  " Alpha  occ. eigenvalues --  -10.18 -10.17 ..."
+        # Split at "--" once, parse floats from the right side.
+        if '--' in s:
+            return [float(m) for m in NUM.findall(s.split('--', 1)[1])]
+        return []
+
+    for line in chunk:
+        # Markers use variable whitespace ("Alpha  occ." has two spaces;
+        # "Alpha occ." with one may also occur — string-contains is safer
+        # than fixed-position).
+        if 'occ. eigenvalues' in line and 'Alpha' in line:
+            if in_block != 'aocc':
+                # Start of a fresh alpha-occ block — reset all accumulators
+                # so SCF-iteration repeats overwrite cleanly.
+                alpha_occ, alpha_virt = [], []
+                beta_occ, beta_virt = [], []
+            in_block = 'aocc'
+            alpha_occ.extend(_vals_after_marker(line))
+        elif 'virt. eigenvalues' in line and 'Alpha' in line:
+            in_block = 'avirt'
+            alpha_virt.extend(_vals_after_marker(line))
+        elif 'occ. eigenvalues' in line and 'Beta' in line:
+            in_block = 'bocc'
+            beta_occ.extend(_vals_after_marker(line))
+        elif 'virt. eigenvalues' in line and 'Beta' in line:
+            in_block = 'bvirt'
+            beta_virt.extend(_vals_after_marker(line))
+        else:
+            in_block = None
+
+    if not alpha_occ:
+        return None, None
+
+    n_alpha_occ = len(alpha_occ)
+    alpha_e = alpha_occ + alpha_virt
+    is_uks = bool(beta_occ)
+
+    if is_uks:
+        n_beta_occ = len(beta_occ)
+        beta_e = beta_occ + beta_virt
+        if len(alpha_e) != len(beta_e):
+            return None, None  # shouldn't happen — defensive
+        n = len(alpha_e)
+        alpha_o = [1.0] * n_alpha_occ + [0.0] * (n - n_alpha_occ)
+        beta_o = [1.0] * n_beta_occ + [0.0] * (n - n_beta_occ)
+        return (
+            np.asarray([alpha_e, beta_e], dtype=float),
+            np.asarray([alpha_o, beta_o], dtype=float),
+        )
+    else:
+        n = len(alpha_e)
+        alpha_o = [2.0] * n_alpha_occ + [0.0] * (n - n_alpha_occ)
+        return (
+            np.asarray(alpha_e, dtype=float),
+            np.asarray(alpha_o, dtype=float),
+        )
+
 
 def parse_archive(mol, archive, chkfile_path=None):
     archiveText = r''

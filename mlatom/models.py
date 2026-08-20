@@ -677,14 +677,40 @@ def methods(method: str = None, program: str = None, **kwargs):
         else:
             method_instance = program_method(**kwargs)
     elif method is not None:
+        # A class whose program is missing is skipped, so is_method_supported()
+        # is never consulted for it and the error below used to say the method
+        # was unrecognised - telling a user with a correct method name to check
+        # their spelling. Remember the classes that DO support the method and
+        # were skipped only because their program is absent, so the message can
+        # name the program instead of blaming the method.
+        missing_program_for = []
         for method_class in known_classes:
             if not hasattr(method_class, 'is_method_supported'): continue
             if hasattr(method_class, 'is_program_found'):
-                if method_class.is_program_found() is False: continue
+                if method_class.is_program_found() is False:
+                    try:
+                        if method_class.is_method_supported(method):
+                            missing_program_for.append(method_class)
+                    except Exception:
+                        pass
+                    continue
             if method_class.is_method_supported(method):
                 method_instance = method_class(method=method, **kwargs)
                 break
         else:
+            if missing_program_for:
+                hint = None
+                for method_class in missing_program_for:
+                    hint = getattr(method_class, 'install_hint', None)
+                    if hint:
+                        break
+                if hint:
+                    raise ValueError("'%s' needs a program that is not installed:\n\n    %s\n"
+                                     % (method, '\n    '.join(hint)))
+                env_name = getattr(missing_program_for[0], 'bin_env_name', None)
+                raise ValueError(
+                    "'%s' needs an external program that was not found; install it and "
+                    "point %s at its executable." % (method, env_name or 'the *bin variable'))
             raise ValueError('''This method is not detected in any of the interfaces MLatom could find.
     Possible reasons:
     1. You might have misspelled method's name.

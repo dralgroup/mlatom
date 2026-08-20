@@ -2,7 +2,38 @@ import os
 from ... import data, models, constants
 from ...model_cls import method_model, model_tree_node, downloadable_model
 
-class aiqm3(method_model, downloadable_model):
+def _real_aiqm3():
+    """The add-on's implementation, or None when it is not installed."""
+    try:
+        from aitomic_addons import aiqm3 as _aiqm3
+    except ImportError:
+        return None
+    return _aiqm3
+
+
+class _aiqm3_meta(type):
+    """Forward CLASS-level attributes to the real implementation.
+
+    __new__ below redirects construction, which is enough for anything called on
+    an instance. It is not enough for a classmethod: `aiqm3.load(...)` never
+    constructs, so the redirect never fires and the call lands on this stub -
+    which is why loading a fine-tuned AIQM3 raised
+    "type object 'aiqm3' has no attribute 'load'" for anyone who installed
+    mlatom + aitomic-addons from PyPI, while the same call worked on the
+    platforms, where the real class replaces this file outright.
+    """
+
+    def __getattr__(cls, name):
+        real = _real_aiqm3()
+        if real is not None and hasattr(real, name):
+            return getattr(real, name)
+        raise AttributeError(
+            "'%s' is provided by the Aitomic Add-Ons for MLatom, which are not "
+            "installed. Install them with:  pip install aitomic-addons"
+            % name)
+
+
+class aiqm3(method_model, downloadable_model, metaclass=_aiqm3_meta):
 
     """ 
     GFN2-xTB based artificial intelligence quantum-mechanical method 3 (AIQM3)
@@ -29,7 +60,13 @@ class aiqm3(method_model, downloadable_model):
 
     """ 
     
-    supported_methods = ['AIQM3', 'AIQM3@DFT']
+    # Must match the add-on's own list, or the missing entry is unreachable:
+    # 'AIQM3@DFT*' was absent here while the add-on supported it, so
+    # methods(method='AIQM3@DFT*') reported the method as unrecognised for
+    # anyone using mlatom + aitomic-addons from PyPI. is_method_supported()
+    # reads cls.__dict__, so this cannot be delegated through the metaclass -
+    # it has to be kept in step by hand, and tests/tl guards it.
+    supported_methods = ['AIQM3', 'AIQM3@DFT', 'AIQM3@DFT*']
 
     def __new__(cls, *args, **kwargs):
         # When the aitomic_addons package is installed it provides the real

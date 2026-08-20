@@ -33,6 +33,8 @@ class dftd4_methods(OMP_model, method_model):
     '''
     
     bin_env_name = 'dftd4bin'
+    install_hint = ('conda install -c conda-forge dftd4',
+                    'export dftd4bin=$(which dftd4)')
     supported_methods = ['d4']
     
     def __init__(self, 

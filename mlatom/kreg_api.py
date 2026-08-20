@@ -1,7 +1,54 @@
 #!/usr/bin/env python3
-import mkl
 import numpy as np 
 from . import models
+
+# KREG_API needs the Intel MKL RUNTIME: KREG.so is linked against
+# libmkl_intel_lp64, libmkl_intel_thread, libmkl_core and libiomp5.
+#
+# `import mkl` below looks unused -- there is no `mkl.` anywhere in MLatom --
+# and it was briefly deleted on that basis. That was wrong: it is imported for
+# its SIDE EFFECT. mkl-service dlopens a COHERENT set of MKL libraries, so the
+# later load of KREG.so binds to those. Without it the loader falls back to
+# whatever `libmkl_intel_lp64.so` it finds first, and on a machine carrying
+# several MKL versions that core then asks for kernel libraries that are not
+# there. Measured on our own login node, which has three:
+#     /lib/x86_64-linux-gnu   libmkl_avx512.so     (unversioned)
+#     ml_np2_env/lib          libmkl_avx512.so.2
+#     the loaded core wants   libmkl_avx512.so.1
+# and the result is not an exception but
+#     Intel MKL FATAL ERROR: Cannot load libmkl_avx512.so.1 or libmkl_def.so.1
+# with MKL aborting the process. Nothing in Python can catch that: it killed a
+# joblib worker and took the whole test suite down with it. So DO NOT remove
+# this import because a linter or a grep says it is unused.
+#
+# What was genuinely wrong was the error a user saw when mkl was absent: a bare
+# `ModuleNotFoundError: No module named 'mkl'`, naming neither what is missing
+# nor what would fix it -- and `models.kreg(...)` defaults to
+# ml_program='KREG_API', so everyone following the README's
+# `pip install -U mlatom` hit it. Conda users never did: their numpy brings
+# MKL, and mkl-service usually rides along.
+try:
+    import mkl  # noqa: F401  -- imported for its side effect; see above
+except ImportError as error:
+    raise ImportError(
+        "the KREG_API backend needs Intel MKL, which `pip install mlatom` does "
+        "not\n"
+        "install. KREG.so is linked against it (libmkl_intel_lp64, "
+        "libmkl_intel_thread,\n"
+        "libmkl_core, libiomp5), and the `mkl` module is what loads a matching "
+        "set of\n"
+        "those libraries -- without it MLatom can abort instead of raising.\n"
+        "\n"
+        "Install both parts:\n"
+        "\n"
+        "    conda install -c conda-forge mkl mkl-service\n"
+        "\n"
+        "or use the KREG backend that needs no MKL at all -- same numbers, but "
+        "slower\n"
+        "(noticeably so in e.g. MD):\n"
+        "\n"
+        "    mlatom.models.kreg(..., ml_program='MLatomF')\n"
+    ) from error
 
 np_ver = np.__version__.split('.')[0]
 if np_ver == '1': from .fortran.np1 import KREG

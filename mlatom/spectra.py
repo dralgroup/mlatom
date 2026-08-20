@@ -1087,7 +1087,26 @@ def plot_spectra(spectra=None, linespectra=None,
         from scipy.signal import find_peaks
         from typing import OrderedDict
         import pandas as pd
-        from IPython.display import display, Markdown
+        # IPython is NOT a declared dependency of mlatom, and `to_markdown`
+        # needs `tabulate`, which is not one either. Both happen to be present
+        # in notebooks and in the SaaS environment, which is the only reason
+        # this path ever worked: a plain `pip install mlatom` raised
+        # ModuleNotFoundError here instead of printing the peak analysis.
+        # Render richly where we can, plainly where we cannot.
+        try:
+            from IPython.display import display, Markdown
+        except ImportError:
+            display = Markdown = None
+
+        def render_table(df):
+            if display is not None:
+                try:
+                    display(Markdown(df.to_markdown(index=False)))
+                    return
+                except ImportError:
+                    pass            # to_markdown needs `tabulate`
+            print(df.to_string(index=False))
+
         peaks, _ = find_peaks(spec.y)
         # corresponding_wavelengths = sorted([round(float(spectra[0].x[peak]), 2) for peak in peaks])
         corresponding_wavelengths = sorted([round(float(spec.x[peak]), 2) for peak in peaks])
@@ -1113,7 +1132,7 @@ def plot_spectra(spectra=None, linespectra=None,
                 components = df.to_string(index=False, header=True, justify="center", col_space=15).replace(" ", "   ")
                 wavelength = round(float(spec.x[peak]), ndigits=1)
                 print(f"\nContributions at wavelength: {wavelength} nm")
-                display(Markdown(df.to_markdown(index=False)))
+                render_table(df)
                 single_component = {f"{state_multiplicity[molecule.electronic_states[int(excitation)].multiplicity] if hasattr(molecule.electronic_states[int(excitation)], 'multiplicity') and molecule.electronic_states[int(excitation)].multiplicity < 5 else 'Excitation '}{excitation}": round(float(contribution), ndigits=4) 
                                        for excitation, contribution in zip(df["Excitation No."], df["Contribution"])}
                 component_dict.update({f"{wavelength} nm": single_component})

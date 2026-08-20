@@ -31,7 +31,18 @@ The easiest way to run MLatom is [online](http://mlatom.com/docs/cloud.html) —
 python3 -m pip install -U mlatom
 ```
 
-That pulls in the required dependencies automatically (including the PyTorch/TorchANI and geometry-optimization backends the **AIQM2** quick start uses). AIQM2 additionally needs the DFT-D4 program, installed via conda:
+That pulls in the required dependencies automatically (including the PyTorch/TorchANI and geometry-optimization backends the **AIQM2** quick start uses). A few features need one more package — install only what you use:
+
+| for | install |
+| --- | --- |
+| PySCF methods: single point, TDDFT, frequencies and thermochemistry, densities, Raman | `pip install pyscf` |
+| AIMNet2 models | `pip install aimnet` |
+| format conversions (SMILES to xyz and back) | `conda install -c conda-forge openbabel` |
+| the ASE interface (ASE optimizers and dynamics) and MACE | `pip install ase` |
+| KREG_API backend (`ml_program='MLatomF'` needs none of this) | `conda install -c conda-forge mkl mkl-service` |
+| MDtrajNet / MLTPA / DMC / hyperparameter search | `pip install e3nn` / `rdkit` / `pyvibdmc` / `hyperopt` |
+
+AIQM2 additionally needs the DFT-D4 program, installed via conda:
 
 ```bash
 conda install -c conda-forge 'dftd4==3.6.0'   # the version MLatom is tested against
@@ -100,6 +111,7 @@ Feature-specific references appear in the program output and in [`CITATION.cff`]
 
 Full [release notes](http://mlatom.com/docs/releases.html) · [`CHANGELOG.md`](CHANGELOG.md)
 
+- **3.25** — fine-tuning of the universal models on your own data: ANI, AIQM1, AIQM2, AIQM3, UAIQM, OMNI-P1 and OMNI-P2x all through the same `train()` call, with dispersion handled on both sides so the fine-tuned model keeps the long-range behaviour.
 - **3.23** — AIQM3 public add-on (`pip install aitomic-addons`); direct Gaussian workflows; version/commit/build-date banner with a daily update check.
 - **3.22** — OMNI-P2x model; faster nonadiabatic dynamics.
 - **3.21** — refactored ORCA interface supporting many more excited-state methods.

@@ -37,8 +37,12 @@ class ifMLatomCls(object):
                 uflag=1
         for i in deadlist: argsMLatomF.remove(i)
         if not shutup: print('> '+mlatomfbin+' '+' '.join(argsMLatomF))
-        proc = subprocess.Popen([mlatomfbin] + argsMLatomF, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwdpath, universal_newlines=True)
-        # proc.wait()
+        # stderr is folded into stdout rather than given its own pipe. With a
+        # separate stderr=PIPE that nothing reads, MLatomF blocks forever on
+        # write once it has produced ~64 kB of diagnostics, while this loop
+        # blocks on stdout - and its error messages were being discarded
+        # unread, which is why a failing run gave no explanation.
+        proc = subprocess.Popen([mlatomfbin] + argsMLatomF, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=cwdpath, universal_newlines=True)
         for readable in proc.stdout:
             output+=readable
             try:
@@ -173,6 +177,7 @@ class ifMLatomCls(object):
                 pass
             
         proc.stdout.close()
+        proc.wait()   # reap it; otherwise the child lingers as a zombie
         if Ntrain != None:
             t_train = t_hyperopt + t_finaltrain + t_descr
         if uflag or (Ntrain == None and Ntest == None):
@@ -186,11 +191,13 @@ class ifMLatomCls(object):
         return result
 
 def printHelp():
-    proc = subprocess.Popen([mlatomfbin] + ['help'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    proc.wait()
+    # Read first, THEN wait: waiting on a child that is still writing to a full
+    # pipe never returns. Same defect as above, in the opposite order.
+    proc = subprocess.Popen([mlatomfbin] + ['help'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     for line in iter(proc.stdout.readline, b''):
         readable = line.decode('ascii')
         print(readable.rstrip())
+    proc.wait()
 
 if __name__ == '__main__':
     print(__doc__)

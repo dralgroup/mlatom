@@ -271,9 +271,17 @@ def build_node(dispersion_kwargs, name='dispersion', working_directory=None):
     method = kwargs.pop('method')
     if working_directory is not None:
         kwargs['working_directory'] = working_directory
+    try:
+        term = methods(method=method, **kwargs)
+    except ValueError as error:
+        # Without this the user is told their METHOD is unrecognised, when what
+        # is missing is the dispersion program the model needs. AIQM3 was
+        # reported as broken for exactly this: s-dftd3 absent, and an error
+        # saying "you might have misspelled method's name".
+        raise ValueError(str(error)) from None
     return model_tree_node(
         name=name,
-        model=methods(method=method, **kwargs),
+        model=term,
         operator='predict',
     )
 

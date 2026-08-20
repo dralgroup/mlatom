@@ -41,6 +41,12 @@ dependencies = [
     "requests",
     "psutil",
     "geometric",
+    # Reached by ordinary Gaussian/ORCA output parsing: parse_chunk ->
+    # _rotate_dipole_to_input_orientation -> xyz.rotation_matrix -> import rmsd.
+    # The import is lazy, which hid it from every test run in an environment that
+    # happened to have it; on a clean `pip install mlatom` it is a crash on any
+    # Gaussian run. Only needs numpy+scipy, which are already required here.
+    "rmsd",
 ]
 
 [project.urls]

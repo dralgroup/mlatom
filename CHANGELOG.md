@@ -7,6 +7,19 @@ Dates are given as DD.MM.YYYY. Versions are available on
 [PyPI](https://pypi.org/project/mlatom/) and
 [GitHub](https://github.com/dralgroup/mlatom).
 
+## [3.25.2] – 20.08.2026
+- `AIQM3@DFT*` can now be requested: MLatom did not recognize it as a method. By Pavlo O. Dral.
+- Fixed: reading Gaussian or ORCA output could fail with `No module named 'rmsd'`
+  on a fresh install. `rmsd` is now installed together with MLatom. By Pavlo O. Dral.
+- Fixed: UV/Vis spectra lost the peaks they had computed when IPython was not
+  installed. By Pavlo O. Dral.
+- Fixed: MLatomF could hang on long runs, and its error messages were not shown.
+  By Pavlo O. Dral.
+- A method that needs a program you do not have now names that program and gives
+  the command that installs it. By Pavlo O. Dral.
+- Molecular-orbital energies and occupations are available from the PySCF, xTB,
+  Gaussian and ORCA interfaces. By Pavlo O. Dral.
+
 ## [3.25.1] – 14.08.2026
 - Fixed: the ANI `-D4` models still selected their dispersion parameters by
   functional name, so on dftd4 4.0.0 and newer they used a different fit — 3.9
