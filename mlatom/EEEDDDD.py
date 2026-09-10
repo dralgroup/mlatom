@@ -18,7 +18,11 @@ from .EEEDDDD_nn import batch_jacobian, MLP, ModelEnsemble, StackModelEnsemble, 
 from .EEEDDDD_descriptor import self_edge_vector_matrix, self_distance_matrix
 from typing import Any, List, Dict, Union, Iterable, Optional
 
-torch.set_default_dtype(torch.float32)
+# NOTE: this module used to call torch.set_default_dtype(torch.float32) here, at
+# import time. Class definitions create no tensors, so that had no local effect at
+# all - it only changed the precision for everything else in the process, silently
+# resetting a caller who had chosen otherwise. The precision these models need is
+# now set where they are actually built, in _new_model().
 
 # torch.autograd.set_detect_anomaly(True)
 
@@ -321,23 +325,31 @@ class EEEDDDD(model_cls.ml_model, model_cls.torch_model,model_cls.downloadable_m
 
     def _new_model(self, hyperparameters={}):
         self.hyperparameters.update(hyperparameters)
-        return EEENNDDDD(
-            num_species=len(self.species),
-            num_attn_blocks=self.hyperparameters.num_attn_blocks,
-            lmax=self.hyperparameters.lmax,
-            sp_embed_dim=self.hyperparameters.sp_embed_dim,
-            time_cutoff=self.hyperparameters.time_cutoff,
-            t_embed_dim=self.hyperparameters.t_embed_dim,
-            radial_cutoff=self.hyperparameters.radial_cutoff,
-            d_embed_dim=self.hyperparameters.d_embed_dim,
-            num_heads=self.hyperparameters.num_heads,
-            irreps_key=self.hyperparameters.irreps_key,
-            irreps_query=self.hyperparameters.irreps_query,
-            irreps_value=self.hyperparameters.irreps_value,
-            key_weight_hidden_neurons=self.hyperparameters.key_weight_hidden_neurons,
-            value_weight_hidden_neurons=self.hyperparameters.value_weight_hidden_neurons,
-            drop_out=self.hyperparameters.drop_out,
-        ).to(self.device)
+        # These networks are single precision. Set it for the construction only and put
+        # the process-wide default back, so building one does not change the precision
+        # of every other model in the same session.
+        saved_default_dtype = torch.get_default_dtype()
+        torch.set_default_dtype(torch.float32)
+        try:
+            return EEENNDDDD(
+                num_species=len(self.species),
+                num_attn_blocks=self.hyperparameters.num_attn_blocks,
+                lmax=self.hyperparameters.lmax,
+                sp_embed_dim=self.hyperparameters.sp_embed_dim,
+                time_cutoff=self.hyperparameters.time_cutoff,
+                t_embed_dim=self.hyperparameters.t_embed_dim,
+                radial_cutoff=self.hyperparameters.radial_cutoff,
+                d_embed_dim=self.hyperparameters.d_embed_dim,
+                num_heads=self.hyperparameters.num_heads,
+                irreps_key=self.hyperparameters.irreps_key,
+                irreps_query=self.hyperparameters.irreps_query,
+                irreps_value=self.hyperparameters.irreps_value,
+                key_weight_hidden_neurons=self.hyperparameters.key_weight_hidden_neurons,
+                value_weight_hidden_neurons=self.hyperparameters.value_weight_hidden_neurons,
+                drop_out=self.hyperparameters.drop_out,
+            ).to(self.device)
+        finally:
+            torch.set_default_dtype(saved_default_dtype)
 
     def train(
         self,

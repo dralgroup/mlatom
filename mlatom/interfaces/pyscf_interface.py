@@ -349,26 +349,31 @@ class pyscf_methods(OMP_pyscf):
 
         if calculate_energy:
             if not calculate_energy_gradients and not calculate_hessian and self.density_fitting:
-                pyscf_method.density_fit().run()
-                pyscf_method.e_tot = sum(pyscf_method.scf_summary.values())
-                
+                # density_fit() returns a NEW mean-field object and leaves the original
+                # un-run, so the energy has to be read from the object that ran. It used
+                # to be rebuilt as sum(scf_summary.values()) on the original instead,
+                # which held only as long as that dict contained exactly the additive
+                # energy components. PySCF 2.14 also files 'e2' in there - already
+                # counted as coul + exc - and 'gap', which is a HOMO-LUMO gap and not an
+                # energy at all, so the sum came back as -0.73 Hartree for CH4 where the
+                # answer is -40.51, with nothing raised. Reading e_tot off the object
+                # that ran needs no such assumption. Density fitting now also goes
+                # through the same convergence check as every other method, rather than
+                # storing whatever the run left behind.
+                pyscf_method = pyscf_method.density_fit()
+                pyscf_method.run()
             else:
                 pyscf_method.kernel()
 
-            if self.density_fitting:
+            converged = self.check_convergence(pyscf_method)
+            if converged:
                 molecule.energy = pyscf_method.e_tot
+                if 'CCSD(T)' == self.method.upper():
+                    molecule.energy = pyscf_method.e_tot + pyscf_method.ccsd_t()
                 _attach_mo_data(molecule, pyscf_method)
                 _dump_minimal_chkfile(molecule, pyscf_method)
             else:
-                converged = self.check_convergence(pyscf_method)
-                if converged:
-                    molecule.energy = pyscf_method.e_tot
-                    if 'CCSD(T)' == self.method.upper():
-                        molecule.energy = pyscf_method.e_tot + pyscf_method.ccsd_t()
-                    _attach_mo_data(molecule, pyscf_method)
-                    _dump_minimal_chkfile(molecule, pyscf_method)
-                else:
-                    print("PySCF doesn't converge and energy will not be stored in molecule")
+                print("PySCF doesn't converge and energy will not be stored in molecule")
 
         if calculate_energy_gradients and self.method.upper() not in ['TDA','TDDFT']:
             # FCI not supported 

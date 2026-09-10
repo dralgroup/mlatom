@@ -3724,6 +3724,50 @@ class molecular_trajectory():
         for istep, step in enumerate(self.steps):
             step.step = istep
 
+    def plot_energy_profile(self, filename='energy_profile', relative_to='first', unit='kcal/mol',
+                            xlabel='Image (reactant to product)', title=None):
+        '''
+        Plot the energy profile along the trajectory (e.g. a nudged-elastic-band band or a
+        reaction path): each step's energy relative to a reference, versus the step index.
+        Writes ``<filename>.png`` and the raw data ``<filename>.txt``, and returns the .png path.
+        Each step's molecule must carry an ``energy``.
+
+        Arguments:
+            filename (str): output path stem; ``.png`` and ``.txt`` are appended. Default ``energy_profile``.
+            relative_to (str, int): reference energy — ``'first'`` (reactant, default), ``'min'``, ``'max'`` (the peak), or a 0-based step index.
+            unit (str): ``'kcal/mol'`` (default) or ``'Hartree'``.
+            xlabel (str): x-axis caption.
+            title (str): plot title; auto-generated (with the barrier) if ``None``.
+        '''
+        import matplotlib.pyplot as plt
+        from . import constants
+        energies = [float(step.molecule.energy) for step in self.steps]
+        if not energies:
+            raise ValueError('the trajectory has no steps with an energy to plot')
+        if   relative_to == 'first': ref = energies[0]
+        elif relative_to == 'min':   ref = min(energies)
+        elif relative_to == 'max':   ref = max(energies)
+        else:                        ref = energies[int(relative_to)]
+        rel = [ee - ref for ee in energies]
+        if str(unit).lower().startswith('kcal'):
+            rel = [ee * constants.Hartree2kcalpermol for ee in rel]; yunit = 'kcal/mol'
+        else:
+            yunit = 'Hartree'
+        xx = list(range(len(rel)))
+        with open(filename + '.txt', 'w') as fout:
+            fout.write(f'# image\trelative_energy({yunit})\n')
+            for xi, ee in zip(xx, rel):
+                fout.write(f'{xi}\t{ee:.8f}\n')
+        fig, ax = plt.subplots(constrained_layout=True)
+        ax.plot(xx, rel, marker='o')
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(f'Energy relative to {relative_to} ({yunit})')
+        ax.set_title(title if title is not None else f'Energy profile (barrier {max(rel):.1f} {yunit})')
+        ax.grid(True)
+        fig.savefig(filename + '.png', dpi=150)
+        plt.close(fig)
+        return filename + '.png'
+
 class molecular_trajectory_step(object):
     def __init__(self, step=None, molecule=None):
         self.step = step

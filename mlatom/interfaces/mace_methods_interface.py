@@ -62,7 +62,19 @@ class mace_methods(torch_model, downloadable_model, method_model):
         if to_download:
             raise ValueError(f"MACE model {model_files} not found in {mlatom_model_dir}. Please download it manually and place it at {mlatom_model_path}")
 
-        self.model = mace_off(model=mlatom_model_path, device=self.device, **self.model_kwargs)
+        # mace_off() sets torch's PROCESS-GLOBAL default precision and never puts it
+        # back, so every model built later in the same session inherits it. A model that
+        # casts its own inputs to single precision then fails with "mat1 and mat2 must
+        # have the same dtype" - OMNI-P1 does exactly that. Ask for the precision
+        # explicitly, and restore the global one so nothing outside this call sees it.
+        import torch
+        default_dtype = self.model_kwargs.pop('default_dtype', 'float64')
+        saved_default_dtype = torch.get_default_dtype()
+        try:
+            self.model = mace_off(model=mlatom_model_path, device=self.device,
+                                  default_dtype=default_dtype, **self.model_kwargs)
+        finally:
+            torch.set_default_dtype(saved_default_dtype)
 
     def predict(
             self,

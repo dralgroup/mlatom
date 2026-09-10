@@ -30,8 +30,6 @@ def optimize_geometry(initial_molecule, model, convergence_criterion_for_forces,
         model_predict_kwargs = {}
     
     optimization_trajectory = data.molecular_trajectory()
-    globals()['initial_molecule'] = initial_molecule
-    globals()['optimization_trajectory'] = optimization_trajectory
     
     # Ugly solution because no time to understand what 'atoms' in ASE is exactly (probably corresponds to MLatom's 'molecular_database')
     # more like 'molecule', the 'atoms' object defines a collection of atoms
@@ -69,7 +67,8 @@ def optimize_geometry(initial_molecule, model, convergence_criterion_for_forces,
             
     # atoms.set_calculator(MLatomCalculator(model=model, save_optimization_trajectory=True))
     # atoms.set_calculator() is deprecated
-    atoms.calc = MLatomCalculator(model=model, save_optimization_trajectory=True, model_predict_kwargs=model_predict_kwargs)
+    atoms.calc = MLatomCalculator(model=model, save_optimization_trajectory=True, model_predict_kwargs=model_predict_kwargs,
+                                  initial_molecule=initial_molecule, optimization_trajectory=optimization_trajectory)
     
     from ase import optimize
     opt = optimize.__dict__[optimization_algorithm](atoms)
@@ -114,17 +113,16 @@ def dimer_method(initial_molecule, model,
                  convergence_criterion_for_forces,
                  maximum_number_of_steps,  **kwargs):
     optimization_trajectory = data.molecular_trajectory()
-    globals()['initial_molecule'] = initial_molecule
-    globals()['optimization_trajectory'] = optimization_trajectory
 
     with tempfile.TemporaryDirectory() as tmpdirname: # todo: new atoms object directly
         xyzfilename = f'{tmpdirname}/tmp.xyz'
         initial_molecule.write_file_with_xyz_coordinates(filename=xyzfilename)
         atoms = io.read(xyzfilename, index=':', format='xyz')[0]
 
-    atoms.calc = MLatomCalculator(model=model,  model_predict_kwargs= model_predict_kwargs, save_optimization_trajectory=True)
+    atoms.calc = MLatomCalculator(model=model,  model_predict_kwargs= model_predict_kwargs, save_optimization_trajectory=True,
+                                  initial_molecule=initial_molecule, optimization_trajectory=optimization_trajectory)
 
-    from ase.dimer import DimerControl, MinModeAtoms, MinModeTranslate
+    from ase.mep import DimerControl, MinModeAtoms, MinModeTranslate
     
     random_seed = kwargs.pop('random_seed') if 'random_seed' in kwargs else None
 
@@ -137,14 +135,11 @@ def dimer_method(initial_molecule, model,
     
     return optimization_trajectory
 
-def nudged_elastic_band(initial_molecule, final_molecule, model, 
+def nudged_elastic_band(initial_molecule, final_molecule, model,
                         model_predict_kwargs,
                         convergence_criterion_for_forces,
                         maximum_number_of_steps,
-                        number_of_middle_images=3, **kwargs):
-    optimization_trajectory = data.molecular_trajectory()
-    globals()['initial_molecule'] = initial_molecule
-    globals()['optimization_trajectory'] = optimization_trajectory
+                        number_of_middle_images=7, **kwargs):
 
     with tempfile.TemporaryDirectory() as tmpdirname: # todo: new atoms object directly
         xyzfilename = f'{tmpdirname}/tmp_init.xyz'
@@ -154,24 +149,53 @@ def nudged_elastic_band(initial_molecule, final_molecule, model,
         final_molecule.write_file_with_xyz_coordinates(filename=xyzfilename)
         final = io.read(xyzfilename, index=':', format='xyz')[0]
 
-    from ase.neb import NEB
-    from ase.optimize import MDMin
+    from ase.mep import NEB
+    from ase.optimize import FIRE
+    fmax = 0.1 if convergence_criterion_for_forces is None else convergence_criterion_for_forces
+    nsteps = 200 if maximum_number_of_steps is None else maximum_number_of_steps
     images = [initial]
     images += [initial.copy() for _ in range(number_of_middle_images)]
     images += [final]
-    neb = NEB(images, **kwargs)
-    neb.interpolate()
-    for image in images[1:number_of_middle_images+1]:
-        image.calc = MLatomCalculator(model=model,  model_predict_kwargs= model_predict_kwargs, save_optimization_trajectory=True)
-    optimizer = MDMin(neb, trajectory='A2B.traj')
-    optimizer.run(fmax=convergence_criterion_for_forces,
-                  steps=maximum_number_of_steps)
-    return optimization_trajectory
+    kwargs.pop('climb', None) # the climbing image is switched on below, in stage 2
+    neb = NEB(images, method=kwargs.pop('method', 'improvedtangent'), **kwargs)
+    # image-dependent pair potential interpolation, which avoids the atom overlaps
+    # a straight linear guess produces on a curved path (falls back to linear on
+    # ase versions that do not take a method argument)
+    try: neb.interpolate(method='idpp')
+    except TypeError: neb.interpolate()
+    for image in images: # every image (endpoints included) needs its own calculator
+        image.calc = MLatomCalculator(model=model, model_predict_kwargs=model_predict_kwargs,
+                                      initial_molecule=initial_molecule)
+    # relax the band, then switch on the climbing image so the highest image climbs
+    # onto the saddle point (the transition state)
+    FIRE(neb, logfile=None).run(fmax=max(fmax, 0.3), steps=nsteps)
+    neb.climb = True
+    FIRE(neb, logfile=None).run(fmax=fmax, steps=nsteps)
+    # return the relaxed band: the images in their natural order from reactant to
+    # product, each carrying its energy. The band is not manipulated (no image is
+    # reordered, dropped or appended) so it can be scanned and plotted directly; the
+    # highest-energy image is the approximate transition state, which the caller
+    # refines with a transition-state optimization + frequencies.
+    band = data.molecular_trajectory()
+    energies = [image.get_potential_energy() / ase.units.Hartree for image in images]
+    for istep, image in enumerate(images):
+        mol = initial_molecule.copy()
+        mol.xyz_coordinates = image.get_positions()
+        mol.energy = energies[istep]
+        band.steps.append(data.molecular_trajectory_step(step=istep, molecule=mol))
+    return band
 
 
 class MLatomCalculator(Calculator):
     implemented_properties = ['energy', 'forces']
-    def __init__(self, model,  model_predict_kwargs, save_optimization_trajectory = False):
+    def __init__(self, model,  model_predict_kwargs, save_optimization_trajectory = False,
+                 initial_molecule = None, optimization_trajectory = None):
+        # initial_molecule and optimization_trajectory used to be read from MODULE
+        # globals, so two calculations in one process shared them: a geometry
+        # optimisation or dimer run left its trajectory behind and the next NEB's
+        # calculator appended to it. Passed in explicitly, nothing is shared.
+        self.initial_molecule = initial_molecule
+        self.optimization_trajectory = optimization_trajectory
         super(MLatomCalculator, self).__init__()
         self.model = model
         self.model_predict_kwargs =  model_predict_kwargs
@@ -179,13 +203,12 @@ class MLatomCalculator(Calculator):
 
     def calculate(self, atoms=None, properties=['energy'], system_changes=all_changes):
         super(MLatomCalculator, self).calculate(atoms, properties, system_changes)
-        global initial_molecule
         # Ugly solution because no time to understand what 'atoms' in ASE is exactly (probably corresponds to MLatom's 'molecular_database')
         with tempfile.TemporaryDirectory() as tmpdirname:
             xyzfilename = f'{tmpdirname}/tmp.xyz'
             io.write(xyzfilename, self.atoms, format='extxyz', plain=True)
             
-            current_molecule = initial_molecule.copy()
+            current_molecule = self.initial_molecule.copy()
             mol_from_file = data.molecule()
             mol_from_file.read_from_xyz_file(filename=xyzfilename)
             coordinates = mol_from_file.xyz_coordinates
@@ -196,9 +219,8 @@ class MLatomCalculator(Calculator):
                 raise ValueError('model did not return any energy')
             
             if self.save_optimization_trajectory:
-                global optimization_trajectory
-                istep = len(optimization_trajectory.steps)
-                optimization_trajectory.steps.append(data.molecular_trajectory_step(step=istep, molecule=current_molecule))
+                istep = len(self.optimization_trajectory.steps)
+                self.optimization_trajectory.steps.append(data.molecular_trajectory_step(step=istep, molecule=current_molecule))
             
             energy = current_molecule.energy
             forces = -current_molecule.get_energy_gradients()
@@ -246,12 +268,26 @@ def thermochemistry(molecule):
     
     if 'symmetry_number' not in molecule.__dict__.keys():
         molecule.symmetry_number = 1
-    thermo = IdealGasThermo(vib_energies=vib_energies,
-                            potentialenergy=energy,
-                            atoms=mol,
-                            geometry=geometry,
-                            symmetrynumber=molecule.symmetry_number,
-                            spin=spin)
+    thermo_kwargs = dict(vib_energies=vib_energies,
+                         potentialenergy=energy,
+                         atoms=mol,
+                         geometry=geometry,
+                         symmetrynumber=molecule.symmetry_number,
+                         spin=spin)
+    try:
+        thermo = IdealGasThermo(**thermo_kwargs)
+    except ValueError:
+        # ASE 3.29 and newer pick the true vibrations themselves and insist on being
+        # handed 3N-6 (or 3N-5) of them. MLatom has already made a selection just
+        # above - it drops every non-positive mode - and where the structure has
+        # imaginary frequencies, which is every saddle point and exactly the case the
+        # warning above is about, fewer than that are left and ASE refused with
+        # `Too few vibration modes (14) after selection` instead of returning
+        # thermochemistry. Say that these ARE the vibrations only in that case: when
+        # enough modes are there, ASE's own selection is left alone, because it also
+        # discards the leftover translation and rotation modes that come out just
+        # above zero and that MLatom's own test above therefore keeps.
+        thermo = IdealGasThermo(vib_selection='all', **thermo_kwargs)
     
     molecule.G = thermo.get_gibbs_energy(temperature=298.15, pressure=101325.) * ev2kcal * constants.kcalpermol2Hartree
     molecule.H = thermo.get_enthalpy(temperature=298.15, verbose=True) * ev2kcal * constants.kcalpermol2Hartree

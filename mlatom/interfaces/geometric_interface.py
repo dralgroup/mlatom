@@ -49,6 +49,17 @@ class MLatomEngine(geometric.engine.Engine):
         energy = mol.energy
         gradients = mol.get_energy_gradients()/constants.Angstrom2Bohr
         return {"energy": energy, "gradient": gradients.ravel()}
+
+def _write_geometric_hessian(molecule, hessdir):
+    import numpy as np
+
+    os.makedirs(hessdir, exist_ok=True)
+    # MLatom: Hartree/Angstrom^2; geomeTRIC: Hartree/Bohr^2.
+    np.savetxt(
+        os.path.join(hessdir, 'hessian.txt'),
+        molecule.hessian / constants.Angstrom2Bohr**2,
+    )
+    molecule.write_file_with_xyz_coordinates(os.path.join(hessdir, 'coords.xyz'))
     
 def optimize_geometry(
         model=None, 
@@ -67,14 +78,8 @@ def optimize_geometry(
         model.predict(molecule=molecule, calculate_hessian=True)
         print('Finish calculating hessian and start optimizing geometry ...'); sys.stdout.flush()
 
-        hess = molecule.hessian
         hessdir = f'{tmpdirname}.tmp/hessian'
-        if not os.path.exists(hessdir):
-            os.makedirs(hessdir)
-
-        import numpy as np 
-        np.savetxt(f'{hessdir}/hessian.txt',hess)
-        molecule.write_file_with_xyz_coordinates(f'{hessdir}/coords.xyz')
+        _write_geometric_hessian(molecule, hessdir)
 
     mlatom_engine = MLatomEngine(molecule, model, model_predict_kwargs, save_traj=True)
     
@@ -152,11 +157,8 @@ def generate_irc(
     tmpdirname = os.path.abspath(tmpdir.name)
 
     ### generate hessian first
-    hess = molecule.hessian
     hessdir = f'{tmpdirname}.tmp/hessian'
-    if not os.path.exists(hessdir): os.makedirs(hessdir)
-    np.savetxt(f'{hessdir}/hessian.txt',hess)
-    molecule.write_file_with_xyz_coordinates(f'{hessdir}/coords.xyz')
+    _write_geometric_hessian(molecule, hessdir)
 
     ### start irc generation
     default_model_predict_kwargs = {"calculate_energy":True, "calculate_energy_gradients":True}

@@ -7,6 +7,106 @@ Dates are given as DD.MM.YYYY. Versions are available on
 [PyPI](https://pypi.org/project/mlatom/) and
 [GitHub](https://github.com/dralgroup/mlatom).
 
+## [3.25.3] – 09.09.2026
+- Fixed: transition-state optimizations and IRC runs that computed their own
+  initial Hessian handed it to geomeTRIC in Hartree/Angstrom^2, where geomeTRIC
+  expects Hartree/Bohr^2 — about 3.6 times too large. The optimizer therefore
+  started from a badly scaled Hessian; paths and the steps taken to reach them
+  change. By Yuxinxin Chen.
+- Fixed: KREG Hessians were missing a term. The second derivative of the
+  reduced-distance descriptors was not included, so every predicted Hessian was
+  wrong. By Yifan Hou.
+- Fixed: `density_fitting=True` with PySCF returned an energy that was not the
+  energy — for methane at B3LYP/6-31G, -0.73 Hartree where the answer is -40.51,
+  with nothing raised. `density_fit()` returns a new mean-field object and leaves
+  the original un-run, so MLatom rebuilt the total by summing PySCF's
+  `scf_summary`. That sum is the energy only while the dictionary holds exactly
+  the additive components, and PySCF 2.14 also files `e2` in it — already counted
+  as `coul + exc` — and `gap`, which is a HOMO-LUMO gap and not an energy. The
+  energy now comes from the object that ran, and density fitting goes through the
+  same convergence check as every other method. By Pavlo O. Dral.
+- Fixed: a frequency calculation run through ASE (`optprog=ase`) died inside ASE
+  with `Too few vibration modes (14) after selection` on any structure that has an
+  imaginary frequency — every saddle point, and exactly the case MLatom prints a
+  warning about one line earlier. Current ASE picks the true vibrations itself and
+  insists on being handed 3N-6 of them, while MLatom had already removed the
+  non-positive modes and passed only what was left. MLatom now tells ASE that these
+  are the vibrations in exactly that case, and leaves ASE's own selection alone
+  whenever enough modes are there — that selection is also quietly discarding the
+  leftover translation and rotation modes that come out just above zero, which
+  MLatom's own test keeps. No number changes: the four molecules of the AIQM1
+  frequency test reproduce their saved reference to the last digit, and so do the
+  thermochemistry, heat-of-formation and frequency tests that never crashed. By
+  Pavlo O. Dral.
+- Fixed: the test suite failed instead of skipping on a machine without Julia. The
+  KRR-in-Julia test imported the PyJulia bridge at the top, and neither the bridge
+  nor a Julia runtime is a dependency of MLatom — Julia is a language, not a wheel
+  — so a fresh install could not run the suite clean. It also dropped the exit
+  status of the run it started, as did four of the AIQM1 frequency tests, where a
+  crashed calculation surfaced as an array-shape error against the reference
+  instead of the traceback that caused it. The transition-state generation test
+  did the same with EcTs, which is installed by hand from GitHub and is not a
+  dependency either. All of these skip now, and say why. By Pavlo O. Dral.
+- **The nudged elastic band now returns a band, and finds the saddle.** It builds seven
+  middle images instead of three, interpolates with the image-dependent pair potential so a
+  curved path does not start from a guess with atoms on top of each other, uses the improved
+  tangent, and runs FIRE in two stages: relax the band, then switch on the climbing image so
+  the highest image climbs onto the saddle point. What comes back is the relaxed band itself,
+  reactant to product, one step per image with its energy, exposed as `geomopt.band` and
+  plottable with `band.plot_energy_profile()`. The transition state is the highest image.
+  Previously the return value was a log with one entry per model call, in whatever order the
+  optimiser asked, and the "transition state" was whichever image it touched last. By Pavlo
+  O. Dral.
+- Fixed: nudged-elastic-band and dimer searches died on current ASE with `Atoms object has
+  no calculator` before taking a step, because ASE asks the endpoint images for their
+  energies and MLatom gave calculators only to the images that move. Every image gets one
+  now. By Pavlo O. Dral.
+- Fixed: driving Gaussian for an MLatom method — geometry optimization, frequencies, IRC,
+  QST2, IR — failed on a fresh install with only `Failed to open output file from external
+  program` from Gaussian. MLatom writes that file through `fortranformat`, which it never
+  declared as a dependency, and the import is inside the writing function, so the
+  calculation ran and then died at the last step. By Pavlo O. Dral.
+- Fixed: `$mlatom input.inp` did not run at all from a pip-installed MLatom. The package
+  ships `shell_cmd.py` with a shebang and git marks it executable, but the build stripped
+  that, so running it directly gave `Permission denied`. Every published wheel had this,
+  including 3.25.2. The `mlatom` command itself was unaffected. By Pavlo O. Dral.
+- Fixed: nudged-elastic-band and dimer transition-state searches failed on any recent
+  ASE with `No module named 'ase.neb'`. ASE moved those into `ase.mep`, and MLatom still
+  imported the old paths, so `pip install ase` — what the README tells you to do — gave a
+  broken interface. The imports now use `ase.mep`, which both old and new ASE provide.
+  By Pavlo O. Dral.
+- Fixed: a MACE calculation left PyTorch in double precision for the rest of the
+  session, so the next model built in the same Python session inherited it and
+  crashed with `mat1 and mat2 must have the same dtype, but got Float and
+  Double`. OMNI-P1 after MACE is the case that shows it. By Pavlo O. Dral.
+- Fixed: three further places set PyTorch's default precision for the whole
+  process and left it changed — one of them at import time, before anything was
+  built. They now set it where the networks are built and put it back
+  afterwards, so your own choice of precision survives. By Pavlo O. Dral.
+- Fixed: the ASE calculator kept the molecule and the optimization trajectory in
+  module-level variables, so two calculations in one process shared them and the
+  second appended to the first one's trajectory. A nudged-elastic-band run after
+  another calculation could silently take the plain geometry-optimization path.
+  By Pavlo O. Dral.
+- Dependencies now allow the versions MLatom is actually tested with: `torch` from
+  2.1.2 up to but excluding 2.8, and `torchani` 2.2.x. The old `torch==2.1.2` /
+  `torchani==2.2.3` were a snapshot of one environment, and nothing was tested
+  against them; testing runs on torch 2.7.0 with torchani 2.2.4. These are ranges
+  rather than exact pins because PyTorch publishes no build newer than 2.2.2 for
+  Intel Macs, so an exact pin would make MLatom uninstallable there. torchani stays
+  inside 2.2 because its model API changed in 2.8, and torch stops below 2.8 because
+  2.13 removed an API our training loops use. By Pavlo O. Dral.
+- AIMNet2 needs `pip install "aimnet==0.0.1"`, which the README now says. Newer
+  `aimnet` releases are a rewrite that does not work with the models MLatom
+  ships, and none of them could be installed next to the old `torch==2.1.2` pin
+  at all. By Pavlo O. Dral.
+- The READMEs now say plainly that MLatom is developed and tested on Linux and that
+  this is the only platform it is verified on; macOS is often usable but untested, and
+  Windows is not supported. By Pavlo O. Dral.
+- Note for anyone running NumPy 2: MLatom ships a separate KREG binary for it,
+  and that one has not been rebuilt since the Hessian fix above. The released
+  package pins NumPy 1, where the fixed binary is the one used. By Pavlo O. Dral.
+
 ## [3.25.2] – 20.08.2026
 - `AIQM3@DFT*` can now be requested: MLatom did not recognize it as a method. By Pavlo O. Dral.
 - Fixed: reading Gaussian or ORCA output could fail with `No module named 'rmsd'`

@@ -22,6 +22,9 @@ def gen_ts_ects(
 
     # check device and set local rank
     import torch
+    # Single precision is what the EcTs model needs; torch's default dtype is
+    # process-global, so remember the caller's and put it back before returning.
+    saved_default_dtype = torch.get_default_dtype()
     torch.set_default_dtype(torch.float32)
     if 'device' in program_kwargs: device = program_kwargs['device']
     else: device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -93,4 +96,5 @@ def gen_ts_ects(
     if avg_path:
         print('Average path is not implemented yet.')
 
+    torch.set_default_dtype(saved_default_dtype)
     return gen_ts_results(results_ts, results_avg_ts, results_path, results_avg_path)

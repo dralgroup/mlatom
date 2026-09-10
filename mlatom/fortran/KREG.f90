@@ -186,14 +186,16 @@ function d2KdMiatdMibu(Natoms,Xsize,a,tt,bb,uu,Xi,Xj,XYZi,XYZj,ac2dArray,sigma)
   integer, intent(in) :: ac2dArray(1:Natoms,1:Natoms)
   real(kind=8), intent(in):: sigma 
   ! Local variables
-  integer :: dd, ee, cc, gg, kk, ll 
+  integer :: dd, ee, cc, gg, kk, ll, pp, qq 
   real(kind=8) :: tempnum1, tempnum2, dXdM, dXdMiat, dXdMibu 
-  real(kind=8) :: in_tempnum1, in_tempnum2, out_tempnum1, out_tempnum2 
+  real(kind=8) :: in_tempnum1, in_tempnum2, out_tempnum1, out_tempnum2, out_tempnum3 
+  real(kind=8) :: d2X, Rpq, Rpq2, Rpq4, delta_tu, diff_t, diff_u 
 
   tempnum1 = 0.0 
   tempnum2 = 0.0 
   out_tempnum1 = 0.0 
   out_tempnum2 = 0.0 
+  out_tempnum3 = 0.0 
 
   do cc=1, Natoms 
     if (a /= cc) then 
@@ -215,8 +217,37 @@ function d2KdMiatdMibu(Natoms,Xsize,a,tt,bb,uu,Xi,Xj,XYZi,XYZj,ac2dArray,sigma)
       out_tempnum2 = out_tempnum2 + in_tempnum2 * dXdMiat 
     end if 
   end do 
+  ! Term C: second derivative of the reduced-distance descriptors.
+  ! X_d = Xeq_d / R_pq, so for a pair (pp,qq) the non-zero second derivatives
+  ! only occur when both a and bb belong to {pp,qq}.
+  do pp=1, Natoms-1
+    do qq=pp+1, Natoms
+      dd = ac2dArray(pp,qq)
+      Rpq = Rij(XYZi(:,pp), XYZi(:,qq))
+      Rpq2 = Rpq**2
+      Rpq4 = Rpq2**2
+      if (tt == uu) then
+        delta_tu = 1.0
+      else
+        delta_tu = 0.0
+      end if
+      diff_t = XYZi(tt,qq) - XYZi(tt,pp)
+      diff_u = XYZi(uu,qq) - XYZi(uu,pp)
+      if (a == pp .and. bb == pp) then
+        d2X = -Xi(dd)/Rpq2 * delta_tu + 3.0*Xi(dd)/Rpq4 * diff_t * diff_u
+        out_tempnum3 = out_tempnum3 + (Xi(dd) - Xj(dd)) * d2X
+      else if (a == qq .and. bb == qq) then
+        d2X = -Xi(dd)/Rpq2 * delta_tu + 3.0*Xi(dd)/Rpq4 * diff_t * diff_u
+        out_tempnum3 = out_tempnum3 + (Xi(dd) - Xj(dd)) * d2X
+      else if ((a == pp .and. bb == qq) .or. (a == qq .and. bb == pp)) then
+        d2X = Xi(dd)/Rpq2 * delta_tu - 3.0*Xi(dd)/Rpq4 * diff_t * diff_u
+        out_tempnum3 = out_tempnum3 + (Xi(dd) - Xj(dd)) * d2X
+      end if
+    end do
+  end do
+
   out_tempnum1 = out_tempnum1 / (sigma**2)
-  d2KdMiatdMibu = (out_tempnum1+out_tempnum2) * kernel(Xsize,Xi,Xj,sigma) / (sigma**2)
+  d2KdMiatdMibu = (out_tempnum1 + out_tempnum2 - out_tempnum3) * kernel(Xsize,Xi,Xj,sigma) / (sigma**2)
 
 end function d2KdMiatdMibu
 

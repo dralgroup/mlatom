@@ -282,6 +282,9 @@ class mace(ml_model, torch_model):
 
         config_type_weights = ast.literal_eval(args.config_type_weights) if type(args.config_type_weights) == 'str' else  args.config_type_weights
 
+        # Process-global; restored at the end of train() so a later model in the same
+        # session is not silently built at MACE's precision.
+        saved_default_dtype = torch.get_default_dtype()
         tools.set_default_dtype(args.default_dtype)
 
         collections, self.atomic_energies_dict = get_dataset_from_molDB(
@@ -775,6 +778,7 @@ class mace(ml_model, torch_model):
             self.save(self.model_file)
 
         logging.info("Done")
+        torch.set_default_dtype(saved_default_dtype)
 
     @doc_inherit
     def predict(

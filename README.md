@@ -25,6 +25,12 @@ Run MLatom in your browser on either online platform — both powered by [Protom
 
 ## Local installation
 
+MLatom is developed and tested on **Linux**, and that is the only platform it is verified on. It is
+often usable on macOS, but nothing there is tested: PyTorch, for one, publishes no build newer than
+2.2.2 for Intel Macs, so you get an older PyTorch than the one MLatom is tested with. Windows is not
+supported. The [online platforms](http://mlatom.com/docs/cloud.html) above need no installation and
+are the way to run MLatom from any operating system.
+
 The easiest way to run MLatom is [online](http://mlatom.com/docs/cloud.html) — no installation. To install locally:
 
 ```bash
@@ -36,7 +42,7 @@ That pulls in the required dependencies automatically (including the PyTorch/Tor
 | for | install |
 | --- | --- |
 | PySCF methods: single point, TDDFT, frequencies and thermochemistry, densities, Raman | `pip install pyscf` |
-| AIMNet2 models | `pip install aimnet` |
+| AIMNet2 models | `pip install "aimnet==0.0.1"` (the version MLatom's interface targets; newer `aimnet` releases are a rewrite that does not work with the shipped models) |
 | format conversions (SMILES to xyz and back) | `conda install -c conda-forge openbabel` |
 | the ASE interface (ASE optimizers and dynamics) and MACE | `pip install ase` |
 | KREG_API backend (`ml_program='MLatomF'` needs none of this) | `conda install -c conda-forge mkl mkl-service` |

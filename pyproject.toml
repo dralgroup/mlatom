@@ -31,8 +31,14 @@ dependencies = [
     "scipy",
     "h5py",
     "pyh5md",
-    "torch==2.1.2",
-    "torchani==2.2.3",
+    # Tested with torch 2.7.0 + torchani 2.2.4 (nightly and wheel gates, 2026-09-07/08:
+    # 424 source tests, 438 wheel tests, ANI/AIQM training included). Declared as ranges,
+    # not exact pins, because PyTorch ships no build newer than 2.2.2 for macOS x86_64 --
+    # `torch==2.7.0` makes MLatom uninstallable on every Intel Mac (measured 2026-09-09).
+    # torchani stays inside 2.2 because its model API changed in 2.8; torch stops below 2.8
+    # because 2.13 removed ReduceLROnPlateau.is_better, which our training loops call.
+    "torch>=2.1.2,<2.8",
+    "torchani>=2.2.3,<2.3",
     "setuptools<81",
     "matplotlib",
     "statsmodels",
@@ -47,6 +53,13 @@ dependencies = [
     # happened to have it; on a clean `pip install mlatom` it is a crash on any
     # Gaussian run. Only needs numpy+scipy, which are already required here.
     "rmsd",
+    # Lazily imported in interfaces/gaussian_external.py, the ONLY place, to write the file
+    # Gaussian reads back. Undeclared until 2026-09-09, so on a fresh install every calculation
+    # that drives Gaussian for an MLatom method - geometry optimization, frequencies, IRC, QST2,
+    # IR - died writing its output, and Gaussian reported only "Failed to open output file from
+    # external program". Same shape as the rmsd omission fixed in 3.25.2: a lazy import hides
+    # from every test run in an environment that happens to have it.
+    "fortranformat",
 ]
 
 [project.urls]

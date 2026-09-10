@@ -365,7 +365,17 @@ class optimize_geometry():
         moldb = data.molecular_database()
         moldb.molecules = [each.molecule for each in self.optimization_trajectory.steps]
        # moldb.write_file_with_xyz_coordinates(self.filename.split('.')[0] + '.xyz')
-        self.optimized_molecule = self.optimization_trajectory.steps[-1].molecule
+        if self.ts and str(self.optimization_algorithm or '').casefold() == 'neb'.casefold():
+            # NEB returns the relaxed band (the images from reactant to product). Expose
+            # it as self.band; the optimized geometry is the highest-energy image (the
+            # approximate transition state) — refine it with a transition-state
+            # optimization + frequencies to get the true saddle.
+            self.band = self.optimization_trajectory
+            steps = self.optimization_trajectory.steps
+            imax = max(range(len(steps)), key=lambda ii: steps[ii].molecule.energy)
+            self.optimized_molecule = steps[imax].molecule
+        else:
+            self.optimized_molecule = self.optimization_trajectory.steps[-1].molecule
         
     def opt_geom(self):
         try: import scipy.optimize
