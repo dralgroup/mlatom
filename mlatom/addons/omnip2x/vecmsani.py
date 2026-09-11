@@ -429,6 +429,11 @@ class vecmsani(ml_model, torchani_model):
         if reset_optimizer:
             self.optimizer_setup(**self.hyperparameters)
 
+        # fix layers
+        if 'fixed_layers' in hyperparameters:
+            self.fix_layers(getattr(hyperparameters['fixed_layers'], 'value',
+                                    hyperparameters['fixed_layers']))
+
         self.model.train()
 
         if self.verbose: print(self.model)
