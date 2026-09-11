@@ -56,8 +56,8 @@ authors:
     given-names: Jinming
   - family-names: Bispo
     given-names: "Matheus O."
-version: 3.25.3
-date-released: "2026-09-09"
+version: 3.25.4
+date-released: "2026-09-10"
 license: Apache-2.0
 repository-code: "https://github.com/dralgroup/mlatom"
 url: "http://mlatom.com"

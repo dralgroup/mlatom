@@ -46,7 +46,8 @@ That pulls in the required dependencies automatically (including the PyTorch/Tor
 | format conversions (SMILES to xyz and back) | `conda install -c conda-forge openbabel` |
 | the ASE interface (ASE optimizers and dynamics) and MACE | `pip install ase` |
 | KREG_API backend (`ml_program='MLatomF'` needs none of this) | `conda install -c conda-forge mkl mkl-service` |
-| MDtrajNet / MLTPA / DMC / hyperparameter search | `pip install e3nn` / `rdkit` / `pyvibdmc` / `hyperopt` |
+| MDtrajNet | `pip install "e3nn==0.5.0"` (with e3nn 0.5.1 or newer, the published MDtrajNet-1 model produces different trajectories) |
+| MLTPA / DMC / hyperparameter search | `pip install rdkit` / `pyvibdmc` / `hyperopt` |
 
 AIQM2 additionally needs the DFT-D4 program, installed via conda:
 

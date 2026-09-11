@@ -11,9 +11,9 @@ from . import models
 # later load of KREG.so binds to those. Without it the loader falls back to
 # whatever `libmkl_intel_lp64.so` it finds first, and on a machine carrying
 # several MKL versions that core then asks for kernel libraries that are not
-# there. Measured on our own login node, which has three:
+# there. Measured on a machine that has three:
 #     /lib/x86_64-linux-gnu   libmkl_avx512.so     (unversioned)
-#     ml_np2_env/lib          libmkl_avx512.so.2
+#     a conda env's lib       libmkl_avx512.so.2
 #     the loaded core wants   libmkl_avx512.so.1
 # and the result is not an exception but
 #     Intel MKL FATAL ERROR: Cannot load libmkl_avx512.so.1 or libmkl_def.so.1

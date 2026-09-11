@@ -7,6 +7,44 @@ Dates are given as DD.MM.YYYY. Versions are available on
 [PyPI](https://pypi.org/project/mlatom/) and
 [GitHub](https://github.com/dralgroup/mlatom).
 
+## [3.25.4] – 10.09.2026
+- Fixed: the default KREG model did not load in 3.25.3 on Linux older than about 2021 —
+  RHEL/CentOS 7 and 8, Rocky 8, Ubuntu 20.04, Debian 11. Its compiled kernel had been
+  rebuilt for the Hessian fix on a newer system and needed glibc 2.34, where the 3.25.2
+  kernel needed 2.14. It is rebuilt from the same sources on an older base and needs 2.14
+  again; its energies, gradients and Hessians are bit-identical to 3.25.3's. By Pavlo O.
+  Dral.
+- Fixed: KREG Hessians were still wrong for anyone running MLatom under NumPy 2. The
+  3.25.3 fix rebuilt only the kernel MLatom loads under NumPy 1; the one it loads under
+  NumPy 2 predated the fix, and its Hessians were wrong - in our test by about three
+  quarters of their size. It is rebuilt with the fix, gives results bit-identical to the
+  NumPy 1 kernel, and also loads on older Linux. By Pavlo O. Dral.
+- Fixed: nudged-elastic-band and dimer searches failed in 3.25.3 on ASE older than 3.23
+  with `No module named 'ase.mep'`, because 3.25.3 imported them only from `ase.mep`,
+  where ASE moved them in 3.23. MLatom now falls back to `ase.neb` and `ase.dimer`.
+  (ASE 3.22's own nudged-elastic-band module also needs SciPy older than 1.14.) By
+  Pavlo O. Dral.
+- Fixed: `$mlatom input.inp` still failed with `Permission denied` after installing from
+  source or from GitHub (`pip install .`, `pip install git+https://…`); 3.25.3 fixed it
+  only for the package on PyPI. By Pavlo O. Dral.
+- geomeTRIC must now be older than 1.1.1 (pip moves an installed 1.1.1 back to 1.1).
+  Version 1.1.1 changed the rule that ends an intrinsic-reaction-coordinate branch, so its
+  paths no longer match the ones MLatom is tested against. By Pavlo O. Dral.
+- MDtrajNet needs e3nn 0.5.0, and the README and documentation now say so: with e3nn 0.5.1
+  or newer, 0.6 included, the published MDtrajNet model produces a different trajectory, and
+  0.4.4 does not load with PyTorch 2.6 or newer. By Pavlo O. Dral.
+- Fixed: the version banner named a source commit 16 commits older than the release. By
+  Pavlo O. Dral.
+- Corrected four statements in the 3.25.3 notes below. They said nudged-elastic-band
+  searches died on current ASE with `Atoms object has no calculator`: 3.25.2 hit that only
+  when a band method other than `aseneb` was chosen, because ASE asks the end images for
+  their energies with every method except `aseneb`, its default up to 3.27 (and 3.25.2's
+  NEB does not load on ASE 3.27 or newer at all). They said NEB and dimer searches failed
+  on any recent ASE with `No module named 'ase.neb'`: that holds from ASE 3.27 on. They
+  said the move to `ase.mep` worked on old and new ASE alike: it required ASE 3.23 or
+  newer. And they said a calculation could append to the trajectory of one run before it:
+  only calculations running at the same time could share that state.
+
 ## [3.25.3] – 09.09.2026
 - Fixed: transition-state optimizations and IRC runs that computed their own
   initial Hessian handed it to geomeTRIC in Hartree/Angstrom^2, where geomeTRIC
@@ -57,10 +95,9 @@ Dates are given as DD.MM.YYYY. Versions are available on
   Previously the return value was a log with one entry per model call, in whatever order the
   optimiser asked, and the "transition state" was whichever image it touched last. By Pavlo
   O. Dral.
-- Fixed: nudged-elastic-band and dimer searches died on current ASE with `Atoms object has
-  no calculator` before taking a step, because ASE asks the endpoint images for their
-  energies and MLatom gave calculators only to the images that move. Every image gets one
-  now. By Pavlo O. Dral.
+- Every nudged-elastic-band image, the endpoints included, now gets a calculator: the
+  improved-tangent method the new band uses asks the endpoints for their energies. By
+  Pavlo O. Dral.
 - Fixed: driving Gaussian for an MLatom method — geometry optimization, frequencies, IRC,
   QST2, IR — failed on a fresh install with only `Failed to open output file from external
   program` from Gaussian. MLatom writes that file through `fortranformat`, which it never
@@ -70,10 +107,11 @@ Dates are given as DD.MM.YYYY. Versions are available on
   ships `shell_cmd.py` with a shebang and git marks it executable, but the build stripped
   that, so running it directly gave `Permission denied`. Every published wheel had this,
   including 3.25.2. The `mlatom` command itself was unaffected. By Pavlo O. Dral.
-- Fixed: nudged-elastic-band and dimer transition-state searches failed on any recent
-  ASE with `No module named 'ase.neb'`. ASE moved those into `ase.mep`, and MLatom still
+- Fixed: nudged-elastic-band and dimer transition-state searches failed on ASE 3.27
+  and newer with `No module named 'ase.neb'`. ASE moved those into `ase.mep`, and MLatom still
   imported the old paths, so `pip install ase` — what the README tells you to do — gave a
-  broken interface. The imports now use `ase.mep`, which both old and new ASE provide.
+  broken interface. The imports now use `ase.mep`, which ASE provides from 3.23 on
+  (3.25.4 restores older ASE).
   By Pavlo O. Dral.
 - Fixed: a MACE calculation left PyTorch in double precision for the rest of the
   session, so the next model built in the same Python session inherited it and
@@ -84,9 +122,8 @@ Dates are given as DD.MM.YYYY. Versions are available on
   built. They now set it where the networks are built and put it back
   afterwards, so your own choice of precision survives. By Pavlo O. Dral.
 - Fixed: the ASE calculator kept the molecule and the optimization trajectory in
-  module-level variables, so two calculations in one process shared them and the
-  second appended to the first one's trajectory. A nudged-elastic-band run after
-  another calculation could silently take the plain geometry-optimization path.
+  module-level variables, so two calculations running at the same time in one
+  process shared them, and one could append to the other's trajectory.
   By Pavlo O. Dral.
 - Dependencies now allow the versions MLatom is actually tested with: `torch` from
   2.1.2 up to but excluding 2.8, and `torchani` 2.2.x. The old `torch==2.1.2` /

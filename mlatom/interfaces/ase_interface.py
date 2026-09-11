@@ -122,7 +122,10 @@ def dimer_method(initial_molecule, model,
     atoms.calc = MLatomCalculator(model=model,  model_predict_kwargs= model_predict_kwargs, save_optimization_trajectory=True,
                                   initial_molecule=initial_molecule, optimization_trajectory=optimization_trajectory)
 
-    from ase.mep import DimerControl, MinModeAtoms, MinModeTranslate
+    try:
+        from ase.mep import DimerControl, MinModeAtoms, MinModeTranslate
+    except ImportError: # ase < 3.23 keeps them in ase.dimer
+        from ase.dimer import DimerControl, MinModeAtoms, MinModeTranslate
     
     random_seed = kwargs.pop('random_seed') if 'random_seed' in kwargs else None
 
@@ -149,7 +152,10 @@ def nudged_elastic_band(initial_molecule, final_molecule, model,
         final_molecule.write_file_with_xyz_coordinates(filename=xyzfilename)
         final = io.read(xyzfilename, index=':', format='xyz')[0]
 
-    from ase.mep import NEB
+    try:
+        from ase.mep import NEB
+    except ImportError: # ase < 3.23 keeps it in ase.neb
+        from ase.neb import NEB
     from ase.optimize import FIRE
     fmax = 0.1 if convergence_criterion_for_forces is None else convergence_criterion_for_forces
     nsteps = 200 if maximum_number_of_steps is None else maximum_number_of_steps
@@ -191,9 +197,9 @@ class MLatomCalculator(Calculator):
     def __init__(self, model,  model_predict_kwargs, save_optimization_trajectory = False,
                  initial_molecule = None, optimization_trajectory = None):
         # initial_molecule and optimization_trajectory used to be read from MODULE
-        # globals, so two calculations in one process shared them: a geometry
-        # optimisation or dimer run left its trajectory behind and the next NEB's
-        # calculator appended to it. Passed in explicitly, nothing is shared.
+        # globals, set afresh by every calculation, so two calculations running at the
+        # same time in one process shared them and one could append to the other's
+        # trajectory. Passed in explicitly, nothing is shared.
         self.initial_molecule = initial_molecule
         self.optimization_trajectory = optimization_trajectory
         super(MLatomCalculator, self).__init__()
