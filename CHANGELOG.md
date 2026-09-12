@@ -7,6 +7,39 @@ Dates are given as DD.MM.YYYY. Versions are available on
 [PyPI](https://pypi.org/project/mlatom/) and
 [GitHub](https://github.com/dralgroup/mlatom).
 
+## [3.25.5] – 12.09.2026
+- Fixed: fine-tuning OMNI-P2x trained every layer of its networks, although the
+  documentation says, and the code asks, that the first and third layers of each network
+  stay fixed (`fixed_layers=[[0, 4]]`). The model class behind OMNI-P2x (`vecmsani`) and
+  MS-ANI (`msani`) never applied `fixed_layers` in `train()`. Both now do, so fine-tuning
+  OMNI-P2x, or training an MS-ANI model with `fixed_layers`, gives different models than
+  before. A model saved after such training keeps those layers frozen when it is loaded
+  again, as fine-tuned ANI models already did. By Janko Čivić (GitHub pull request #54).
+- Fixed: fine-tuning OMNI-P2x with `train_osc=True` trained the oscillator-strength model
+  from scratch rather than from the pretrained one - it saved the pretrained model under one
+  file name and loaded another - so the fine-tuned model knew only the elements in your
+  data. It now fine-tunes the pretrained model. By Pavlo O. Dral.
+- Fixed: `fix_layers()` and `fixed_layers` froze nothing in an ANI model created directly
+  with `ml.models.ani(...)`, such as the one in the transfer-learning tutorial, where
+  `ani.fix_layers([[0, 6]])` left every layer trainable; they worked only in ANI models that
+  came from a pretrained method such as ANI-1ccx or AIQM1. They now freeze the requested
+  layers in every network the model has. That includes a network just added for a new
+  element, which starts from random weights; models from a pretrained method leave such
+  networks trainable. By Pavlo O. Dral.
+- Fixed: a flat list of layers, such as `fix_layers([0, 4])`, which the docstrings describe,
+  failed with a `TypeError` in MS-ANI models, the one behind OMNI-P2x included, and in ANI
+  models from a pretrained method. A flat list now fixes those layers in every element's
+  network, in `fix_layers()` and in `fixed_layers` alike, as it already did in OMNI-P1. By
+  Pavlo O. Dral.
+- Fixed: a list set as `fixed_layers` in a copy of a model's own hyperparameters
+  (`hp = model.hyperparameters.copy(); hp['fixed_layers'] = [[0, 4]]`) was turned into
+  `True`, so `train(hyperparameters=hp)` froze nothing. It is now kept as given. By Pavlo O.
+  Dral.
+- Fixed: fine-tuning AIQM1, AIQM2, the ANI methods or OMNI-P2x wrote its default
+  hyperparameters, `fixed_layers=[[0, 4]]` among them, into the dict passed as
+  `hyperparameters`, so reusing that dict to train another model passed them on. It now
+  leaves that dict as it was. By Pavlo O. Dral.
+
 ## [3.25.4] – 10.09.2026
 - Fixed: the default KREG model did not load in 3.25.3 on Linux older than about 2021 —
   RHEL/CentOS 7 and 8, Rocky 8, Ubuntu 20.04, Debian 11. Its compiled kernel had been

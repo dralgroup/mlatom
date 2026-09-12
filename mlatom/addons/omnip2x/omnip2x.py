@@ -210,7 +210,7 @@ class omnip2x(method_model, downloadable_model):
     
     def train(self,molecular_database=None, reset_energy_shifter=True,train_osc = False,xyz_derivative_property_to_learn = None, spliting_ratio=0.8, en_model_filename="OMNI-P2x_ft_emodel", osc_model_filename="OMNI-P2x_ft_osc_model", nstates=2, verbose=1, hyperparameters = {}):
         if hyperparameters:
-            _hyperparameters = hyperparameters
+            _hyperparameters = hyperparameters.copy()   # leave the caller's dict without the defaults below
         else:
             _hyperparameters = {}
         if 'max_epochs' not in _hyperparameters:
@@ -241,7 +241,7 @@ class omnip2x(method_model, downloadable_model):
                         mol.electronic_states[istate].f = 0
                     else:
                         mol.electronic_states[istate].f = mol.oscillator_strengths[istate-1]
-            self.osc_model.save(osc_model_filename)
+            self.osc_model.save(osc_model_filename+".pt")
             f_model = models.msani(model_file=osc_model_filename+".pt", nstates=nstates, verbose=verbose)
             f_model.train(molecular_database,reset_energy_shifter=True, hyperparameters =_hyperparameters, property_to_learn='f', reset_optimizer = True, )
             self.osc_model = f_model

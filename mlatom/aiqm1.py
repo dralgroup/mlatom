@@ -437,7 +437,7 @@ class aiqm1(torchani_model, method_model, downloadable_model):
         if xyz_derivative_property_to_learn:
             kwargs['xyz_derivative_property_to_learn'] = 'delta_energy_gradients'
 
-        hyperparameters = kwargs.get('hyperparameters', {})
+        hyperparameters = kwargs.get('hyperparameters', {}).copy()   # leave the caller's dict without the defaults below
         if 'fixed_layers' not in hyperparameters:
             hyperparameters['fixed_layers'] = [[0,4]]
         if 'loss_type' not in hyperparameters:

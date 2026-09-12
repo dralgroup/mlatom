@@ -293,7 +293,7 @@ class aiqm2(method_model, downloadable_model):
             kwargs['xyz_derivative_property_to_learn'] = 'delta_energy_gradients'
 
         if 'hyperparameters' in kwargs:
-            _hyperparameters = kwargs['hyperparameters']
+            _hyperparameters = kwargs['hyperparameters'].copy()   # leave the caller's dict without the defaults below
         else:
             _hyperparameters = {}
 

@@ -160,7 +160,7 @@ class ani(ml_model, torchani_model):
         "neurons":              hyperparameter(value=[[160, 128, 96]]),
         "activation_function":  hyperparameter(value='CELU(0.1)',#lambda: torch.nn.CELU(0.1), 
                                                       optimization_space='choice', choices=["CELU", "ReLU", "GELU"], dtype=(str, type, FunctionType)),
-        "fixed_layers":         hyperparameter(value=False),
+        "fixed_layers":         hyperparameter(value=False, dtype=object),   # object: a list assigned later stays a list, not True
         #### AEV ####
         'Rcr':                  hyperparameter(value=5.2000e+00, minval=1.0, maxval=10.0, optimization_space='linear'),
         'Rca':                  hyperparameter(value=3.5000e+00, minval=1.0, maxval=10.0, optimization_space='linear'),
@@ -904,13 +904,16 @@ class ani(ml_model, torchani_model):
                 
         '''
         if layers_to_fix:
+            if isinstance(layers_to_fix[0], (int, np.integer)):   # a flat list of layer indices applies to every element
+                layers_to_fix = [layers_to_fix]
             if len(layers_to_fix) == 1:
                 layers_to_fix = layers_to_fix * len(self.species_order)
 
-            # fix NN that exists in established models
+            # fix NN that exists in established models; a model trained or loaded directly has no such
+            # record, so the layers are fixed in every network it has
             if 'element_symbols_available' in self.__dict__:
                 elements_to_include = self.element_symbols_available
-            else: elements_to_include = []
+            else: elements_to_include = self.species_order
 
             for name, parameter in self.model.named_parameters():
                 indices = name.split('.')
@@ -1021,7 +1024,7 @@ class msani(ml_model, torchani_model):
         "neurons":              hyperparameter(value=[[160, 128, 96]]),
         "activation_function":  hyperparameter(value='CELU(0.1)',#lambda: torch.nn.CELU(0.1), 
                                                       optimization_space='choice', choices=["CELU", "ReLU", "GELU"], dtype=(str, type, FunctionType)),
-        "fixed_layers":         hyperparameter(value=False),
+        "fixed_layers":         hyperparameter(value=False, dtype=object),   # object: a list assigned later stays a list, not True
         #### AEV ####
         'Rcr':                  hyperparameter(value=5.2000e+00, minval=1.0, maxval=10.0, optimization_space='linear'),
         'Rca':                  hyperparameter(value=3.5000e+00, minval=1.0, maxval=10.0, optimization_space='linear'),
@@ -1723,6 +1726,8 @@ class msani(ml_model, torchani_model):
                 - A list of lists of integers. Each sub-list defines the layers to be fixed for each species, in the order of `self.species_order`. 
         '''
         if layers_to_fix:
+            if isinstance(layers_to_fix[0], (int, np.integer)):   # a flat list of layer indices applies to every element
+                layers_to_fix = [layers_to_fix]
             if len(layers_to_fix) == 1:
                 layers_to_fix = layers_to_fix * len(self.species_order)
             for name, parameter in self.model.named_parameters():
@@ -2109,7 +2114,7 @@ class ani_methods(torchani_model, method_model, downloadable_model):
             kwargs['xyz_derivative_property_to_learn'] = 'delta_energy_gradients'
 
         if 'hyperparameters' in kwargs:
-            _hyperparameters = kwargs['hyperparameters']
+            _hyperparameters = kwargs['hyperparameters'].copy()   # leave the caller's dict without the defaults below
         else:
             _hyperparameters = {}
         
