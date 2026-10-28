@@ -29,4 +29,7 @@ class PeriodicInput(unittest.TestCase):
         self.assertNotIn('cell',self.prediction(None,None))
     def test_partial_periodicity_is_not_silently_promoted(self):
         with self.assertRaises(NotImplementedError):self.prediction([True,False,True],np.eye(3)*8)
+    def test_invalid_periodic_cells_are_rejected(self):
+        for cell in [None,np.zeros((3,3)),np.ones((2,2)),np.full((3,3),np.nan)]:
+            with self.subTest(cell=cell),self.assertRaises(ValueError):self.prediction([True]*3,cell)
 if __name__=='__main__':unittest.main()
