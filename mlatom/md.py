@@ -26,6 +26,7 @@ class md():
         time_step (float): Time step in femtoseconds.
         maximum_propagation_time (float): Maximum propagation time in femtoseconds.
         dump_trajectory_interval (int, optional): Dump trajectory at which interval. Set to ``None`` to disable dumping.
+        retain_trajectory (bool, optional): Keep all steps in memory (default). Set False for long, large-cell runs; only the latest step is retained.
         filename (str, optional): The file that saves the dumped trajectory
         format (str, optional): Format in which the dumped trajectory is saved
         stop_function (any, optional): User-defined function that stops MD before ``maximum_propagation_time``
@@ -109,7 +110,8 @@ class md():
                  format:Optional[str]='h5md',
                  eliminate_momentum:Optional[bool]=False,
                  stop_function=None, 
-                 stop_function_kwargs=None):
+                 stop_function_kwargs=None,
+                 retain_trajectory:Optional[bool]=True):
         self.model = model
         self.model_predict_kwargs ={'calculate_energy':True, 'calculate_energy_gradients':True}
         self.model_predict_kwargs.update(model_predict_kwargs)
@@ -124,6 +126,7 @@ class md():
             self.thermostat = thermostat
         self.time_step = time_step
         self.maximum_propagation_time = maximum_propagation_time
+        self.retain_trajectory = retain_trajectory
 
         self.Natoms = len(self.molecule_with_initial_conditions.atoms)
         self.masses = self.molecule_with_initial_conditions.get_nuclear_masses()
@@ -223,7 +226,10 @@ class md():
             trajectory_step.step = istep 
             trajectory_step.time = istep * self.time_step
             trajectory_step.molecule = molecule 
-            self.molecular_trajectory.steps.append(trajectory_step)
+            if self.retain_trajectory:
+                self.molecular_trajectory.steps.append(trajectory_step)
+            else:
+                self.molecular_trajectory.steps[:] = [trajectory_step]
             # Stop function
             if self.stop_function is not None:
                 if self.stop_function_kwargs is None:
