@@ -49,7 +49,7 @@ def load_from_molDB(
 ) -> Tuple[Dict[int, float], mace_data.Configurations]:
     atoms_list = []
     for mol in molecular_database:
-        atoms_list.append(ase.Atoms(positions=mol.xyz_coordinates, numbers=mol.atomic_numbers, info={'REF_energy': getattr(mol, energy_key) * constants.Hartree2eV} if energy_key else None))
+        atoms_list.append(ase.Atoms(positions=mol.xyz_coordinates, numbers=mol.atomic_numbers, cell=mol.cell, pbc=mol.pbc, info={'REF_energy': getattr(mol, energy_key) * constants.Hartree2eV} if energy_key else None))
         if gradients_key:
             atoms_list[-1].new_array('REF_forces', -1 * mol.get_xyz_vectorial_properties(gradients_key) * constants.Hartree2eV)
 
@@ -799,7 +799,7 @@ class mace(ml_model, torch_model):
         molDB, property_to_predict, xyz_derivative_property_to_predict, hessian_to_predict = \
             super().predict(molecular_database=molecular_database, molecule=molecule, calculate_energy=calculate_energy, calculate_energy_gradients=calculate_energy_gradients, calculate_hessian=calculate_hessian, property_to_predict = property_to_predict, xyz_derivative_property_to_predict = xyz_derivative_property_to_predict, hessian_to_predict = hessian_to_predict)
 
-        configs =[mace_data.config_from_atoms(ase.Atoms(positions=mol.xyz_coordinates, numbers=mol.atomic_numbers)) for mol in molDB]
+        configs =[mace_data.config_from_atoms(ase.Atoms(positions=mol.xyz_coordinates, numbers=mol.atomic_numbers, cell=mol.cell, pbc=mol.pbc)) for mol in molDB]
 
         self.z_table = utils.AtomicNumberTable([int(z) for z in self.model.atomic_numbers])
 
