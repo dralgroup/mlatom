@@ -87,6 +87,15 @@ class aimnet2_methods_single(torchani_model, method_model,downloadable_model):
         charge = torch.tensor(molecule.charge, dtype=torch.float, device=self.device)
         mult = torch.tensor(molecule.multiplicity,dtype=torch.float, device=self.device)
         nninput = dict(coord=coord, numbers=numbers, charge=charge, mult=mult)
+        if molecule.pbc is not None and np.any(molecule.pbc):
+            if not np.all(molecule.pbc):
+                raise NotImplementedError('The AIMNet2 calculator cell input supports full 3D periodicity only')
+            if molecule.cell is None:
+                raise ValueError('Periodic AIMNet2 prediction requires a cell')
+            cell = np.asarray(molecule.cell)
+            if cell.shape != (3, 3) or not np.isfinite(cell).all() or abs(np.linalg.det(cell)) < 1e-12:
+                raise ValueError('Periodic AIMNet2 prediction requires a finite nonsingular 3x3 cell')
+            nninput['cell'] = torch.as_tensor(cell).to(torch.float).to(self.device)
         nnoutput = self.model(nninput, forces=calculate_energy_gradients, hessian=calculate_hessian)
         if calculate_energy:
             molecule.energy = nnoutput['energy'].item() * constants.eV2Hartree
