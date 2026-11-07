@@ -55,6 +55,7 @@
     "AIMNet2": "D. Anstine, R. Zubatyuk , O. Isayev \nAIMNet2: A Neural Network Potential to Meet your Neutral, \nCharged, Organic, and Elemental-Organic Needs. \nChemRxiv. 2024; DOI:10.26434/chemrxiv-2023-296ch-v2",
     "ANI-1xnr": "S. Zhang, M.Z. Makoś, R.B. Jadrich, E. Kraka, K. Barros, \nB. T. Nebgen,S. Tretiak, O. Isayev, N. Lubbers, R. A. Messerly,\nJ. S. Smith, Nat. Chem. 2024, 16, 727",
     "MACE-OFF": "Kovacs, D. P.; Moore, J. H.; Browning, N. J.; Batatia, I.; Horton, J. T.;\n Pu, Y.; Kapil, V.; Witt, W. C.; Magdau, I. B.; Cole, D. J.; et al. \nMACE-OFF: Short-Range Transferable Machine Learning Force Fields for Organic Molecules. \nJ. Am. Chem. Soc. 2025, 147 (21), 17598–17611.",
+    "MACE-MP": "Batatia, I.; Benner, P.; Chiang, Y.; Elena, A. M.; Kovács, D. P.;\n Riebesell, J.; Advincula, X. R.; Asta, M.; Avaylon, M.; Baldwin, W. J.; et al. \nA foundation model for atomistic materials chemistry. \nJ. Chem. Phys. 2025, 163 (18), 184110.",
     "pysisyphus": "J. Steinmetzer, S. Kupfer, S. Gräfe\npysisyphus: Exploring potential energy surfaces in ground  and excited states. \nInt. J. Quantum Chem. 2021, 121, e26390",
     "OMNI-P1": "Y. Chen, P. O. Dral\nOne to Rule Them All: A Universal Interatomic Potential Learning across \nQuantum Chemical Levels. J. Chem. Theory Comput. 2025, 21(18), 8762–8772",
     "OMNI-P2x": "M. Martyka, X.-Y. Tong, J. Jankowska, P. O. Dral\nOMNI-P2x universal neural network potential for excited-state simulations.\nNat. Commun. 2026, 17, 4949",

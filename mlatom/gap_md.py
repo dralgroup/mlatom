@@ -64,7 +64,7 @@ class gap_md():
                 self.init_Ekin = self.molecule_with_initial_conditions.calculate_kinetic_energy()*random.random()
             else:
                 self.init_Ekin = init_Ekin
-            self.model = gap_model(model=model, surface0=lower_state, surface1=upper_state, current_surface=current_state, gap_threshold=0.03, init_Ekin=self.init_Ekin,nstates=nstates)      
+            self.model = gap_model(model=model, surface0=lower_state, surface1=upper_state, current_surface=current_state, gap_threshold=gap_threshold, init_Ekin=self.init_Ekin,nstates=nstates)      
         self.ensemble = ensemble
         if thermostat is not None:
             self.thermostat = thermostat

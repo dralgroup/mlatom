@@ -22,6 +22,49 @@ from .. import delta_learning
 from ..model_cls import ml_model, torchani_model, method_model, hyperparameters, hyperparameter, model_tree_node, downloadable_model
 from ..decorators import doc_inherit
 
+def _angular_terms_without_prod(Rca: float, ShfZ, EtaA, Zeta, ShfA, vectors12):
+    """``torchani.aev.angular_terms`` (TorchANI 2.2) with every ``torch.prod`` over the two neighbours of an angle
+    written as the product of the two factors. The forward values are the same bit for bit; the second derivatives are not.
+
+    ``torch.prod``'s backward is ``grad * prod / input`` whenever no element of its input is exactly zero, and the
+    Hessian differentiates that formula once more: for the product of two bond-vector components a * b, the second
+    derivative with respect to a, exactly zero, comes out as the difference of two terms of size b / a, each rounded.
+    A component that is tiny but not zero - two atoms with (almost) the same coordinate, as at symmetric geometries -
+    left an error of order eps * b / a in the analytic Hessian: 0.02-0.05 Ha/A^2 in float32 at the beads of an NH3
+    instanton with components of 1e-7 A, still 2e-7 in float64 with a component of 1e-9 A and growing as it shrinks.
+    One exact zero anywhere in the input switches torch.prod to its zero-safe backward, and a rotation removes the
+    small component, so the fault disappeared after a rotation and at most geometries."""
+    import torch
+    from torchani.aev import cutoff_cosine
+    vectors12 = vectors12.view(2, -1, 3, 1, 1, 1, 1)
+    distances12 = vectors12.norm(2, dim=-5)
+    cos_angles = (vectors12[0] * vectors12[1]).sum(1) / torch.clamp(distances12[0] * distances12[1], min=1e-10)
+    # 0.95 is multiplied to the cos values to prevent acos from returning NaN.
+    angles = torch.acos(0.95 * cos_angles)
+    fcj12 = cutoff_cosine(distances12, Rca)
+    factor1 = ((1 + torch.cos(angles - ShfZ)) / 2) ** Zeta
+    factor2 = torch.exp(-EtaA * (distances12.sum(0) / 2 - ShfA) ** 2)
+    # the two cutoffs are multiplied first, as fcj12.prod(0) did: the same rounding, so the same energies bit for bit
+    ret = 2 * factor1 * factor2 * (fcj12[0] * fcj12[1])
+    return ret.flatten(start_dim=1)
+
+
+def fix_torchani_angular_terms():
+    """Make TorchANI's AEV computer use :func:`_angular_terms_without_prod`, so that analytic Hessians of every
+    TorchANI-based model (ANI, MS-ANI, AIQM1, ANI-1ccx, ...) are right at geometries with nearly equal coordinates.
+    ``torchani.aev.compute_aev`` looks ``angular_terms`` up in its module when it runs, so replacing the module
+    attribute is enough for eager (not TorchScript-compiled) AEV computers. Done once; a TorchANI whose
+    ``angular_terms`` has another signature is left alone (the test API.MLP.ANI.hessian_small_component then fails)."""
+    import inspect
+    import torchani.aev
+    current = torchani.aev.angular_terms
+    if current is _angular_terms_without_prod:
+        return
+    if list(inspect.signature(current).parameters) != ['Rca', 'ShfZ', 'EtaA', 'Zeta', 'ShfA', 'vectors12']:
+        return
+    torchani.aev.angular_terms = _angular_terms_without_prod
+
+
 def median(yp,yt):
     import torch
     return torch.median(torch.abs(yp-yt))
@@ -93,7 +136,16 @@ PADDING = {
     'energies': 0.0,
     'pbc': False,
     'cell': 0.0,
-}    
+}
+
+
+def scheduler_is_better(scheduler, value, best):
+    """Has the validation loss improved? PyTorch renamed ReduceLROnPlateau.is_better to _is_better, and training
+    crashes on the newer one with AttributeError at the end of the first epoch. Both names work here."""
+    for name in ('is_better', '_is_better'):
+        check = getattr(scheduler, name, None)
+        if check is not None: return check(value, best)
+    return value < best                      # no such method at all: the default 'min' mode, spelled out
 
 
 class ani(ml_model, torchani_model):
@@ -555,7 +607,7 @@ class ani(ml_model, torchani_model):
             if learning_rate < self.hyperparameters.early_stopping_learning_rate:
                 break
 
-            if self.AdamW_scheduler.is_better(mse, self.AdamW_scheduler.best) or save_every_epoch:
+            if scheduler_is_better(self.AdamW_scheduler, mse, self.AdamW_scheduler.best) or save_every_epoch:
                 if save_model:
                     self.save(self.model_file)
             if save_epoch_interval:
@@ -1430,7 +1482,7 @@ class msani(ml_model, torchani_model):
             if learning_rate < self.hyperparameters.early_stopping_learning_rate:
                 break
 
-            if self.AdamW_scheduler.is_better(rmse, self.AdamW_scheduler.best) or save_every_epoch:
+            if scheduler_is_better(self.AdamW_scheduler, rmse, self.AdamW_scheduler.best) or save_every_epoch:
                 if save_model:
                     self.save(self.model_file)
 
@@ -2406,7 +2458,12 @@ def load_ani1xnr_model():
         import requests
         import zipfile
         import io
-        if os.path.exists('/export/home/xacscloud/ANI/ANI1xnr/'):
+        # $MODELSPATH/ani_1xnr_model/ first, the folder with the files of the other models
+        modelspath = [os.path.join(mm, 'ani_1xnr_model', '') for mm in os.environ.get('MODELSPATH', '').split(os.pathsep) if mm]
+        modelspath = [mm for mm in modelspath if os.path.exists(mm+'ani-1xnr-main')]
+        if modelspath:
+            local_dir = modelspath[0]
+        elif os.path.exists('/export/home/xacscloud/ANI/ANI1xnr/'):
             local_dir = '/export/home/xacscloud/ANI/ANI1xnr/'
         else:
             local_dir = os.path.expanduser('~/.local/ANI1xnr/')

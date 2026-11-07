@@ -546,9 +546,12 @@ def irc_mlatom(model, molecule, model_predict_kwargs, working_directory, directi
     # --- initialize integrator and hessian estimator --- #
     if algorithm.lower() == 'lqa': integrator = integrator_lqa(**program_kwargs_copy)
 
-    if hess_est.lower() == 'bofill': hess_est = bofill
-    elif hess_est.lower() == 'sr1': hess_est = sr1 
-    elif hess_est.lower() == 'psb': hess_est = psb
+    # hess_est=False (a Hessian at every step) is a documented choice above; it reached .lower() here and raised
+    # AttributeError: 'bool' object has no attribute 'lower'
+    if hess_est:
+        if hess_est.lower() == 'bofill': hess_est = bofill
+        elif hess_est.lower() == 'sr1': hess_est = sr1
+        elif hess_est.lower() == 'psb': hess_est = psb
 
     # --- propagate IRC --- #
     def irc_gen(direction):

@@ -7,6 +7,44 @@ Dates are given as DD.MM.YYYY. Versions are available on
 [PyPI](https://pypi.org/project/mlatom/) and
 [GitHub](https://github.com/dralgroup/mlatom).
 
+## [3.26.0] – 07.11.2026
+- New: the universal MACE models for materials, `MACE-MP-0` and `MACE-MPA-0`, with
+  periodic cells: `molecule.pbc` and `molecule.cell` now reach every MACE model, and a
+  periodic molecule without a cell is refused instead of giving a meaningless energy.
+  Their weights are not shipped: download them before the first use and place them in
+  `~/.mlatom/models/mace_mp_model/` (or `$MODELSPATH/mace_mp_model/`), as for the MACE-OFF
+  models. By Pavlo O. Dral.
+- Fixed: every MACE-OFF calculation failed in 3.25.3 with `expected m1 and m2 to have the
+  same dtype, but got: float != double`. MLatom now holds the model's precision while it
+  predicts, and loading a model again keeps the requested precision. By Pavlo O. Dral.
+- Fixed: analytic Hessians of KREG models trained on gradients omitted the gradient-trained
+  contribution. These Hessians now use batched central differences of KREG's analytic gradients.
+  By Pavlo O. Dral and Yifan Hou.
+- Changed: numerical gradients use central differences by default, with the old forward route
+  still available. Numerical Hessians use central second differences of energies by default;
+  central differences of model-returned gradients are available explicitly. Sparrow's numerical
+  derivative settings can be configured per calculation. By Pavlo O. Dral and Yifan Hou.
+- Fixed: analytic Hessians of ANI-type models could be wrong when two atoms had nearly equal
+  coordinates. Energies are unchanged; gradients of ANI-type models change at the 1e-9 Ha/Å
+  level, so geometry searches can take a different number of steps. By Pavlo O. Dral.
+- Fixed: built-in IRC with `hess_est=False` stopped with `AttributeError` instead of
+  calculating an exact Hessian at every step as documented. By Pavlo O. Dral.
+- Fixed: `ml_program='mlatom.jl'` could fail on its first import when Python was statically
+  linked to libpython. MLatom now retries with Julia's module cache disabled. By Pavlo O. Dral.
+- Fixed: ANI and MS-ANI training used `ReduceLROnPlateau.is_better`, which newer PyTorch
+  versions made private. Both the old and new method names are now supported. By Pavlo O. Dral.
+
+- Fixed: `gap_md` now uses the requested `gap_threshold` instead of always using 0.03.
+  By Mikolaj Martyka.
+- Fixed: ANI-1xnr looks for its parameters in `$MODELSPATH/ani_1xnr_model/` before
+  falling back to the packaged defaults. By Pavlo O. Dral.
+
+Known issues:
+- The native MLatomF kernel solver can return incorrect results when Cholesky fails
+  and its fallback is used; this was observed for periodic kernels. Repair is deferred.
+- MDtrajNet propagation using numerical velocities can produce different trajectories
+  across platforms. A portable production repair is deferred.
+
 ## [3.25.5] – 12.09.2026
 - Fixed: fine-tuning OMNI-P2x trained every layer of its networks, although the
   documentation says, and the code asks, that the first and third layers of each network

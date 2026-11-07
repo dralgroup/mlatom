@@ -1,7 +1,14 @@
 import numpy as np 
 import os 
 
-from julia import Main
+try:
+    from julia import Main
+except Exception:
+    # PyJulia cannot use Julia's compiled-module cache with a Python statically linked
+    # to libpython, and plain python often is; run without the cache
+    from julia.api import Julia
+    Julia(compiled_modules=False)
+    from julia import Main
 dirname = os.path.dirname(__file__)
 Main.include(f"{dirname}/julia/krr.jl")
 

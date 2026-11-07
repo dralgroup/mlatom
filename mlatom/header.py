@@ -187,6 +187,8 @@ def printHeader(args):
             refItems['DM21'] = refs['DM21']
         if 'mace-off' in args.method.lower():
             refItems['MACE-OFF'] = refs['MACE-OFF']
+        if 'mace-mp' in args.method.lower():
+            refItems['MACE-MP'] = refs['MACE-MP']
     
     if args.ani1xnr:
         refItems['ANI-1xnr'] = refs['ANI-1xnr']

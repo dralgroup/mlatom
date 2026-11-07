@@ -24,6 +24,8 @@ class sparrow_methods(OMP_model, method_model):
         read_keywords_from_file (str): keywords used in Sparrow
         save_files_in_current_directory (bool): whether to keep input and output files, default ``'False'``
         working_directory (str): path to the directory where the program output files and other tempory files are saved, default ``'None'``
+        numerical_gradients_kwargs (dict): Options for numerical gradients. Defaults to central differences with displacement 0.001 Angstrom, chosen for Sparrow's energy-file precision.
+        numerical_hessian_kwargs (dict): Options for numerical Hessians. Defaults to central energy differences with displacement 0.01 Angstrom. Override either dictionary for a different output precision or convergence regime.
 
     .. note::
 
@@ -46,8 +48,17 @@ class sparrow_methods(OMP_model, method_model):
         'OM2': False, 'OM3': False, 'ODM2*': False, 'ODM3*': False, 
         'AIQM1': False}
     
-    def __init__(self, method='ODM2*', read_keywords_from_file='', save_files_in_current_directory=False, working_directory=None):
+    def __init__(self, method='ODM2*', read_keywords_from_file='', save_files_in_current_directory=False, working_directory=None,
+                 numerical_gradients_kwargs=None, numerical_hessian_kwargs=None):
         self.method = method
+        # Sparrow's rounded energy.dat limits useful finite-difference steps.
+        # CH4 controls favor 0.001 Angstrom for central gradients and 0.01 for Hessians.
+        self.numerical_gradients_kwargs = {'displacement': 0.001, 'algorithm': 'central'}
+        if numerical_gradients_kwargs is not None:
+            self.numerical_gradients_kwargs.update(numerical_gradients_kwargs)
+        self.numerical_hessian_kwargs = {'displacement': 0.01, 'algorithm': 'energy_central'}
+        if numerical_hessian_kwargs is not None:
+            self.numerical_hessian_kwargs.update(numerical_hessian_kwargs)
         self.read_keywords_from_file = read_keywords_from_file
         self.save_files_in_current_directory = save_files_in_current_directory
         self.working_directory = working_directory
@@ -146,7 +157,7 @@ class sparrow_methods(OMP_model, method_model):
                         self.save_files_in_current_directory = False
                         working_directory = self.working_directory
                         self.working_directory = None
-                        _ = simulations.numerical_gradients(mol, self, 1e-5, model_kwargs = {'calculate_energy_gradients': False, 'calculate_hessian': False})
+                        _ = simulations.numerical_gradients(mol, self, model_kwargs = {'calculate_energy_gradients': False, 'calculate_hessian': False}, **self.numerical_gradients_kwargs)
                         self.save_files_in_current_directory = save_files_in_current_directory
                         self.working_directory = working_directory
                 if calculate_hessian:
@@ -157,7 +168,7 @@ class sparrow_methods(OMP_model, method_model):
                         self.save_files_in_current_directory = False
                         working_directory = self.working_directory
                         self.working_directory = None
-                        _ = simulations.numerical_hessian(mol, self, 5.29167e-4, 1e-5, model_kwargs = {'calculate_energy_gradients': False, 'calculate_hessian': False})
+                        _ = simulations.numerical_hessian(mol, self, model_kwargs = {'calculate_hessian': False}, **self.numerical_hessian_kwargs)
                         self.save_files_in_current_directory = save_files_in_current_directory
                         self.working_directory = working_directory
 

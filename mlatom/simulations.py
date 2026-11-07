@@ -998,19 +998,29 @@ class dmc():
         '''
         return self.result.get_zpe(onwards=start_step, ret_cm=False)
 
-def numerical_gradients(molecule, model, displacement=1e-5, model_kwargs={}, return_molecular_database=False, nthreads=None):
+def numerical_gradients(molecule, model, displacement=None, model_kwargs={}, return_molecular_database=False, nthreads=None, algorithm='central'):
     '''
-    Calculate numerical gradients.
-    Two-point numerical differentiation is used and the required single-point calculations are run in parallel.
-    
+    Calculate numerical gradients with central or forward differences.
+
+    Central: g_i = (E(x + h e_i) - E(x - h e_i)) / (2 h), costing 2 N energies.
+    Forward: g_i = (E(x + h e_i) - E(x)) / h, costing N + 1 energies.
+    h is displacement in Angstrom, E is the energy at Cartesian coordinates x,
+    and e_i is the unit vector along Cartesian coordinate i. N = 3 * number of atoms.
+    Single-point calculations are run in parallel.
+
     Arguments:
         molecule (:class:`mlatom.data.molecule`):                               the molecule object.
         model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): any model or method which provides energies (takes molecule as an argument).
-        displacement (float, optional):                                         displacement of nuclear coordinates in Angstrom (default: 1e-5).
+        displacement (float, optional):                                         displacement of nuclear coordinates in Angstrom (default: None selects 0.001 for central, 1e-5 for forward).
         model_kwargs (dict, optional):                                          kwargs to be passed to model (except for molecule).
         return_molecular_database (bool, optional):                             whether to return the :class:`mlatom.data.molecular_database` with the displaced geometries and energies (default: False).
-        nthreads (int, optional):                                               number of threads (default: None, using all threads it can find).       
+        nthreads (int, optional):                                               number of threads (default: None, using all threads it can find).
+        algorithm (str, optional):                                              'central' (default) or 'forward'.
     '''
+    if algorithm not in ('central', 'forward'):
+        raise ValueError("algorithm must be 'central' or 'forward'")
+    if displacement is None:
+        displacement = 1e-5 if algorithm == 'forward' else 0.001
     if return_molecular_database:
         molDB = data.molecular_database()
     coordinates = molecule.xyz_coordinates.reshape(-1)
@@ -1020,60 +1030,235 @@ def numerical_gradients(molecule, model, displacement=1e-5, model_kwargs={}, ret
         new_coordinates = np.copy(coordinates)
         new_coordinates[ii] += displacement
         coordinates_list.append(new_coordinates)
-    coordinates_list.append(coordinates)
+        if algorithm == 'central':
+            new_coordinates = np.copy(coordinates)
+            new_coordinates[ii] -= displacement
+            coordinates_list.append(new_coordinates)
+    if algorithm == 'forward':
+        coordinates_list.append(coordinates)
+    energy_kwargs = dict(model_kwargs, calculate_energy=True)
     def get_energy(coordinates):
         current_molecule = molecule.copy()
         current_molecule.xyz_coordinates = coordinates.reshape(len(current_molecule.atoms),3)
-        model.predict(molecule=current_molecule, **model_kwargs)
+        current_molecule.energy = np.nan
+        model.predict(molecule=current_molecule, **energy_kwargs)
+        if not np.isfinite(current_molecule.energy):
+            raise ValueError('Model did not return a finite energy for a displaced geometry')
         if return_molecular_database: molDB.molecules.append(current_molecule)
         return current_molecule.energy
     from multiprocessing import cpu_count
     if nthreads == None:
         nthreads = cpu_count()
     if nthreads == 1:
-        energies = np.array([get_energy(each) for each in coordinates_list])
+        try:
+            energies = np.array([get_energy(each) for each in coordinates_list])
+        except Exception as exc:
+            raise ValueError('Some of the single-point calculations in numerical gradient calculations failed.') from exc
     else:
         import joblib
         from joblib import Parallel, delayed
         nthreads_saved = model.nthreads
         model.set_num_threads(1)
-        energies = Parallel(n_jobs=nthreads)(delayed(get_energy)(coord) for coord in coordinates_list)
         try:
+            energies = Parallel(n_jobs=nthreads)(delayed(get_energy)(coord) for coord in coordinates_list)
             energies = np.array(energies)
-        except:
-            raise ValueError('Some of the single-point calculations in numerical gradient calculations failed.')
-        model.set_num_threads(nthreads_saved)
-    relenergy = energies[-1]
-    gradients = (energies[:-1]-relenergy)/displacement
+        except Exception as exc:
+            raise ValueError('Some of the single-point calculations in numerical gradient calculations failed.') from exc
+        finally:
+            model.set_num_threads(nthreads_saved)
+            model.nthreads = nthreads_saved
+    if algorithm == 'central':
+        energies_plus = energies[0::2]  # E(x + h): entries 0, 2, 4, ...
+        energies_minus = energies[1::2]  # E(x - h): entries 1, 3, 5, ...
+        gradients = (energies_plus - energies_minus) / (2 * displacement)
+    else:
+        relenergy = energies[-1]
+        gradients = (energies[:-1] - relenergy) / displacement
     molecule.energy_gradients = gradients.reshape(natoms,3)
     if return_molecular_database: return molecule.energy_gradients, molDB
     else: return molecule.energy_gradients
 
-def numerical_hessian(molecule, model, displacement=5.29167e-4, displacement4grads=1e-5, model_kwargs={}):
+def numerical_hessian(molecule, model, displacement=None, displacement4grads=1e-5, model_kwargs={}, nthreads=None, algorithm=None):
     '''
-    Calculate numerical Hessians.
-    Two-point numerical differentiation is used and the required single-point calculations are run in parallel.
-    
+    Calculate numerical Hessians from energies or model-returned gradients.
+
+    By default, use central finite differences of energies. Select
+    gradient_central explicitly, or use semi_numerical_hessian, to differentiate
+    model-returned gradients. No gradient capability detection is performed.
+
+    h is displacement in Angstrom, x is the Cartesian coordinate vector,
+    e_i is its i-th unit vector, E(x) is energy and g(x) is the gradient.
+    H_ij denotes a Hessian element and N = 3 * number of atoms.
+
+    energy_central uses H_ii = (E_i+ - 2 E + E_i-) / h^2 and
+    H_ij = (E_i+j+ + E_i-j- - E_i+ - E_i- - E_j+ - E_j- + 2 E) / (2 h^2),
+    costing N^2 + N + 1 energies. Single-point calculations are run in parallel.
+
+    gradient_central uses H_:i = (g(x + h e_i) - g(x - h e_i)) / (2 h),
+    followed by H = (H + H^T) / 2. It costs 2 N gradient predictions, made in
+    one batched molecular-database prediction. Numerical model gradients can
+    hide further energy evaluations, e.g. 4 N^2 for nested central differences.
+
+    The deprecated forward algorithm preserves the original forward differences of
+    forward numerical gradients, costing (N + 1)^2 energies. Its outer displacement
+    defaults to 5.29167e-4 Angstrom; displacement4grads controls the inner step.
+
     Arguments:
         molecule (:class:`mlatom.data.molecule`):                               the molecule object.
-        model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): any model or method which provides energies (takes molecule as an argument).
-        displacement (float, optional):                                         displacement of nuclear coordinates in Angstrom (default: 5.29167e-4).
-        displacement4grads (float, optional):                                   displacement of nuclear coordinates in Angstrom (default: 1e-5) when calculating gradients.
-        model_kwargs (dict, optional):                                          kwargs to be passed to model (except for molecule).     
+        model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): any model or method which provides energies or energy gradients.
+        displacement (float, optional):                                         displacement of nuclear coordinates in Angstrom (default: None selects 0.01 for energy differences, 0.001 for gradient differences, 5.29167e-4 for deprecated forward differences).
+        displacement4grads (float, optional):                                   inner numerical-gradient displacement for the deprecated forward algorithm (default: 1e-5 Angstrom).
+        model_kwargs (dict, optional):                                          kwargs to be passed to model. For gradient_central, gradient-request defaults are merged with supplied settings; contradictory requests are rejected.
+        nthreads (int, optional):                                               parallel energy predictions (default: None, using all threads it can find). Batched gradient predictions use the model's own parallelism.
+        algorithm (str, optional):                                              None (energy differences, default), 'energy_central', 'gradient_central' or deprecated 'forward'.
     '''
-    g1 = numerical_gradients(molecule, model, displacement4grads, model_kwargs)
-    coordinates1 = molecule.xyz_coordinates.reshape(-1)
-    ndim = len(coordinates1)
-    hess = np.zeros((ndim, ndim))
-    coordinates2 = coordinates1
+    if algorithm is None:
+        algorithm = 'energy_central'
+    if algorithm not in ('energy_central', 'gradient_central', 'forward'):
+        raise ValueError("algorithm must be None, 'energy_central', 'gradient_central' or 'forward'")
+    if displacement is None:
+        if algorithm == 'forward':
+            displacement = 5.29167e-4
+        else:
+            displacement = 0.001 if algorithm == 'gradient_central' else 0.01
+    coordinates = molecule.xyz_coordinates.reshape(-1)
+    ndim = len(coordinates)
+    if algorithm == 'forward':
+        g1 = numerical_gradients(molecule, model, displacement4grads, model_kwargs,
+                                 nthreads=nthreads, algorithm='forward')
+        hess = np.zeros((ndim, ndim))
+        for i in range(ndim):
+            coordinates2 = coordinates.copy()
+            coordinates2[i] += displacement
+            molecule2 = molecule.copy()
+            molecule2.xyz_coordinates = coordinates2.reshape(len(molecule2.atoms), 3)
+            g2 = numerical_gradients(molecule2, model, displacement4grads, model_kwargs,
+                                     nthreads=nthreads, algorithm='forward')
+            hess[:, i] = (g2.reshape(-1) - g1.reshape(-1)) / displacement
+        molecule.hessian = hess
+        return hess
+
+    if algorithm == 'gradient_central':
+        predict_kwargs = model_kwargs.copy()
+        if predict_kwargs.get('calculate_hessian', False) or predict_kwargs.get('hessian_to_predict') is not None:
+            raise ValueError('gradient_central must not request a Hessian recursively')
+        custom_selector = 'xyz_derivative_property_to_predict'
+        if custom_selector in predict_kwargs:
+            if not predict_kwargs.get(custom_selector, 'energy_gradients'):
+                raise ValueError('gradient_central requires a gradient property')
+            predict_kwargs.setdefault(custom_selector, 'energy_gradients')
+            gradient_property = predict_kwargs[custom_selector]
+        else:
+            if predict_kwargs.get('calculate_energy_gradients') is False:
+                raise ValueError('gradient_central requires calculate_energy_gradients=True')
+            predict_kwargs.setdefault('calculate_energy_gradients', True)
+            predict_kwargs.setdefault('calculate_hessian', False)
+            gradient_property = 'energy_gradients'
+        displaced = data.molecular_database()
+        for i in range(ndim):
+            for sign in [1, -1]:
+                new_coordinates = np.copy(coordinates)
+                new_coordinates[i] += sign * displacement
+                current_molecule = molecule.copy()
+                current_molecule.xyz_coordinates = new_coordinates.reshape(len(current_molecule.atoms),3)
+                current_molecule.add_xyz_vectorial_property(
+                    np.full((len(current_molecule.atoms), 3), np.nan), gradient_property)
+                displaced.molecules.append(current_molecule)
+        model.predict(molecular_database=displaced, **predict_kwargs)
+        gradients = np.array([current_molecule.get_xyz_vectorial_properties(gradient_property).reshape(-1)
+                              for current_molecule in displaced])
+        if not np.all(np.isfinite(gradients)):
+            raise ValueError('Model did not return finite gradients for every displaced geometry')
+        gradients = gradients.reshape(ndim, 2, ndim)
+        # Each pair contains the full gradients at x + h e_i and x - h e_i.
+        gradients_plus = gradients[:, 0, :]
+        gradients_minus = gradients[:, 1, :]
+        hess = (gradients_plus - gradients_minus) / (2 * displacement)
+        molecule.hessian = 0.5 * (hess + hess.T)
+        return molecule.hessian
+
+    # Original geometry, then (+, -) coordinate pairs, then (++ , --) coordinate-pair displacements.
+    coordinates_list = [coordinates]
     for i in range(ndim):
-        x0 = coordinates2[i]
-        coordinates2[i] = coordinates1[i] + displacement
-        molecule2 = molecule.copy()
-        molecule2.xyz_coordinates = coordinates2.reshape(len(molecule2.atoms),3)
-        g2 = numerical_gradients(molecule2, model, displacement4grads, model_kwargs)
-        hess[:, i] = (g2.reshape(-1) - g1.reshape(-1)) / displacement
-        coordinates2[i] = x0
+        for sign in [1, -1]:
+            new_coordinates = np.copy(coordinates)
+            new_coordinates[i] += sign * displacement
+            coordinates_list.append(new_coordinates)
+    for i in range(ndim):
+        for j in range(i + 1, ndim):
+            for s1, s2 in [(1, 1), (-1, -1)]:
+                new_coordinates = np.copy(coordinates)
+                new_coordinates[i] += s1 * displacement
+                new_coordinates[j] += s2 * displacement
+                coordinates_list.append(new_coordinates)
+    energy_kwargs = dict(model_kwargs, calculate_energy=True)
+    def get_energy(coordinates):
+        current_molecule = molecule.copy()
+        current_molecule.xyz_coordinates = coordinates.reshape(len(current_molecule.atoms),3)
+        current_molecule.energy = np.nan
+        model.predict(molecule=current_molecule, **energy_kwargs)
+        if not np.isfinite(current_molecule.energy):
+            raise ValueError('Model did not return a finite energy for a displaced geometry')
+        return current_molecule.energy
+    from multiprocessing import cpu_count
+    if nthreads == None:
+        nthreads = cpu_count()
+    if nthreads == 1:
+        try:
+            energies = np.array([get_energy(each) for each in coordinates_list])
+        except Exception as exc:
+            raise ValueError('Some of the single-point calculations in numerical Hessian calculations failed.') from exc
+    else:
+        import joblib
+        from joblib import Parallel, delayed
+        nthreads_saved = model.nthreads
+        model.set_num_threads(1)
+        try:
+            energies = Parallel(n_jobs=nthreads)(delayed(get_energy)(coord) for coord in coordinates_list)
+            energies = np.array(energies)
+        except Exception as exc:
+            raise ValueError('Some of the single-point calculations in numerical Hessian calculations failed.') from exc
+        finally:
+            model.set_num_threads(nthreads_saved)
+            model.nthreads = nthreads_saved
+    e_ref = energies[0]
+    hess = np.zeros((ndim, ndim))
+    for i in range(ndim):
+        e_plus = energies[1 + 2 * i]
+        e_minus = energies[2 + 2 * i]
+        hess[i, i] = (e_plus - 2 * e_ref + e_minus) / displacement**2
+    idx = 1 + 2 * ndim
+    for i in range(ndim):
+        for j in range(i + 1, ndim):
+            e_plus_plus = energies[idx]
+            e_minus_minus = energies[idx + 1]
+            pair_curvature = (e_plus_plus + e_minus_minus - 2 * e_ref) / (2 * displacement**2)
+            # Subtract the individual-coordinate contributions to isolate the mixed derivative.
+            hess[i, j] = pair_curvature - 0.5 * (hess[i, i] + hess[j, j])
+            hess[j, i] = hess[i, j]
+            idx += 2
     molecule.hessian = hess
     return hess
+
+
+def semi_numerical_hessian(molecule, model, displacement=1e-3, model_kwargs=None, nthreads=None):
+    '''
+    Calculate a Hessian by central differences of model-returned gradients.
+
+    This thin wrapper selects gradient_central in numerical_hessian. It costs
+    2 N gradient predictions in one batched prediction, or 4 N^2 energies if
+    every gradient internally uses central energy differences. The model need
+    not declare whether its gradients are analytic or numerical.
+
+    Arguments:
+        molecule (:class:`mlatom.data.molecule`):                               the molecule object.
+        model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): any model or method which provides energy gradients.
+        displacement (float, optional):                                         displacement of nuclear coordinates in Angstrom (default: 1e-3).
+        model_kwargs (dict, optional):                                          kwargs used to request gradients (default: ``calculate_energy_gradients=True`` and ``calculate_hessian=False``).
+        nthreads (int, optional):                                               retained for API consistency; batched predictions use the model's own parallelism.
+    '''
+    if model_kwargs is None:
+        model_kwargs = {}
+    return numerical_hessian(molecule, model, displacement=displacement, model_kwargs=model_kwargs,
+                             nthreads=nthreads, algorithm='gradient_central')
 

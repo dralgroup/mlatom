@@ -1,5 +1,7 @@
 import torch, torchani 
 import numpy as np 
+from .interfaces.torchani_interface import fix_torchani_angular_terms
+fix_torchani_angular_terms()   # analytic Hessians at nearly equal coordinates, see there
 
 class omnip1_NN():
     

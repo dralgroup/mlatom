@@ -17,6 +17,7 @@ from collections import OrderedDict
 from ... import data, model_cls
 from ...model_cls import ml_model, torchani_model, method_model, hyperparameters, hyperparameter, model_tree_node
 from ...decorators import doc_inherit
+from ...interfaces.torchani_interface import scheduler_is_better
 
 def level_descriptor(mol, descriptor_dim, source_index=None, default=None):
     '''
@@ -554,7 +555,7 @@ class vecmsani(ml_model, torchani_model):
             if learning_rate < self.hyperparameters.early_stopping_learning_rate:
                 break
 
-            if self.AdamW_scheduler.is_better(rmse, self.AdamW_scheduler.best) or save_every_epoch:
+            if scheduler_is_better(self.AdamW_scheduler, rmse, self.AdamW_scheduler.best) or save_every_epoch:
                 if save_model:
                     self.save(self.model_file)
 

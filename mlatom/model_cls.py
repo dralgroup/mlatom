@@ -153,6 +153,13 @@ class torch_model(model):
 
 class torchani_model(torch_model):
     # models that utilize TorchANI should inherit this class
+    def __new__(cls, *args, **kwargs):
+        # analytic Hessians: TorchANI's angular terms differentiated twice through torch.prod lose all precision at
+        # nearly equal coordinates; see interfaces.torchani_interface.fix_torchani_angular_terms
+        from .interfaces.torchani_interface import fix_torchani_angular_terms
+        fix_torchani_angular_terms()
+        return super().__new__(cls)
+
     def config_multiprocessing(self):
         return super().config_multiprocessing()
 
