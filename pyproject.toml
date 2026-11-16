@@ -81,4 +81,4 @@ version = { attr = "mlatom._version_static.version" }
 include = ["mlatom", "mlatom.*"]
 
 [tool.setuptools.package-data]
-"*" = ["MLatomF", "xtb", "README", "*.json", "*.so", "*.cpp", "*.pt", "*.dat", "*.txt", "*.pkl", "*.inp", "*.f90", "Makefile", "Makefile.intel", "*.saved", "*.sh", "*.jl"]
+"*" = ["MLatomF", "xtb", "README", "*.json", "*.so", "*.cpp", "*.pt", "*.dat", "*.txt", "*.pkl", "*.inp", "*.f90", "Makefile", "Makefile.intel", "Makefile.gnu", "Makefile.cygwin", "LICENSE", "*.saved", "*.sh", "*.jl"]

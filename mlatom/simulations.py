@@ -40,6 +40,7 @@ def run_in_parallel(molecular_database=None, task=None, task_kwargs={},
             nthreads_per_model[ii] = +1
     else:
         nthreads_per_model = [1 for ii in range(nthreads)]
+    parent_directory = os.getcwd()
     def task_loc(imol):
         mol = molecular_database[imol]
         
@@ -55,37 +56,41 @@ def run_in_parallel(molecular_database=None, task=None, task_kwargs={},
             if savednthreads != 'savednthreads': mm.nthreads = savednthreads
             return result
         
-        if create_temp_directories or create_and_keep_temp_directories:
-            with tempfile.TemporaryDirectory() as tmpdirname:
-                cwd = os.getcwd()
-                if create_and_keep_temp_directories:
-                    tmpdirname = f'job_{task.__name__}_{imol+1}'
-                    if not os.path.exists(tmpdirname):
-                        os.makedirs(tmpdirname)
-                    tmpdirname = os.path.abspath(tmpdirname)
-                os.chdir(tmpdirname)
+        try:
+            os.chdir(parent_directory)
+            if create_temp_directories or create_and_keep_temp_directories:
+                with tempfile.TemporaryDirectory() as tmpdirname:
+                    cwd = os.getcwd()
+                    if create_and_keep_temp_directories:
+                        tmpdirname = f'job_{task.__name__}_{imol+1}'
+                        if not os.path.exists(tmpdirname):
+                            os.makedirs(tmpdirname)
+                        tmpdirname = os.path.abspath(tmpdirname)
+                    os.chdir(tmpdirname)
+                    if proceed_on_error:
+                        try:
+                            result = task_loc2()
+                        except Exception as e:
+                            print(f"Task {imol} failed with error: {e}")
+                            result = None
+                        os.chdir(cwd)
+                    else:
+                        result = task_loc2()
+                        os.chdir(cwd)
+            else:
                 if proceed_on_error:
                     try:
                         result = task_loc2()
                     except Exception as e:
                         print(f"Task {imol} failed with error: {e}")
                         result = None   
-                    os.chdir(cwd)
                 else:
                     result = task_loc2()
-                    os.chdir(cwd)
-        else:
-            if proceed_on_error:
-                try:
-                    result = task_loc2()
-                except Exception as e:
-                    print(f"Task {imol} failed with error: {e}")
-                    result = None   
-            else:
-                result = task_loc2()
-        
-        return result
-    
+
+            return result
+        finally:
+            os.chdir(parent_directory)
+
     results = Parallel(n_jobs=nthreads)(delayed(task_loc)(i) for i in range(len(molecular_database)))
     return results
 

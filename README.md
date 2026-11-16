@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="http://mlatom.com"><img src="assets/img/banner.png" alt="MLatom" width="720"></a>
+  <a href="http://mlatom.com"><img src="https://raw.githubusercontent.com/dralgroup/mlatom/main/assets/img/banner.png" alt="MLatom" width="720"></a>
 </p>
 
 <p align="center">
@@ -95,7 +95,7 @@ Prefer zero setup? Run these online on the [Aitomistic Hub](https://aitomistic.x
 
 Full manuals and tutorials are at **[mlatom.com/docs](http://mlatom.com/docs)** — begin with [installation](http://mlatom.com/docs/installation.html) and [get started](http://mlatom.com/docs/get_started.html).
 
-- **Methods** — universal ML potentials (ANI, AIMNet2); AI-enhanced QM methods ([UAIQM](http://mlatom.com/docs/tutorial_uaiqm.html), [AIQM1](http://mlatom.com/docs/tutorial_aiqm1.html), [AIQM2](http://mlatom.com/docs/tutorial_aiqm2.html)) approaching coupled-cluster accuracy at semi-empirical cost; and DFT, semi-empirical, and wavefunction methods via interfaces (PySCF, Gaussian, ORCA, xtb, MNDO, Turbomole, DFTB+, Sparrow, Columbus).
+- **Methods** — universal ML potentials (ANI, AIMNet2); AI-enhanced QM methods ([UAIQM](http://mlatom.com/docs/tutorial_uaiqm.html), [AIQM1](http://mlatom.com/docs/tutorial_aiqm1.html), [AIQM2](http://mlatom.com/docs/tutorial_aiqm2.html), [AIQM3](http://mlatom.com/docs/tutorial_aiqm2.html)) approaching coupled-cluster accuracy at semi-empirical cost; and DFT, semi-empirical, and wavefunction methods via interfaces (PySCF, Gaussian, ORCA, xtb, MNDO, Turbomole, DFTB+, Sparrow, Columbus).
 - **ML models** — [train and use ML potentials](http://mlatom.com/docs/tutorial_mlp.html) (KREG, GAP-SOAP, ANI, MACE, and more) with [active learning](http://mlatom.com/docs/tutorial_al.html), Δ-learning, [transfer learning](http://mlatom.com/docs/tutorial_tl.html), and self-correction.
 - **Simulations** — [geometry optimization](http://mlatom.com/docs/tutorial_geomopt.html), [transition-state search](http://mlatom.com/docs/tutorial_ts.html), [IRC](http://mlatom.com/docs/tutorial_irc.html), [frequencies & thermochemistry](http://mlatom.com/docs/tutorial_freq.html), [molecular dynamics](http://mlatom.com/docs/tutorial_md.html), [nonadiabatic dynamics](http://mlatom.com/docs/tutorial_namd.html), [IR](http://mlatom.com/docs/tutorial_ir.html)/[Raman](http://mlatom.com/docs/tutorial_raman.html)/[UV–vis](http://mlatom.com/docs/tutorial_uvvis.html) spectra, and [periodic boundary conditions](http://mlatom.com/docs/tutorial_pbc.html).
 - **Workflows** — compose methods and tasks into complex pipelines from Python, input files, or the command line.
@@ -111,13 +111,15 @@ Feature-specific references appear in the program output and in [`CITATION.cff`]
 ## Ecosystem
 
 - **[MLatom Skills](https://github.com/dralgroup/mlatom-skills)** — agent skills for MLatom (new and growing rapidly).
-- **[Aitomic add-ons](http://mlatom.com/docs/addons.html)** — cutting-edge methods (e.g. AIQM3), free for academic, non-commercial use.
+- **[Aitomic add-ons](http://mlatom.com/docs/addons.html)** — UAIQM and other unpublished methods, free for academic, non-commercial use.
 - **[Aitomia](https://github.com/dralgroup/aitomia)** — an AI assistant for autonomous atomistic simulations with MLatom.
 
 ## Recent releases
 
 Full [release notes](http://mlatom.com/docs/releases.html) · [`CHANGELOG.md`](CHANGELOG.md)
 
+- **3.27** — AIQM3 included directly in open-source MLatom; single-point calculations save molecular properties to JSON.
+- **3.26** — periodic-material simulations with MACE-MP-0 and MACE-MPA-0; improved numerical gradients and Hessians for optimization and frequency calculations.
 - **3.25** — fine-tuning of the universal models on your own data: ANI, AIQM1, AIQM2, AIQM3, UAIQM, OMNI-P1 and OMNI-P2x all through the same `train()` call, with dispersion handled on both sides so the fine-tuned model keeps the long-range behaviour.
 - **3.23** — AIQM3 public add-on (`pip install aitomic-addons`); direct Gaussian workflows; version/commit/build-date banner with a daily update check.
 - **3.22** — OMNI-P2x model; faster nonadiabatic dynamics.

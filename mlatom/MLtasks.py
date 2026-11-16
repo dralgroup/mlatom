@@ -49,6 +49,12 @@ def useMLmodel(args):
     molecular_database = loading_data(args.XYZfile, args.jsonfile, args.Yfile, args.YgradXYZfile, charges=args.charges, multiplicities=args.multiplicities)
     t_predict = predicting(model=model, molecular_database=molecular_database, value=bool(args.YestFile), gradient=bool(args.YgradXYZestFile), hessian=bool(args.hessianEstFile), ismethod=args.method)
     saving_predictions(molecular_database, YestFile=args.YestFile, YgradXYZestFile=args.YgradXYZestFile, hessianEstFile=args.hessianEstFile, method=args.method)
+    # predict() attaches per-molecule properties (mo_energies, mo_occupations,
+    # dipole_moment, aiqm2_nn*) that saving_predictions does not write; the dump is
+    # their only carrier off the CLI.
+    for imol, mol in enumerate(molecular_database):
+        mol.number = imol+1
+        mol.dump(f'sp{mol.number}.json', format='json')
     if args.method:
         print('')
         if args.AIQM1 or args.AIQM1DFT or args.AIQM1DFTstar or args.AIQM2 or args.AIQM2DFT or args.AIQM3 or args.AIQM3DFT or args.ani1ccx or args.ani1x or args.ani2x or args.ani1xd4 or args.ani2xd4 or args.ani1ccxgelu or args.ani1xgelu or args.ani1ccxgelud4 or args.ani1xgelud4:
@@ -713,7 +719,7 @@ def loading_method(args):
         else:
             kwargs['program'] = args.qmprog 
     if args.uversion:
-        kwargs['version'] = args.uversion
+        kwargs['version'] = str(args.uversion)
     if 'uwarning' in args.args_dict:
         kwargs['warning'] = args.uwarning
     method = models.methods(**kwargs)

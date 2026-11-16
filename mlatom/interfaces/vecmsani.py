@@ -14,10 +14,10 @@ import numpy as np
 import tqdm
 from collections import OrderedDict
 
-from ... import data, model_cls
-from ...model_cls import ml_model, torchani_model, method_model, hyperparameters, hyperparameter, model_tree_node
-from ...decorators import doc_inherit
-from ...interfaces.torchani_interface import scheduler_is_better
+from .. import data, model_cls
+from ..model_cls import ml_model, torchani_model, method_model, hyperparameters, hyperparameter, model_tree_node
+from ..decorators import doc_inherit
+from .torchani_interface import scheduler_is_better
 
 def level_descriptor(mol, descriptor_dim, source_index=None, default=None):
     '''

@@ -13,7 +13,34 @@
 
 from ...model_cls import method_model
 
-class uaiqm(method_model):
+
+def _real_uaiqm():
+    """The add-on's implementation, or None when it is not installed."""
+    try:
+        from aitomic_addons import uaiqm as _uaiqm
+    except ImportError:
+        return None
+    return _uaiqm
+
+
+class _uaiqm_meta(type):
+    """Forward class-level attributes to the add-on implementation.
+
+    Construction is redirected in ``__new__``; a classmethod such as
+    ``uaiqm.load(...)`` never constructs, so it needs this forwarder.
+    """
+
+    def __getattr__(cls, name):
+        real = _real_uaiqm()
+        if real is not None and hasattr(real, name):
+            return getattr(real, name)
+        raise AttributeError(
+            "'%s' is provided by the Aitomic Add-Ons for MLatom, which are not "
+            "installed. Install them with:  pip install aitomic-addons"
+            % name)
+
+
+class uaiqm(method_model, metaclass=_uaiqm_meta):
     """
     The Universal and Updatable Artificial Intelligence-Quantum Mechanical methods.
 
@@ -63,9 +90,18 @@ class uaiqm(method_model):
         ):
         
         if self.is_method_supported(method=method):
-            raise ValueError(f'The requested method "{method}" is supported as an add-on in Aitomic, please refer to http://MLatom.com/aitomic for the instructions on how to obtain it.')
+            raise ValueError(f'The requested method "{method}" is provided by the Aitomic Add-Ons for MLatom. Install them with:  pip install aitomic-addons  (more information: https://aitomistic.com/mlatom/addons.html).')
         else:
             self.raise_unsupported_method_error(method)
+
+    def __new__(cls, *args, **kwargs):
+        # Imported at construction time, not module load: the add-on imports
+        # mlatom, so a load-time import here would be circular.
+        if cls is uaiqm:
+            real = _real_uaiqm()
+            if real is not None:
+                return real(*args, **kwargs)
+        return super().__new__(cls)
     
 if __name__ == '__main__':
     pass

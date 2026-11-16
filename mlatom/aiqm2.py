@@ -1,3 +1,12 @@
+'''
+.. code-block::
+
+  !---------------------------------------------------------------------------!
+  ! aiqm2: Artificial Intelligence-Enhanced Quantum Mechanical Method 2       !
+  ! Implementations by: Yuxinxin Chen and                                     !
+  !                     Pavlo O. Dral                                         !
+  !---------------------------------------------------------------------------!
+'''
 import os
 import sys
 import numpy as np
@@ -31,6 +40,14 @@ class aiqm2(method_model, downloadable_model):
         gradient = mol.get_energy_gradients()
         hess = mol.hessian
         std = mol.aiqm2_nn.energy_standard_deviation
+
+    Molecules containing elements outside the set the model was trained on cannot
+    be treated by AIQM2 itself. Models covering more elements include AIQM3, the
+    Aitomic add-ons (for example AIQM4@DFT) and AIQM2@UAIQM, the UAIQM extension
+    of this model, which can be used out of the box for them. The add-ons,
+    including the UAIQM models, are installed separately
+    (http://MLatom.com/aitomic); see the UAIQM tutorial for the model choice and
+    its version.
 
     """ 
     
@@ -162,10 +179,23 @@ class aiqm2(method_model, downloadable_model):
         calculate_polarizability_derivatives=False,
     ):
 
-        for element_symbol in np.unique(molecule.element_symbols):
-            if element_symbol not in self.element_symbols_available:
-                errmsg = f' * Warning * Molecule contains elements \'{element_symbol}\' other than {self.element_symbols_available}, no calculations performed'
-                raise ValueError(errmsg)
+        supported_elements = self.element_symbols_available
+        unsupported = sorted(set(molecule.element_symbols) - set(supported_elements))
+        if unsupported:
+            errmsg = (
+                ' * Error * Molecule contains elements outside the set this AIQM2 model was '
+                'trained on: %s. Supported elements: %s. No calculations performed.\n'
+                ' To treat these elements, use a model that covers them:\n'
+                '   - AIQM3 is trained on more elements;\n'
+                '   - the Aitomic add-ons may contain models trained on more elements\n'
+                '     (for example AIQM4@DFT);\n'
+                '   - AIQM2@UAIQM, the UAIQM extension of this model, can be used out of\n'
+                '     the box for these elements.\n'
+                ' The add-ons, including the UAIQM models, are installed separately\n'
+                ' (http://MLatom.com/aitomic); the UAIQM tutorial describes the model\n'
+                ' choice and its version.'
+                % (', '.join(unsupported), ', '.join(map(str, supported_elements))))
+            raise ValueError(errmsg)
 
         self.aiqm2_model.predict(
             molecule=molecule,
@@ -198,7 +228,7 @@ class aiqm2(method_model, downloadable_model):
                     #     verbose=0),
                     model=ani_wrapper(
                         model_file=model_paths[self.model_index[ii]],
-                        verbose=0),
+                        device=self.device, verbose=0),
                     operator='predict'
                 ) for ii in range(len(self.model_index))
             ],
@@ -315,7 +345,7 @@ class aiqm2(method_model, downloadable_model):
         from .interfaces.torchani_interface import ani
         # use module-level wrapper so saved trees can be reloaded
         ani_wrapper = ani
-        pretrained_models = [ani_wrapper(model_file=model_paths[self.model_index[ii]],verbose=verbose) for ii in range(len(self.model_index))]
+        pretrained_models = [ani_wrapper(model_file=model_paths[self.model_index[ii]],verbose=verbose,device=self.device) for ii in range(len(self.model_index))]
 
         # reload aev parameters
         for aev_param in ['Rcr','Rca','EtaR','ShfR','Zeta','ShfZ','EtaA','ShfA']:
@@ -453,6 +483,7 @@ class aiqm2(method_model, downloadable_model):
         for node, cv_index in self._iter_ani_leaves():
             pt_path = os.path.join(base_dir, f'cv{cv_index}.pt')
             node.model.save(pt_path)
+            node.model.model_file = pt_path
 
         # Build a model tree dict with relative paths
         model_tree_dict = self.aiqm2_model.dump(format='dict')
@@ -533,6 +564,8 @@ class aiqm2(method_model, downloadable_model):
                 os.path.abspath(instance._working_directory), '_baseline')
         if base_dir is not None:
             cls._resolve_model_paths(model_dict['model_tree'], base_dir)
+        for child in model_dict['model_tree']['children'][1]['children']:
+            child['model']['kwargs']['device'] = str(instance.device)
         from .models import load_dict
         instance.aiqm2_model = load_dict(model_dict['model_tree'], base_dir=base_dir)
         instance.baseline = instance.aiqm2_model.children[0]

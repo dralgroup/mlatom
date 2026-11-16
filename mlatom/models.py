@@ -596,9 +596,9 @@ def MDtrajNet(**kwargs):
     return EEEDDDD(**kwargs)
 
 from .addons.uaiqm.uaiqm             import uaiqm
-from .addons.omnip2x.omnip2x         import omnip2x
-from .addons.omnip2x.vecmsani        import vecmsani
-from .addons.aiqm3.aiqm3             import aiqm3
+from .omnip2x                       import omnip2x
+from .interfaces.vecmsani            import vecmsani
+from .aiqm3                         import aiqm3
 
 # aiqm1_ani_wrapper is resolved through this namespace, not by module path:
 # an ani-derived leaf serialises as type='ml_model', and load_dict looks that
@@ -805,7 +805,28 @@ def load_dict(model_dict, base_dir=None):
 
 def import_from_path(module_name, file_path):
     # https://docs.python.org/3/library/importlib.html#importing-a-source-file-directly
-    import importlib
+    import importlib, os
+    existing = sys.modules.get(module_name)
+    if (existing is not None and getattr(existing, '__file__', None)
+            and os.path.realpath(existing.__file__) == os.path.realpath(file_path)):
+        return existing
+    if not os.path.exists(file_path) and module_name.split('.')[0] in ('mlatom', 'aitomic_addons'):
+        import warnings
+        warnings.warn(
+            f'Recorded model module path {file_path!r} was not found; attempting '
+            f'to import {module_name!r} from the current installation instead.',
+            RuntimeWarning, stacklevel=2)
+        try:
+            return importlib.import_module(module_name)
+        except ModuleNotFoundError as exc:
+            if (module_name in ('aitomic_addons.aiqm3', 'mlatom.addons.aiqm3.aiqm3')
+                    and exc.name in (module_name, module_name.rsplit('.', 1)[0])):
+                warnings.warn(
+                    f'Retired AIQM3 module {module_name!r} is unavailable; loading '
+                    "from the public module 'mlatom.aiqm3' instead.",
+                    RuntimeWarning, stacklevel=2)
+                return importlib.import_module('mlatom.aiqm3')
+            raise
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module

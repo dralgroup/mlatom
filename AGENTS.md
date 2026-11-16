@@ -25,11 +25,11 @@ python3 -m pip install -U mlatom
 - Runs on **Linux**; requires **Python ≥ 3.9**.
 - Optional third-party interfaces (Gaussian, ORCA, PySCF, MNDO, …) are set up
   separately — see the [installation guide](http://mlatom.com/docs/installation.html).
-- **AIQM3** and other advanced Aitomistic methods are an add-on:
-  `pip install aitomic-addons` (Linux, Python **3.9–3.11**). See the
-  [add-ons guide](http://mlatom.com/docs/addons.html).
+- **AIQM3** is included in MLatom starting with **3.27.0**. Unpublished methods
+  such as **UAIQM** use the optional `aitomic-addons` package (Linux/macOS, Python
+  **3.9–3.11**). See the [add-ons guide](http://mlatom.com/docs/addons.html).
 
-No installation needed for a quick try: MLatom runs online, registration-free, on the
+No installation needed for a quick try: MLatom runs online, with free registration, on the
 [Aitomistic Hub](https://aitomistic.xyz).
 
 ## Run
@@ -70,3 +70,4 @@ skills are welcome — contributions are open.
 If work uses MLatom, cite it — use **"Cite this repository"** (generated from
 [`CITATION.cff`](CITATION.cff)); the full list with BibTeX is on the
 [License and citations](http://mlatom.com/docs/license.html) page.
+

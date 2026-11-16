@@ -7,6 +7,17 @@ Dates are given as DD.MM.YYYY. Versions are available on
 [PyPI](https://pypi.org/project/mlatom/) and
 [GitHub](https://github.com/dralgroup/mlatom).
 
+## [3.27.0] – 16.11.2026
+- New: AIQM3 is available in the public MLatom package. By Yuxinxin Chen and
+  Pavlo O. Dral.
+- Changed: the single-point task now writes one JSON file per predicted molecule
+  (`sp1.json`, `sp2.json`, …), mirroring the optimization and frequency paths
+  (`opttraj<N>.json`). Properties attached to the molecule during prediction — MO
+  energies and occupations, dipole moment, the AIQM2 per-network decomposition —
+  previously existed only in memory and were lost when the command line exited; they
+  can now be read back from the dump. By Pavlo O. Dral.
+- Bug fixes and improvements.
+
 ## [3.26.0] – 07.11.2026
 - New: the universal MACE models for materials, `MACE-MP-0` and `MACE-MPA-0`, with
   periodic cells: `molecule.pbc` and `molecule.cell` now reach every MACE model, and a
@@ -38,12 +49,6 @@ Dates are given as DD.MM.YYYY. Versions are available on
   By Mikolaj Martyka.
 - Fixed: ANI-1xnr looks for its parameters in `$MODELSPATH/ani_1xnr_model/` before
   falling back to the packaged defaults. By Pavlo O. Dral.
-
-Known issues:
-- The native MLatomF kernel solver can return incorrect results when Cholesky fails
-  and its fallback is used; this was observed for periodic kernels. Repair is deferred.
-- MDtrajNet propagation using numerical velocities can produce different trajectories
-  across platforms. A portable production repair is deferred.
 
 ## [3.25.5] – 12.09.2026
 - Fixed: fine-tuning OMNI-P2x trained every layer of its networks, although the
