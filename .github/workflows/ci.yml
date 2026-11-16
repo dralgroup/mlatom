@@ -19,7 +19,7 @@ env:
 jobs:
   import-smoke:
     name: import (py${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # Python 3.9 builds are available on this image.
     strategy:
       fail-fast: false
       matrix:
