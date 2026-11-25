@@ -43,6 +43,7 @@ That pulls in the required dependencies automatically (including the PyTorch/Tor
 | --- | --- |
 | PySCF methods: single point, TDDFT, frequencies and thermochemistry, densities, Raman | `pip install pyscf` |
 | AIMNet2 models | `pip install "aimnet==0.0.1"` (the version MLatom's interface targets; newer `aimnet` releases are a rewrite that does not work with the shipped models) |
+| OMNI-P3x and MS-AIOAIMNet2 (Python 3.10 or newer) | `python -m pip install "git+https://github.com/mmartyka/aimnetex@v0.1.0"` |
 | format conversions (SMILES to xyz and back) | `conda install -c conda-forge openbabel` |
 | the ASE interface (ASE optimizers and dynamics) and MACE | `pip install ase` |
 | KREG_API backend (`ml_program='MLatomF'` needs none of this) | `conda install -c conda-forge mkl mkl-service` |
@@ -55,6 +56,8 @@ AIQM2 additionally needs the DFT-D4 program, installed via conda:
 conda install -c conda-forge 'dftd4==3.6.0'   # the version MLatom is tested against
 export dftd4bin=$(which dftd4)   # point MLatom at the dftd4 executable
 ```
+
+**AMD GPUs** require a ROCm build of PyTorch. See the [ROCm installation instructions](https://aitomistic.com/mlatom/installation.html#amd-gpus-rocm).
 
 See the [installation guide](http://mlatom.com/docs/installation.html) for the full dependency list and other methods.
 
@@ -118,6 +121,7 @@ Feature-specific references appear in the program output and in [`CITATION.cff`]
 
 Full [release notes](http://mlatom.com/docs/releases.html) · [`CHANGELOG.md`](CHANGELOG.md)
 
+- **3.28** — OMNI-P3x, a universal neural-network potential for ground and singlet excited states with ensemble prediction, fine-tuning and three levels of theory.
 - **3.27** — AIQM3 included directly in open-source MLatom; single-point calculations save molecular properties to JSON.
 - **3.26** — periodic-material simulations with MACE-MP-0 and MACE-MPA-0; improved numerical gradients and Hessians for optimization and frequency calculations.
 - **3.25** — fine-tuning of the universal models on your own data: ANI, AIQM1, AIQM2, AIQM3, UAIQM, OMNI-P1 and OMNI-P2x all through the same `train()` call, with dispersion handled on both sides so the fine-tuned model keeps the long-range behaviour.

@@ -148,6 +148,18 @@ def scheduler_is_better(scheduler, value, best):
     return value < best                      # no such method at all: the default 'min' mode, spelled out
 
 
+def shuffle_molecules(rows, seed):
+    '''Shuffle the cached training rows of msani/vecmsani in place by whole molecules. A molecule's rows are its
+    states, consecutive and in increasing state order, so they stay together and in order (the gap loss needs that).'''
+    molecules = []
+    for row in rows:
+        if not molecules or row['state'] <= molecules[-1][-1]['state']:
+            molecules.append([])
+        molecules[-1].append(row)
+    np.random.default_rng(seed).shuffle(molecules)
+    rows[:] = [row for molecule in molecules for row in molecule]
+
+
 class ani(ml_model, torchani_model):
     '''
     Create an `ANI <http://pubs.rsc.org/en/Content/ArticleLanding/2017/SC/C6SC05720A>`_ (`ANAKIN <https://www.google.com/search?q=Anakin+Skywalker>`_-ME: Accurate NeurAl networK engINe for Molecular Energie) model object. 
@@ -1488,6 +1500,7 @@ class msani(ml_model, torchani_model):
 
             self.AdamW_scheduler.step(rmse)
             self.SGD_scheduler.step(rmse)
+            shuffle_molecules(self.subtraining_rows, self.AdamW_scheduler.last_epoch)
             for properties in tqdm.tqdm(
                 self.subtraining_set,
                 total=len(self.subtraining_set),
@@ -1855,11 +1868,13 @@ class msani(ml_model, torchani_model):
                 self.hyperparameters.gap_coefficient = 0.0
 
         if self.energy_shifter.self_energies is None:
-            self.subtraining_set = molDB2ANIdata_state(molecular_database, property_to_learn, xyz_derivative_property_to_learn).subtract_self_energies(self.energy_shifter, self.species_order).species_to_indices(self.species_order).cache()
-        else:
-            self.subtraining_set = molDB2ANIdata_state(molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).cache()
-        
-        
+            # Fit the self energies on the labelled states only. The unlabelled (NaN) states stay in
+            # the training set, masked out of the loss, but one NaN energy in this least-squares fit
+            # makes every self energy NaN. The expansion below needs the elements of the fit.
+            labelled = molecular_database.filter_by_property(property_to_learn)
+            molDB2ANIdata_state(labelled, property_to_learn, xyz_derivative_property_to_learn).subtract_self_energies(self.energy_shifter, self.species_order)
+            data_element_symbols = list(np.unique(np.concatenate(labelled.element_symbols)))
+
         if len(self.species_order) != len(self.energy_shifter.self_energies):
             true_species_order = sorted(data_element_symbols, key=lambda x: self.species_order.index(x))
             expanded_self_energies = np.zeros((len(self.species_order)))
@@ -1870,7 +1885,9 @@ class msani(ml_model, torchani_model):
                     expanded_self_energies[ii] = self.energy_shifter_.self_energies[ii]
             self.energy_shifter.self_energies = torch.tensor(expanded_self_energies)
         self.energy_shifter = self.energy_shifter.to(self.device)
+        self.subtraining_set = molDB2ANIdata_state(molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).cache()
         self.validation_set = molDB2ANIdata_state(validation_molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).cache()
+        self.subtraining_rows = self.subtraining_set.wrapped_iterable   # cached rows; the batches below are collated from them, shuffled every epoch
 
         
         self.subtraining_set = self.subtraining_set.collate(self.hyperparameters.batch_size, PADDING)

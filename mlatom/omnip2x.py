@@ -12,6 +12,12 @@ import os,sys
 from .model_cls import method_model, downloadable_model, model_tree_node
 import numpy as np
 class omnip2x(method_model, downloadable_model):
+    """OMNI-P2x universal neural network potential for excited-state simulations.
+
+    Arguments:
+        nthreads (int, optional): Number of CPU threads. Defaults to 1.
+    """
+
     supported_methods = ['omni-p2x','omnip2x' ]
     
 
@@ -312,6 +318,12 @@ def check_fragments(molecule=None):
         return None
 
 def increase_input_dim(model, n):
+    '''
+    Add n level-descriptor inputs to the first layer of every element network, e.g. to fine-tune on a new level.
+
+    The input of the first layer is [AEV, level descriptor, state] (ReStateInputNet), so the new columns go in
+    front of the last one, the state, which keeps its trained weights; the new columns start from N(0, 1e-3).
+    '''
     import torch
     import torch.nn as nn
     for name, submodel in model.named_children():
@@ -319,14 +331,14 @@ def increase_input_dim(model, n):
             old_layer = submodel[0]
             assert isinstance(old_layer, nn.Linear), f"First layer of {name} is not Linear"
 
-            # create new layer with +1 input dim
+            # create new layer with n more inputs
             new_layer = nn.Linear(old_layer.in_features + n, old_layer.out_features, bias=old_layer.bias is not None)
 
             # Copy existing weights
             with torch.no_grad():
-                # copy old weights to the first part of the new weight matrix
-                new_layer.weight[:, :-n] = old_layer.weight
-                new_layer.weight[:, -1].normal_(0, 1e-3)  
+                new_layer.weight[:, :-n-1] = old_layer.weight[:, :-1]  # AEV and the existing levels
+                new_layer.weight[:, -n-1:-1].normal_(0, 1e-3)         # the new levels
+                new_layer.weight[:, -1] = old_layer.weight[:, -1]      # the state stays last
                 if old_layer.bias is not None:
                     new_layer.bias.copy_(old_layer.bias)
 

@@ -17,7 +17,7 @@ class omnip1(method_model, downloadable_model):
         level (str or int, optional): The label source to predict at - `cc`, `dft`, or the integer the model encodes one as. Default: `cc`.
         working_directory (str, optional): The path to save temporary calculation file. Default: `None`, i.e., nothing will be dumped.
         dispersion_kwargs (dict, optional): The keywords used for D4 dispersion correction. Default: `None`
-        nthreads (int, optional): The number of threads to be used. Default: `1`
+        nthreads (int, optional): Number of CPU threads. Defaults to 1.
 
     .. code-block:: 
 

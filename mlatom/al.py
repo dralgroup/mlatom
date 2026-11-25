@@ -171,6 +171,9 @@ class al():
                     self.ml_model_type = self.ml_model.casefold()
                     self.ml_model = ml_model_msani
                 elif self.ml_model.casefold() in ('delta_msani', 'delta_vecmsani'):
+                    if self.baseline_method is None:
+                        stopper(f"Delta learning (ml_model='{self.ml_model}') requires baseline_method to be set. "
+                                "Pass baseline_method=<your_method> and baseline_method_kwargs=<kwargs> to al().")
                     self.ml_model_type = self.ml_model.casefold().replace('delta_', '')
                     self.ml_model = ml_model_delta_msani
                 else:
@@ -186,6 +189,9 @@ class al():
             self.ml_model_kwargs = kwargs['ml_model_kwargs']
         else:
             self.ml_model_kwargs = {}
+        if self.ml_model is ml_model_delta_msani:
+            # the delta model adds back the baseline that is subtracted from the reference labels
+            self.ml_model_kwargs = {'baseline': self.baseline_method, 'baseline_kwargs': self.baseline_method_kwargs, **self.ml_model_kwargs}
 
         self.use_gradients_in_training = self.ml_model_kwargs.get('use_gradients_in_training', True)
         if not self.use_gradients_in_training:
@@ -739,14 +745,19 @@ class al():
                     calculate_energy_gradients = [calculate_energy_gradients] * model_predict_kwargs['nstates']
             elif not any(calculate_energy_gradients):
                 calculate_energy_gradients = False
+        # Bind only the needed attributes so the closure does not capture
+        # the entire ``al`` object (which may hold large, hard-to-pickle
+        # data such as additional_dataset and labeled_database).
+        _baseline_method = self.baseline_method
+        _baseline_method_kwargs = self.baseline_method_kwargs
         def sptask(molecule=None, model=None, refmethod_kwargs={}, ):
             try:
-                if self.baseline_method is not None:
+                if _baseline_method is not None:
                     auxmol = data.molecule()
                     auxmol.atoms = molecule.atoms
-                    self.baseline_method.predict(molecule=auxmol, **self.baseline_method_kwargs)
+                    _baseline_method.predict(molecule=auxmol, **_baseline_method_kwargs)
                 model.predict(molecule=molecule, **refmethod_kwargs)
-                if self.baseline_method is not None:
+                if _baseline_method is not None:
                     try:
                         nstates = refmethod_kwargs['nstates']
                     except:

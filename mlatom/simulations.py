@@ -146,8 +146,8 @@ class optimize_geometry():
         mol.read_from_xyz_file(filename='ethanol.xyz')
         # Initialize methods
         aiqm1 = ml.models.methods(method='AIQM1', qm_program='MNDO')
-        # Run geometry optimization
-        geomopt = ml.simulations.optimize_geometry(model = aiqm1, initial_molecule=mol, program = 'ASE')
+        # Run geometry optimization (default: geomeTRIC)
+        geomopt = ml.simulations.optimize_geometry(model=aiqm1, initial_molecule=mol)
         # Get the optimized geometry, energy, and gradient
         optmol = geomopt.optimized_molecule
         geo = optmol.get_xyz_coordinates()
@@ -462,7 +462,7 @@ def gen_ts(
 
 class freq():
     """
-    Frequence analysis.
+    Frequency analysis.
 
     Arguments:
         model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): 
@@ -473,12 +473,18 @@ class freq():
             the molecule object with necessary information.
         model_predict_kwargs (dict, optional): 
             Additional keywords used for prediction.
-        program (str, optional): 
-            the engine used in frequence analysis through modified TorchANI (if Gaussian not found or any other string is given), pyscf or Gaussian interfaces.
+        program (str, optional):
+            Frequency engine. ``'PySCF'`` selects the harmonic analysis and is
+            the default when PySCF is installed; ``'Gaussian'`` selects the
+            Gaussian interface. ``'ASE'`` selects the legacy modified-TorchANI
+            path and is retained for compatibility; prefer the default PySCF
+            analysis for production frequencies. Any other value raises
+            ``ValueError``. When omitted, PySCF is used if installed, otherwise
+            Gaussian if available.
         normal_mode_normalization (str, optional): 
             normal modes output scheme. It should be one of: ``mass weighted normalized``, ``mass deweighted unnormalized``, and ``mass deweighted normalized``. Default: ``mass deweighted normalized``.
-        anharmonic (bool): 
-            whether to do anharmonic frequence calculation.
+        anharmonic (bool):
+            whether to do anharmonic frequency calculation.
         working_directory (str, optional): 
             working directory. Default value: '.', i.e., current directory.
         ir (bool): 
@@ -495,8 +501,8 @@ class freq():
         mol.read_from_xyz_file(filename='ethanol.xyz')
         # Initialize methods
         aiqm1 = ml.models.methods(method='AIQM1', qm_program='MNDO')
-        # Run frequence analysis
-        ml.simulations.freq(model=aiqm1, molecule=mol, program='ASE')
+        # Run frequency analysis (default: PySCF harmonic analysis)
+        ml.simulations.freq(model=aiqm1, molecule=mol)
         # Get frequencies
         frequencies = mol.frequencies
 
@@ -812,7 +818,7 @@ class thermochemistry():
     Arguments:
         model (:class:`mlatom.models.model` or :class:`mlatom.models.methods`): any model or method which provides energies and forces and Hessian.
         molecule (:class:`mlatom.data.molecule`): the molecule object with necessary information.
-        program (str): the engine used in thermochemical properties calculation. Currently support Gaussian and ASE.
+        program (str): the engine used in thermochemical properties calculation. Currently supports Gaussian, PySCF, and the legacy ASE path (compatibility only).
         normal_mode_normalization (str, optional): normal modes output scheme. It should be one of: mass weighted normalized, mass deweighted unnormalized, and mass deweighted unnormalized (default). 
     .. code-block:: python
 
@@ -821,8 +827,8 @@ class thermochemistry():
         mol.read_from_xyz_file(filename='ethanol.xyz')
         # Initialize methods
         aiqm1 = ml.models.methods(method='AIQM1', qm_program='MNDO')
-        # Run thermochemical properties calculation
-        ml.simulations.thermochemistry(model=aiqm1, molecule=mol, program='ASE')
+        # Run thermochemical properties calculation (default: PySCF when installed)
+        ml.simulations.thermochemistry(model=aiqm1, molecule=mol)
         # Get ZPE and heat of formation
         ZPE = mol.ZPE
         Hof = mol.DeltaHf298

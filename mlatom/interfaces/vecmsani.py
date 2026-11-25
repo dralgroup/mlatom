@@ -17,7 +17,7 @@ from collections import OrderedDict
 from .. import data, model_cls
 from ..model_cls import ml_model, torchani_model, method_model, hyperparameters, hyperparameter, model_tree_node
 from ..decorators import doc_inherit
-from .torchani_interface import scheduler_is_better
+from .torchani_interface import scheduler_is_better, shuffle_molecules
 
 def level_descriptor(mol, descriptor_dim, source_index=None, default=None):
     '''
@@ -561,6 +561,7 @@ class vecmsani(ml_model, torchani_model):
 
             self.AdamW_scheduler.step(rmse)
             self.SGD_scheduler.step(rmse)
+            shuffle_molecules(self.subtraining_rows, self.AdamW_scheduler.last_epoch)
             for properties in tqdm.tqdm(
                 self.subtraining_set,
                 total=len(self.subtraining_set),
@@ -980,9 +981,12 @@ class vecmsani(ml_model, torchani_model):
                 self.hyperparameters.gap_coefficient = 0.0
 
         if self.energy_shifter.self_energies is None:
-            self.subtraining_set = molDB2ANIdata_state_Re(molecular_database, property_to_learn, xyz_derivative_property_to_learn).subtract_self_energies(self.energy_shifter, self.species_order).species_to_indices(self.species_order).cache()
-        else:
-            self.subtraining_set = molDB2ANIdata_state_Re(molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).cache()
+            # Fit the self energies on the labelled states only. The unlabelled (NaN) states stay in
+            # the training set, masked out of the loss, but one NaN energy in this least-squares fit
+            # makes every self energy NaN. The expansion below needs the elements of the fit.
+            labelled = molecular_database.filter_by_property(property_to_learn)
+            molDB2ANIdata_state_Re(labelled, property_to_learn, xyz_derivative_property_to_learn).subtract_self_energies(self.energy_shifter, self.species_order)
+            data_element_symbols = list(np.unique(np.concatenate(labelled.element_symbols)))
 
         if len(self.species_order) != len(self.energy_shifter.self_energies):
             true_species_order = sorted(data_element_symbols, key=lambda x: self.species_order.index(x))
@@ -993,7 +997,8 @@ class vecmsani(ml_model, torchani_model):
                 elif 'energy_shifter_' in self.__dict__:
                     expanded_self_energies[ii] = self.energy_shifter_.self_energies[ii]
             self.energy_shifter.self_energies = torch.tensor(expanded_self_energies)
-        self.energy_shifter = self.energy_shifter.to(self.device)    
+        self.energy_shifter = self.energy_shifter.to(self.device)
+        self.subtraining_set = molDB2ANIdata_state_Re(molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).cache()
         self.validation_set = molDB2ANIdata_state_Re(validation_molecular_database, property_to_learn, xyz_derivative_property_to_learn).species_to_indices(self.species_order).subtract_self_energies(self.energy_shifter.self_energies).cache()
         
         self.energy_shifter = self.energy_shifter.to(self.device)
@@ -1005,6 +1010,7 @@ class vecmsani(ml_model, torchani_model):
         'descriptor':0.0,
         }
 
+        self.subtraining_rows = self.subtraining_set.wrapped_iterable   # cached rows; the batches below are collated from them, shuffled every epoch
         self.subtraining_set = self.subtraining_set.collate(self.hyperparameters.batch_size, padding=PADDING)
         self.validation_set = self.validation_set.collate(self.hyperparameters.batch_size, padding=PADDING)
 

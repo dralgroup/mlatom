@@ -7,6 +7,22 @@ Dates are given as DD.MM.YYYY. Versions are available on
 [PyPI](https://pypi.org/project/mlatom/) and
 [GitHub](https://github.com/dralgroup/mlatom).
 
+## [3.28.0] – 25.11.2026
+- New: OMNI-P3x, a universal neural-network potential for ground and singlet
+  excited states with ensemble prediction, fine-tuning and three levels of theory.
+  The pretrained weights are downloaded on first use. By Mikolaj Martyka.
+- New: an interface to MS-AIOAIMNet2, the neural-network architecture behind
+  OMNI-P3x. Train and use your own models to predict energies, forces and dipole
+  moments for multiple electronic states. By Mikolaj Martyka.
+- Bug fixes and improvements.
+
+OMNI-P3x and MS-AIOAIMNet2 require Python 3.10 or newer and the
+`aimnetex` backend. Install it from GitHub:
+
+```bash
+python -m pip install "git+https://github.com/mmartyka/aimnetex@v0.1.0"
+```
+
 ## [3.27.0] – 16.11.2026
 - New: AIQM3 is available in the public MLatom package. By Yuxinxin Chen and
   Pavlo O. Dral.

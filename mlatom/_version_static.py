@@ -8,6 +8,6 @@
 # `stamp_version.py` at release time -- do not hand-edit them. When MLatom runs
 # from a source checkout they are filled live from git instead; an installed
 # build (no .git) falls back to the values pinned here. `version` always wins.
-version = "3.27.0"
-commit = '18c9a12f'
-build_date = '2026-11-16'
+version = "3.28.0"
+commit = '4504a904'
+build_date = '2026-11-25'

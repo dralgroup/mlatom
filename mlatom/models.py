@@ -588,6 +588,13 @@ def mace(**kwargs):
     from .interfaces.mace_interface import mace
     return mace(**kwargs)
 
+def msaioaimnet2(**kwargs):
+    '''
+    Returns an MS-AIOAIMNet2 model object (see :class:`mlatom.interfaces.msaioaimnet2_interface.msaioaimnet2`).
+    '''
+    from .interfaces.msaioaimnet2_interface import msaioaimnet2
+    return msaioaimnet2(**kwargs)
+
 def MDtrajNet(**kwargs):
     '''
     Returns an EEEDDDD model object (see :class:`mlatom.EEEDDDD.EEEDDDD`).
@@ -596,9 +603,10 @@ def MDtrajNet(**kwargs):
     return EEEDDDD(**kwargs)
 
 from .addons.uaiqm.uaiqm             import uaiqm
-from .omnip2x                       import omnip2x
+from .omnip2x                        import omnip2x
 from .interfaces.vecmsani            import vecmsani
-from .aiqm3                         import aiqm3
+from .aiqm3                          import aiqm3
+from .omnip3x                        import omnip3x
 
 # aiqm1_ani_wrapper is resolved through this namespace, not by module path:
 # an ani-derived leaf serialises as type='ml_model', and load_dict looks that
@@ -626,7 +634,7 @@ from .interfaces.dftd3_interface     import dftd3_methods
 from .interfaces.dftd4_interface     import dftd4_methods
 
 # The order of classes determines the defaults (i.e., whatever first works, is used)
-known_classes = [aiqm1, aiqm2, aiqm3, dens, ani_methods, aimnet2_methods, mace_methods, ccsdtstarcbs, gaussian_methods, pyscf_methods, orca_methods, turbomole_methods, mndo_methods, sparrow_methods, xtb_methods, dftbplus_methods, columbus_methods, dftd3_methods, dftd4_methods, uaiqm, omnip2x, omnip1]
+known_classes = [aiqm1, aiqm2, aiqm3, dens, ani_methods, aimnet2_methods, mace_methods, ccsdtstarcbs, gaussian_methods, pyscf_methods, orca_methods, turbomole_methods, mndo_methods, sparrow_methods, xtb_methods, dftbplus_methods, columbus_methods, dftd3_methods, dftd4_methods, uaiqm, omnip2x, omnip3x, omnip1]
     
 def methods(method: str = None, program: str = None, **kwargs):
     '''

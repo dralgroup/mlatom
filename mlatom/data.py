@@ -3383,13 +3383,23 @@ class molecular_trajectory():
             if 'uncertain' in self.steps[0].molecule.__dict__: data['uncertain'] = []
             if 'uncertain' in self.steps[0].molecule.__dict__: data['state_uncertain'] = []
 
-            #'state_gradients'
-            dp_flag = True
+            # Optional properties are stored only when computed, so that runs which never computed them do not carry
+            # NaN-filled blocks: molecular ones if every step has them, per-state ones if any state of any step has
+            # them (NaN for the states and steps without them).
+            molecular_properties = [prop for prop in ['dipole_moment', 'hessian', 'dipole_derivatives', 'AIMNet_charges']
+                                    if all(prop in istep.molecule.__dict__ for istep in self.steps)]
+            for prop in molecular_properties:
+                data[prop] = []
+            state_properties = {'dipole_moment': 'state_dipole_moments', 'AIMNet_charges': 'state_AIMNet_charges',
+                                'hessian': 'state_hessians', 'dipole_derivatives': 'state_dipole_derivatives'}
+            state_shapes = {}
             for istep in self.steps:
-                if 'dipole_moment' not in istep.molecule.__dict__.keys():
-                    dp_flag = False 
-            if dp_flag:
-                data['dipole_moment'] = []
+                for state in istep.molecule.electronic_states:
+                    for prop in state_properties:
+                        if prop not in state_shapes and prop in state.__dict__:
+                            state_shapes[prop] = np.shape(state.__dict__[prop])
+            for prop in state_shapes:
+                data[state_properties[prop]] = []
             data['mass'] = self.steps[0].molecule.nuclear_masses
             data['species'] = self.steps[0].molecule.get_atomic_numbers()
             for istep in self.steps:
@@ -3412,6 +3422,9 @@ class molecular_trajectory():
                         else:
                             state_gradients.append(np.full_like(istep.molecule.xyz_coordinates, np.nan))
                     data['state_gradients'].append(np.array(state_gradients))
+                    for prop, shape in state_shapes.items():
+                        data[state_properties[prop]].append([state.__dict__[prop] if prop in state.__dict__ else np.full(shape, np.nan)
+                                                             for state in istep.molecule.electronic_states])
                     if 'aux_energy' in istep.molecule.electronic_states[0].__dict__.keys():
                         aux_state_energies = []
                         for i in range(0, len(istep.molecule.electronic_states)):
@@ -3511,11 +3524,13 @@ class molecular_trajectory():
                             data['need_to_be_labeled'].append(0)
                     except AttributeError:
                         data['need_to_be_labeled'].append(np.nan)
-                if dp_flag:
-                    data['dipole_moment'].append(istep.molecule.dipole_moment)
+                for prop in molecular_properties:
+                    data[prop].append(istep.molecule.__dict__[prop])
             if 'hopping_probabilities' in data.keys():
-                # every step must hold the same number of probabilities to be stored in the h5md file
-                nprobs = max((len(probs) for probs in data['hopping_probabilities'] if probs is not None), default=1)
+                # every step must hold the same number of probabilities (one per state) in the h5md file, also in
+                # dumps where no step has them yet
+                nprobs = max((len(probs) for probs in data['hopping_probabilities'] if probs is not None),
+                             default=max(len(self.steps[0].molecule.electronic_states), 1))
                 data['hopping_probabilities'] = [probs if probs is not None and len(probs) == nprobs else np.full(nprobs, np.nan)
                                                  for probs in data['hopping_probabilities']]
             with h5md(filename) as trajH5:
@@ -3603,7 +3618,7 @@ class molecular_trajectory():
                         molecule_istep.electronic_states[i].energy = data['state_energies'][istep][i]
                         if 'aux_state_energies' in data.keys():
                             molecule_istep.electronic_states[i].aux_energy = data['aux_state_energies'][istep][i]
-                    if 'state_uncertain' in data.keys():
+                    if 'state_uncertain' in data.keys() and not np.isnan(data['state_uncertain'][istep]).any():
                         molecule_istep.uncertain_states = []
                         for i in range(len(data['state_uncertain'][istep])):
                             if int(data['state_uncertain'][istep][i]) == 1:
@@ -3618,6 +3633,15 @@ class molecular_trajectory():
                     for i in range(0, len(data['state_gradients'][istep])):
                         if data['state_gradients'][istep][i] is not None:
                             molecule_istep.electronic_states[i].add_xyz_derivative_property(np.array(data['state_gradients'][istep][i]).astype(float), 'energy', 'energy_gradients')
+                # optional per-state properties; NaN marks the states for which they were not computed
+                for key, prop in [('state_dipole_moments', 'dipole_moment'), ('state_AIMNet_charges', 'AIMNet_charges'),
+                                  ('state_hessians', 'hessian'), ('state_dipole_derivatives', 'dipole_derivatives')]:
+                    if key in data.keys():
+                        if not molecule_istep.electronic_states:
+                            molecule_istep.electronic_states = [molecule_istep.copy() for _ in range(len(data[key][istep]))]
+                        for i, value in enumerate(data[key][istep]):
+                            if not np.isnan(value).all():
+                                molecule_istep.electronic_states[i].__dict__[prop] = value
                      
                 if 'nacv' in data.keys():
                     molecule_istep.nacv = data['nacv'][istep]
@@ -3628,9 +3652,10 @@ class molecular_trajectory():
                 molecule_istep.energy = data['potential_energy'][istep]
                 # total_energy
                 molecule_istep.total_energy = data['total_energy'][istep]
-                # dipole_moment
-                if 'dipole_moment' in data.keys():
-                    molecule_istep.dipole_moment = data['dipole_moment'][istep]
+                # optional molecular properties; NaN marks the steps for which they were not computed
+                for prop in ['dipole_moment', 'hessian', 'dipole_derivatives', 'AIMNet_charges']:
+                    if prop in data.keys() and not np.isnan(data[prop][istep]).all():
+                        molecule_istep.__dict__[prop] = data[prop][istep]
                 trajectory_step.molecule = molecule_istep
                 trajectory_step.step = istep 
                 trajectory_step.time = data['time'][istep]
@@ -3875,21 +3900,42 @@ class h5md():
     def write(self, data: Dict[str, Any]) -> None:
         '''
         Write data to the opened H5 file. Data should be a dictionary-like object with 'time' in its keys().
+
+        Every time series stays aligned with the steps in the file: one missing from ``data`` gets NaN for the new
+        steps, and one written for the first time gets NaN for the steps already in the file.
         '''
+        import h5py
         time = array(data['time'])
         shape_offset = 1 if time.shape else 0
+        times = time.reshape(-1)
+        old_steps = self.part['position/step'][()] if 'position' in self.part else []
+        old_times = self.part['position/time'][()] if 'position' in self.part else []
+        written = []
         for key, value in data.items():
             value=array(value)
-            if key == 'time' or not value.size: 
+            if key == 'time' or not value.size:
                 continue
+            written.append(key)
             if key not in self.properties.keys():
+                new = key not in self.part and key not in self.observables
                 self.add_properties(key, value, value.shape[shape_offset:])
+                if new and key not in self.fix_properties:
+                    for step, step_time in zip(old_steps, old_times):
+                        self.properties[key].append(np.full(value.shape[shape_offset:], np.nan), step, step_time)
             if shape_offset and key not in self.fix_properties:
                 for i in range(time.size):
                     self.properties[key].append(value[i], self.step + i, time[i])
             else:
                 self.properties[key].append(value, self.step, time)
-        self.step+= time.size if shape_offset else 1
+        for group in (self.part, self.observables):
+            for key in group.keys():
+                if key in written or key in self.fix_properties or not isinstance(group[key], h5py.Group) or key == 'box':
+                    continue
+                if key not in self.properties.keys():
+                    self.add_properties(key, None, None)
+                for i, step_time in enumerate(times):
+                    self.properties[key].append(np.full(self.properties[key].value.shape[1:], np.nan), self.step + i, step_time)
+        self.step += times.size
 
     def export(self) -> Dict[str, np.ndarray]:
         '''

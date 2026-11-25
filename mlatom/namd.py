@@ -39,6 +39,7 @@ class surface_hopping_md():
         dump_trajectory_interval (int, optional): Dump trajectory at which interval. Set to ``None`` to disable dumping.
         filename (str, optional): The file that saves the dumped trajectory
         format (str, optional): Format in which the dumped trajectory is saved
+        reduce_memory_usage (bool, optional): With the h5md format, keep only the last steps in memory and append the others to the file every ``dump_trajectory_interval`` steps, which must then be at least 2 for LZBL and 3 for FSSH and TDBA (they need the last steps in memory).
         stop_function (any, optional): User-defined function that stops MD before ``maximum_propagation_time``
         stop_function_kwargs (Dict, optional): Kwargs of ``stop_function``
         hopping_algorithm (str, optional): Surface hopping algorithm (default: 'LZBL', also supported: 'FSSH')
@@ -212,6 +213,13 @@ class surface_hopping_md():
             self.hopping_algorithm = 'TDBA'
         else:
             raise ValueError("Invalid hopping_algorithm. Possible values are: 'FSSH', 'TDBA' and 'LZBL' (default).")
+        if reduce_memory_usage and dump_trajectory_interval is not None and format == 'h5md':
+            # every dump keeps the last steps in memory (LZBL: 2, FSSH and TDBA: 4); with shorter intervals a hop can
+            # leave no step to dump
+            minimum_interval = 2 if self.hopping_algorithm == 'LZBL' else 3
+            if dump_trajectory_interval < minimum_interval:
+                raise ValueError(f'reduce_memory_usage requires dump_trajectory_interval >= {minimum_interval} with {self.hopping_algorithm}, '
+                                 'which needs the last steps of the trajectory in memory')
         self.nstates=nstates
         self.initial_state = initial_state
         if self.initial_state is None:
@@ -315,6 +323,7 @@ class surface_hopping_md():
                 self.model_predict_kwargs['calculate_nacv'] = True
 
         one_step_propagation = True
+        nsteps_dumped = 0  # steps already in the h5md file when the whole trajectory is kept in memory
 
         while not stop:
             if istep == 0:
@@ -412,8 +421,6 @@ class surface_hopping_md():
                         stop, stop_state = self.stop_function(mol=self.molecular_trajectory.steps[-1].molecule, stop_state=stop_state, **self.stop_function_kwargs)
                     if stop:
                         del self.molecular_trajectory.steps[-1]
-                        if self.reduce_memory_usage: 
-                            self.molecular_trajectory.dump(filename=self.filename, format=self.format)
             elif self.hopping_algorithm == 'LZBL' or self.hopping_algorithm == 'FSSH' or self.hopping_algorithm == 'TDBA':
                 one_step_propagation = False
                 self.molecular_trajectory.steps[-2].current_state = self.current_state
@@ -426,11 +433,9 @@ class surface_hopping_md():
                     stop, stop_state = self.stop_function(mol=self.molecular_trajectory.steps[-2].molecule, stop_state=stop_state, **self.stop_function_kwargs)
                     if stop:
                         del self.molecular_trajectory.steps[-1]
-                        if self.reduce_memory_usage: 
-                            self.molecular_trajectory.dump(filename=self.filename, format=self.format)
 
-            # Dump trajectory at some interval
-            if self.dump_trajectory_interval is not None:
+            # Dump trajectory at some interval (not when stopping: the remaining steps are dumped after the loop)
+            if self.dump_trajectory_interval is not None and not stop:
                 if istep % self.dump_trajectory_interval == 0 and istep !=0:
                     if self.format == 'h5md':
                         temp_traj_dump = data.molecular_trajectory()
@@ -454,7 +459,11 @@ class surface_hopping_md():
                                 del self.molecular_trajectory
                                 self.molecular_trajectory = temp_traj
                         else:
-                            temp_traj_dump.dump(filename=self.filename, format=self.format)
+                            # append the steps not written yet, except the last ones, which the hopping algorithm can still change
+                            temp_traj_dump.steps = self.molecular_trajectory.steps[nsteps_dumped:-2 if self.hopping_algorithm == 'LZBL' else -4]
+                            if temp_traj_dump.steps:
+                                temp_traj_dump.dump(filename=self.filename, format=self.format)
+                                nsteps_dumped += len(temp_traj_dump.steps)
                     elif self.format == 'json':
                         temp_traj_dump = self.molecular_trajectory
                         temp_traj_dump.dump(filename=self.filename, format=self.format)
@@ -479,10 +488,12 @@ class surface_hopping_md():
             if istep * self.time_step + 1e-6 > self.maximum_propagation_time:
                 stop = True
 
+        # Remove the step beyond maximum_propagation_time (absent after a stop or a hop in the last iteration)
+        # and dump the steps not dumped yet
         if float(f"{self.molecular_trajectory.steps[-1].time:.6f}") > self.maximum_propagation_time:
             del self.molecular_trajectory.steps[-1]
-            if self.reduce_memory_usage or self.filename: 
-                self.molecular_trajectory.dump(filename=self.filename, format=self.format)
+        if self.reduce_memory_usage or self.filename:
+            data.molecular_trajectory(steps=self.molecular_trajectory.steps[nsteps_dumped:]).dump(filename=self.filename, format=self.format)
                 
     def lzsh(self, istep=None):
         self.model_predict_kwargs['current_state'] = self.current_state
@@ -1013,20 +1024,51 @@ def plot_population(trajectories=None, time_step=0.1, max_propagation_time=100.0
 
     plt.savefig(filename, bbox_inches='tight', dpi=300)
 
-def plot_population_from_disk(time_step=0.1, max_propagation_time=100.0, nstates=3, filename='population.png', ref_pop_filename='ref_pop.txt', pop_filename='pop.txt', dirname="job_surface_hopping_md_", ntraj=1, traj_filename="traj.h5"):
+def plot_population_from_disk(time_step=0.1, max_propagation_time=100.0, nstates=3, filename='population.png', ref_pop_filename='ref_pop.txt', pop_filename='pop.txt', dirname="job_surface_hopping_md_", ntraj=1, traj_filename="traj.h5", nthreads=1, cache_states=None):
+    '''
+    Plot the populations of the trajectories ``dirname<i>/traj_filename`` (i = 1, ..., ntraj) dumped in the h5md format.
+
+    Arguments:
+        nthreads (int, optional): number of trajectory files loaded in parallel (``None``: all cores).
+        cache_states (str, optional): ``.npz`` file storing the current state of every trajectory at every time step.
+            It is reused instead of the trajectory files when time_step, max_propagation_time, nstates and ntraj match,
+            and written otherwise.
+    '''
     import matplotlib.pyplot as plt
     import matplotlib.colors as mcolors
-    time_list = np.arange(0, max_propagation_time+time_step, time_step)
-    popArray = np.zeros((len(time_list),nstates))
-    for i in range(1,ntraj+1):
-        traj= data.molecular_trajectory()
-        traj.load(dirname+str(i)+'/'+traj_filename, format="h5md")
-        for idx, step in enumerate(traj.steps):
-            popArray[idx][int(step.current_state)]+=1.0
-    pop_norm = np.sum(popArray, axis=1)
-    for i in range(len(time_list)):
-        for j in range(nstates):
-            popArray[i,j] = popArray[i,j]/pop_norm[i]
+    nsteps = int(round(max_propagation_time / time_step)) + 1
+    time_list = np.arange(nsteps) * time_step
+    settings = {'time_step': time_step, 'max_propagation_time': max_propagation_time, 'nstates': nstates}
+    if cache_states is not None and not cache_states.endswith('.npz'):
+        cache_states += '.npz'
+
+    states = None
+    if cache_states is not None and os.path.exists(cache_states):
+        cache = np.load(cache_states)
+        if cache['states'].shape == (ntraj, nsteps) and all(np.isclose(cache[key], value) for key, value in settings.items()):
+            states = cache['states']
+    if states is None:
+        def load_states(i):
+            traj = data.molecular_trajectory()
+            traj.load(dirname+str(i)+'/'+traj_filename, format="h5md")
+            current_states = np.full(nsteps, -1, dtype=np.int8)  # -1: the trajectory did not reach this time step
+            for idx, step in enumerate(traj.steps[:nsteps]):
+                current_states[idx] = int(step.current_state)
+            return current_states
+        if nthreads == 1:
+            states = np.array([load_states(i) for i in range(1, ntraj+1)])
+        else:
+            from joblib import Parallel, delayed
+            states = np.array(Parallel(n_jobs=-1 if nthreads is None else nthreads)(delayed(load_states)(i) for i in range(1, ntraj+1)))
+        if cache_states is not None:
+            np.savez_compressed(cache_states, states=states, time=time_list, **settings)
+    if states.max() >= nstates:
+        raise ValueError(f'the trajectories visit state {states.max()}, but nstates={nstates}')
+    popArray = np.full((nsteps, nstates), np.nan)  # NaN at the time steps no trajectory reached
+    for istep in range(nsteps):
+        reached = states[:, istep][states[:, istep] >= 0]
+        if reached.size:
+            popArray[istep] = np.bincount(reached, minlength=nstates) / reached.size
 
     if os.path.exists(ref_pop_filename):
         ref_population_all_timestep = []

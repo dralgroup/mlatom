@@ -641,7 +641,7 @@ class Sampler():
             init_Ekin = mol4gap.calculate_kinetic_energy()*random.random()
             try:
                 dyn = gap_md.gap_md(
-                    model = gap_md.gap_model(model=ml_model, surface0=lower_surface, surface1=lower_surface+1, current_surface=current_surface, init_Ekin=init_Ekin),
+                    model = gap_md.gap_model(model=ml_model, surface0=lower_surface, surface1=lower_surface+1, current_surface=current_surface, init_Ekin=init_Ekin, nstates=nstates),
                     molecule_with_initial_conditions = mol4gap,
                     ensemble='NVE',
                     time_step=time_step_gapMD,
@@ -1392,8 +1392,9 @@ class ml_model(models.ml_model):
                                                verbose=self.verbose)
 
         if 'uq_threshold' not in al_info.keys():
-            self.predict(molecular_database=valdb)
-            uqs = valdb.get_properties('uq')
+            valdb_copy = valdb.copy()
+            self.predict(molecular_database=valdb_copy)
+            uqs = valdb_copy.get_properties('uq')
             al_info['uq_threshold'] = self.threshold_metric(uqs,metric='m+3mad')
             print(f"New threshold: {al_info['uq_threshold']}")
         else:
@@ -1735,6 +1736,14 @@ class ml_model_msani(models.ml_model):
             if hasattr(model, 'aev_computer'):
                 model.aev_computer = model.aev_computer.to(dev)
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state['additional_dataset'] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
     def train(self,molecular_database=None, al_info={}):
         import torch
         if self.main_model.device != torch.device(self.device):
@@ -1890,10 +1899,11 @@ class ml_model_msani(models.ml_model):
                                                verbose=self.verbose)
 
         if 'uq_thresholds' not in al_info.keys():
-            self.predict(molecular_database=valdb,nstates=self.nstates)
+            valdb_copy = valdb.copy()
+            self.predict(molecular_database=valdb_copy,nstates=self.nstates)
             uq_thresholds =[]
             for istate in range(self.nstates):
-                uqs = valdb.get_properties('uq_state{}'.format(istate))
+                uqs = valdb_copy.get_properties('uq_state{}'.format(istate))
                 uq_thresholds.append(self.threshold_metric(uqs, metric=self.uq_metric))
                 print(f"New threshold: {uq_thresholds[istate]}")
             al_info['uq_thresholds'] = uq_thresholds
@@ -2321,6 +2331,7 @@ class ml_model_delta_msani(ml_model_msani):
             # Temporarily swap to temp models so parent predict populates uq_state{i}
             real_main, real_aux = self.main_model, self.aux_model
             self.main_model, self.aux_model = tmp_main, tmp_aux
+            thresh_valdb = thresh_valdb.copy()
             ml_model_msani.predict(self, molecular_database=thresh_valdb, nstates=self.nstates)
             self.main_model, self.aux_model = real_main, real_aux
 

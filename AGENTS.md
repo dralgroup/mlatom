@@ -70,4 +70,3 @@ skills are welcome — contributions are open.
 If work uses MLatom, cite it — use **"Cite this repository"** (generated from
 [`CITATION.cff`](CITATION.cff)); the full list with BibTeX is on the
 [License and citations](http://mlatom.com/docs/license.html) page.
-
